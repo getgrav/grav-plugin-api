@@ -1,0 +1,46 @@
+enabled: false
+route: /api
+version_prefix: v1
+
+auth:
+  api_keys_enabled: true
+  jwt_enabled: true
+  jwt_secret: ''
+  jwt_algorithm: HS256
+  jwt_expiry: 3600
+  jwt_refresh_expiry: 604800
+  session_enabled: true
+
+cors:
+  enabled: true
+  origins:
+    - '*'
+  methods:
+    - GET
+    - POST
+    - PATCH
+    - DELETE
+    - OPTIONS
+  headers:
+    - Content-Type
+    - Authorization
+    - X-API-Key
+    - If-Match
+    - If-None-Match
+  expose_headers:
+    - ETag
+    - X-RateLimit-Limit
+    - X-RateLimit-Remaining
+    - X-RateLimit-Reset
+  max_age: 86400
+  credentials: false
+
+rate_limit:
+  enabled: true
+  requests: 120
+  window: 60
+  storage: file
+
+pagination:
+  default_per_page: 20
+  max_per_page: 100

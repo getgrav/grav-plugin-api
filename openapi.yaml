@@ -1,0 +1,2502 @@
+openapi: 3.0.3
+
+info:
+  title: Grav CMS API
+  description: |
+    RESTful API for managing Grav CMS content, media, configuration, users, and
+    system operations.
+
+    ## Authentication
+
+    The API supports three authentication methods. All three provide the same
+    level of access — the authenticated user's permissions apply regardless of
+    method. Every request (except `/auth/*` endpoints) must include one of:
+
+    | Method | Header / mechanism | Best for |
+    |---|---|---|
+    | **API key** | `X-API-Key: grav_...` | CLI tools, MCP servers, server-to-server, automation |
+    | **JWT Bearer token** | `Authorization: Bearer <token>` | Mobile apps, SPAs, browser-based clients |
+    | **Session cookie** | `grav-site` cookie | Admin panel extensions |
+
+    **API keys** are long-lived credentials that don't expire by default. Generate
+    them via `bin/plugin api keys:generate` or the admin panel. Best for any
+    server-side or automated integration.
+
+    **JWT tokens** are short-lived (1 hour default). Obtain them by posting
+    credentials to `/auth/token`, then refresh before expiry via `/auth/refresh`.
+    The refresh flow uses token rotation — each refresh revokes the previous
+    refresh token. Best for client-side apps where long-lived secrets shouldn't
+    be stored.
+
+    ## Response Envelope
+
+    All successful responses use a standard JSON envelope:
+
+    ```json
+    {
+      "data": { ... },
+      "meta": { ... },
+      "links": { ... }
+    }
+    ```
+
+    `meta` and `links` are present only on paginated responses.
+
+    ## Error Format (RFC 7807)
+
+    Error responses use `application/problem+json`:
+
+    ```json
+    {
+      "status": 422,
+      "title": "Unprocessable Entity",
+      "detail": "Missing required fields: title",
+      "errors": [
+        { "field": "title", "message": "The 'title' field is required." }
+      ]
+    }
+    ```
+
+    ## Rate Limiting
+
+    When rate limiting is enabled, every response includes:
+
+    - `X-RateLimit-Limit` -- maximum requests per window
+    - `X-RateLimit-Remaining` -- requests remaining
+    - `X-RateLimit-Reset` -- UTC epoch when the window resets
+
+    ## Optimistic Concurrency (ETags)
+
+    Single-resource GET responses include an `ETag` header. For PATCH requests,
+    send the same value in `If-Match` to detect mid-air collisions. A `409
+    Conflict` response is returned when the resource has changed since the last
+    GET.
+  version: 1.0.0-beta.1
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  contact:
+    name: Team Grav
+    url: https://getgrav.org
+    email: devs@getgrav.org
+
+servers:
+  - url: "{baseUrl}/api/v1"
+    description: Default Grav CMS API server
+    variables:
+      baseUrl:
+        default: ""
+        description: >
+          The base URL of the Grav installation. Leave empty when using
+          relative paths, or set to a full origin such as
+          https://example.com.
+
+tags:
+  - name: Auth
+    description: JWT token management -- obtain, refresh, and revoke tokens.
+  - name: Pages
+    description: Create, read, update, delete, move, and copy Grav pages.
+  - name: Media
+    description: Manage media files attached to pages or the site-level images folder.
+  - name: Config
+    description: Read and update Grav configuration (system, site, plugins, themes).
+  - name: Users
+    description: User account and API key management.
+  - name: System
+    description: System information, cache management, logs, and backups.
+
+security:
+  - bearerAuth: []
+  - apiKey: []
+  - sessionAuth: []
+
+paths:
+  # ---------------------------------------------------------------------------
+  # Auth
+  # ---------------------------------------------------------------------------
+  /auth/token:
+    post:
+      operationId: createToken
+      tags: [Auth]
+      summary: Obtain a JWT token pair
+      description: |
+        Authenticate with username and password to receive an access token and a
+        refresh token. The access token is short-lived; use the refresh token to
+        obtain a new pair without re-authenticating.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                  example: admin
+                password:
+                  type: string
+                  format: password
+                  example: Pa$$w0rd!
+            example:
+              username: admin
+              password: Pa$$w0rd!
+      responses:
+        "200":
+          description: Token pair returned successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/TokenResponse"
+              example:
+                data:
+                  access_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                  refresh_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                  token_type: Bearer
+                  expires_in: 3600
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /auth/refresh:
+    post:
+      operationId: refreshToken
+      tags: [Auth]
+      summary: Refresh a JWT token pair
+      description: |
+        Exchange a valid refresh token for a new access/refresh pair. The
+        provided refresh token is automatically revoked (token rotation).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token:
+                  type: string
+                  description: The refresh token obtained from `/auth/token` or a previous refresh.
+            example:
+              refresh_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+      responses:
+        "200":
+          description: New token pair returned successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/TokenResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /auth/revoke:
+    post:
+      operationId: revokeToken
+      tags: [Auth]
+      summary: Revoke a refresh token
+      description: |
+        Explicitly revoke a refresh token so it can no longer be used. This is
+        the recommended way to implement logout on the client side.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token:
+                  type: string
+            example:
+              refresh_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+      responses:
+        "204":
+          description: Token revoked successfully. No content returned.
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  # ---------------------------------------------------------------------------
+  # Pages
+  # ---------------------------------------------------------------------------
+  /pages:
+    get:
+      operationId: listPages
+      tags: [Pages]
+      summary: List pages
+      description: |
+        Retrieve a paginated list of all pages. Supports filtering by
+        published state, template, routable/visible flags, and parent route.
+        Results can be sorted by date, title, slug, modified time, or order.
+
+        The listing uses a lightweight serialization that excludes content,
+        media, and children for performance.
+      parameters:
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/per_page"
+        - name: sort
+          in: query
+          description: |
+            Field to sort by. When omitted the default sort is `date` descending.
+          schema:
+            type: string
+            enum: [date, title, slug, modified, order]
+        - name: order
+          in: query
+          description: Sort direction.
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: asc
+        - name: published
+          in: query
+          description: Filter by published state.
+          schema:
+            type: boolean
+        - name: template
+          in: query
+          description: Filter by page template name (e.g. `blog`, `default`).
+          schema:
+            type: string
+          example: blog
+        - name: routable
+          in: query
+          description: Filter by routable flag.
+          schema:
+            type: boolean
+        - name: visible
+          in: query
+          description: Filter by visible flag.
+          schema:
+            type: boolean
+        - name: parent
+          in: query
+          description: |
+            Filter pages whose route starts with this parent path (e.g. `/blog`
+            returns `/blog/post-1`, `/blog/post-2`, etc.).
+          schema:
+            type: string
+          example: /blog
+      responses:
+        "200":
+          description: Paginated list of pages.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PaginatedEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/PageSummary"
+              example:
+                data:
+                  - route: /blog/my-first-post
+                    slug: my-first-post
+                    title: My First Post
+                    template: blog
+                    header:
+                      title: My First Post
+                      taxonomy:
+                        category: [blog]
+                        tag: [intro, grav]
+                    taxonomy:
+                      category: [blog]
+                      tag: [intro, grav]
+                    published: true
+                    visible: true
+                    routable: true
+                    date: "2026-03-20T12:00:00+00:00"
+                    modified: "2026-03-22T09:30:00+00:00"
+                    order: 1
+                meta:
+                  pagination:
+                    page: 1
+                    per_page: 20
+                    total: 42
+                    total_pages: 3
+                links:
+                  self: "/api/v1/pages?page=1&per_page=20"
+                  next: "/api/v1/pages?page=2&per_page=20"
+                  last: "/api/v1/pages?page=3&per_page=20"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+    post:
+      operationId: createPage
+      tags: [Pages]
+      summary: Create a new page
+      description: |
+        Create a new page at the given route. The parent page must already
+        exist (except when creating top-level pages). Supply an optional
+        `order` to create an ordered (visible) page.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePageRequest"
+            example:
+              route: /blog/my-new-post
+              title: My New Post
+              template: blog
+              content: |
+                # Hello World
+
+                This is the body of my new blog post.
+              header:
+                taxonomy:
+                  category: [blog]
+                  tag: [new, grav]
+              order: 3
+      responses:
+        "201":
+          description: Page created successfully.
+          headers:
+            Location:
+              description: URL of the newly created page resource.
+              schema:
+                type: string
+                example: /api/v1/pages/blog/my-new-post
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Page"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /pages/{route}:
+    get:
+      operationId: getPage
+      tags: [Pages]
+      summary: Get a single page
+      description: |
+        Retrieve a single page by its route. Returns the full page object
+        including raw Markdown content and media. Optionally render the
+        content to HTML and/or include child pages.
+
+        The response includes an `ETag` header for use with optimistic
+        concurrency on subsequent PATCH requests.
+      parameters:
+        - $ref: "#/components/parameters/pageRoute"
+        - name: render
+          in: query
+          description: When `true`, include the rendered HTML in `content_html`.
+          schema:
+            type: boolean
+            default: false
+        - name: children
+          in: query
+          description: When `true`, include child pages in the response.
+          schema:
+            type: boolean
+            default: false
+        - name: children_depth
+          in: query
+          description: Maximum depth for recursive child inclusion. Only effective when `children=true`.
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+      responses:
+        "200":
+          description: Page returned successfully.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Page"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+    patch:
+      operationId: updatePage
+      tags: [Pages]
+      summary: Partially update a page
+      description: |
+        Apply a partial update to an existing page. Only the fields included
+        in the request body are modified; all others are left unchanged.
+
+        **Optimistic concurrency:** If the `If-Match` header is provided, it
+        is compared against the current ETag. A `409 Conflict` is returned if
+        the resource has been modified since the client last fetched it.
+      parameters:
+        - $ref: "#/components/parameters/pageRoute"
+        - $ref: "#/components/parameters/ifMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePageRequest"
+            example:
+              title: Updated Post Title
+              content: |
+                # Updated Content
+
+                The body has been revised.
+              header:
+                taxonomy:
+                  tag: [updated]
+              published: true
+      responses:
+        "200":
+          description: Page updated successfully.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Page"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+    delete:
+      operationId: deletePage
+      tags: [Pages]
+      summary: Delete a page
+      description: |
+        Delete a page and its directory from disk. By default, child pages
+        are deleted as well. Set `children=false` to prevent deletion of a
+        page that has children (a 422 error will be returned instead).
+      parameters:
+        - $ref: "#/components/parameters/pageRoute"
+        - name: children
+          in: query
+          description: |
+            Whether to also delete child pages. Set to `false` to prevent
+            accidental deletion of pages with children.
+          schema:
+            type: boolean
+            default: true
+      responses:
+        "204":
+          description: Page deleted successfully. No content returned.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /pages/{route}/move:
+    post:
+      operationId: movePage
+      tags: [Pages]
+      summary: Move a page to a new location
+      description: |
+        Move an existing page to a different parent and/or change its slug or
+        ordering prefix. The destination parent must exist and the target
+        path must not already be occupied.
+      parameters:
+        - $ref: "#/components/parameters/pageRoute"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MovePageRequest"
+            example:
+              parent: /tutorials
+              slug: renamed-post
+              order: 5
+      responses:
+        "200":
+          description: Page moved successfully.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Page"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /pages/{route}/copy:
+    post:
+      operationId: copyPage
+      tags: [Pages]
+      summary: Copy a page to a new location
+      description: |
+        Create a duplicate of an existing page (including all of its files)
+        at a new route. The destination parent must exist and the target
+        route must not already be occupied.
+      parameters:
+        - $ref: "#/components/parameters/pageRoute"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [route]
+              properties:
+                route:
+                  type: string
+                  description: The full route for the copied page.
+                  example: /blog/my-post-copy
+            example:
+              route: /blog/my-post-copy
+      responses:
+        "201":
+          description: Page copied successfully.
+          headers:
+            Location:
+              description: URL of the newly created page resource.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Page"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  # ---------------------------------------------------------------------------
+  # Page Media
+  # ---------------------------------------------------------------------------
+  /pages/{route}/media:
+    get:
+      operationId: listPageMedia
+      tags: [Media]
+      summary: List media for a page
+      description: Return all media files attached to the specified page.
+      parameters:
+        - $ref: "#/components/parameters/pageRoute"
+      responses:
+        "200":
+          description: List of media items for the page.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/MediaItem"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+    post:
+      operationId: uploadPageMedia
+      tags: [Media]
+      summary: Upload media to a page
+      description: |
+        Upload one or more files to the specified page's directory. Files are
+        sent as `multipart/form-data`. The maximum upload size per file is
+        64 MB. Dangerous file extensions (as configured in Grav's security
+        settings) are rejected.
+      parameters:
+        - $ref: "#/components/parameters/pageRoute"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: One or more files to upload.
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  description: Alternative field name for uploading multiple files.
+      responses:
+        "201":
+          description: Files uploaded successfully.
+          headers:
+            Location:
+              description: URL of the page media collection.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/MediaItem"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /pages/{route}/media/{filename}:
+    delete:
+      operationId: deletePageMedia
+      tags: [Media]
+      summary: Delete a media file from a page
+      description: |
+        Remove a single media file (and its `.meta.yaml` sidecar, if present)
+        from the specified page.
+      parameters:
+        - $ref: "#/components/parameters/pageRoute"
+        - name: filename
+          in: path
+          required: true
+          description: Name of the media file to delete.
+          schema:
+            type: string
+          example: hero-image.jpg
+      responses:
+        "204":
+          description: Media file deleted successfully. No content returned.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  # ---------------------------------------------------------------------------
+  # Site-level Media
+  # ---------------------------------------------------------------------------
+  /media:
+    get:
+      operationId: listSiteMedia
+      tags: [Media]
+      summary: List site-level media
+      description: |
+        Return a paginated list of files in the site-level images directory
+        (`user/images`).
+      parameters:
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/per_page"
+      responses:
+        "200":
+          description: Paginated list of site media files.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PaginatedEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/MediaItem"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+    post:
+      operationId: uploadSiteMedia
+      tags: [Media]
+      summary: Upload site-level media
+      description: |
+        Upload one or more files to the site-level images directory
+        (`user/images`). The maximum upload size per file is 64 MB.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: One or more files to upload.
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  description: Alternative field name for uploading multiple files.
+      responses:
+        "201":
+          description: Files uploaded successfully.
+          headers:
+            Location:
+              description: URL of the site media collection.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/MediaItem"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /media/{filename}:
+    delete:
+      operationId: deleteSiteMedia
+      tags: [Media]
+      summary: Delete a site-level media file
+      description: |
+        Remove a file (and its `.meta.yaml` sidecar, if present) from the
+        site-level images directory.
+      parameters:
+        - name: filename
+          in: path
+          required: true
+          description: Name of the file to delete (may include subdirectory path).
+          schema:
+            type: string
+          example: hero-banner.jpg
+      responses:
+        "204":
+          description: File deleted successfully. No content returned.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  # ---------------------------------------------------------------------------
+  # Taxonomy
+  # ---------------------------------------------------------------------------
+  /taxonomy:
+    get:
+      operationId: listTaxonomy
+      tags: [Pages]
+      summary: List all taxonomy types and values
+      description: |
+        Return every taxonomy type (e.g. `category`, `tag`) and the set of
+        values currently in use across all pages.
+      responses:
+        "200":
+          description: Taxonomy map returned successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    additionalProperties:
+                      type: object
+                      description: |
+                        Keys are taxonomy values; each value is an array of
+                        page routes that use that taxonomy value.
+                      additionalProperties:
+                        type: array
+                        items:
+                          type: string
+                example:
+                  category:
+                    blog:
+                      - /blog/post-one
+                      - /blog/post-two
+                    tutorials:
+                      - /tutorials/getting-started
+                  tag:
+                    grav:
+                      - /blog/post-one
+                    php:
+                      - /tutorials/getting-started
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  # ---------------------------------------------------------------------------
+  # Config
+  # ---------------------------------------------------------------------------
+  /config/{scope}:
+    get:
+      operationId: getConfig
+      tags: [Config]
+      summary: Read configuration for a scope
+      description: |
+        Retrieve the current configuration for the given scope. Supported
+        scopes are:
+
+        | Scope | Maps to |
+        |---|---|
+        | `system` | `system` config |
+        | `site` | `site` config |
+        | `plugins/{name}` | `plugins.{name}` config |
+        | `themes/{name}` | `themes.{name}` config |
+
+        The response includes an `ETag` header for optimistic concurrency on
+        subsequent PATCH requests.
+      parameters:
+        - $ref: "#/components/parameters/configScope"
+      responses:
+        "200":
+          description: Configuration returned successfully.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ConfigObject"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+    patch:
+      operationId: updateConfig
+      tags: [Config]
+      summary: Partially update configuration
+      description: |
+        Deep-merge the provided values into the existing configuration for the
+        given scope. The merged result is persisted to the corresponding YAML
+        file and the config cache is cleared.
+
+        Send the current `ETag` in `If-Match` to detect concurrent edits.
+      parameters:
+        - $ref: "#/components/parameters/configScope"
+        - $ref: "#/components/parameters/ifMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfigObject"
+            example:
+              pages:
+                theme: quark
+              debugger:
+                enabled: false
+      responses:
+        "200":
+          description: Configuration updated successfully.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ConfigObject"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  # ---------------------------------------------------------------------------
+  # Users
+  # ---------------------------------------------------------------------------
+  /users:
+    get:
+      operationId: listUsers
+      tags: [Users]
+      summary: List all users
+      description: Retrieve a paginated list of all user accounts.
+      parameters:
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/per_page"
+      responses:
+        "200":
+          description: Paginated list of users.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PaginatedEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+    post:
+      operationId: createUser
+      tags: [Users]
+      summary: Create a new user
+      description: |
+        Create a new user account. The username must be 3-64 characters and
+        contain only letters, numbers, hyphens, and underscores.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserRequest"
+            example:
+              username: johndoe
+              password: s3cureP@ss
+              email: john@example.com
+              fullname: John Doe
+              title: Editor
+              state: enabled
+              access:
+                api:
+                  access: true
+                  pages:
+                    read: true
+                    write: true
+      responses:
+        "201":
+          description: User created successfully.
+          headers:
+            Location:
+              description: URL of the newly created user resource.
+              schema:
+                type: string
+                example: /api/v1/users/johndoe
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /users/{username}:
+    get:
+      operationId: getUser
+      tags: [Users]
+      summary: Get a single user
+      description: |
+        Retrieve a user account by username. The response includes an `ETag`
+        header for optimistic concurrency on PATCH requests.
+      parameters:
+        - $ref: "#/components/parameters/username"
+      responses:
+        "200":
+          description: User returned successfully.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+    patch:
+      operationId: updateUser
+      tags: [Users]
+      summary: Partially update a user
+      description: |
+        Apply a partial update to an existing user account. Users can update
+        their own account with the basic `api.access` permission; updating
+        other users requires `api.users.write`.
+
+        Send the current `ETag` in `If-Match` to detect concurrent edits.
+      parameters:
+        - $ref: "#/components/parameters/username"
+        - $ref: "#/components/parameters/ifMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserRequest"
+            example:
+              fullname: Jane Doe
+              email: jane@example.com
+              state: enabled
+      responses:
+        "200":
+          description: User updated successfully.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+    delete:
+      operationId: deleteUser
+      tags: [Users]
+      summary: Delete a user
+      description: |
+        Permanently remove a user account. You cannot delete your own account;
+        a `403 Forbidden` is returned if you try.
+      parameters:
+        - $ref: "#/components/parameters/username"
+      responses:
+        "204":
+          description: User deleted successfully. No content returned.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  # ---------------------------------------------------------------------------
+  # API Keys
+  # ---------------------------------------------------------------------------
+  /users/{username}/api-keys:
+    get:
+      operationId: listApiKeys
+      tags: [Users]
+      summary: List API keys for a user
+      description: |
+        Return all API keys for the specified user. The response includes
+        key metadata but never the key hash. Users can list their own keys
+        with `api.access`; listing another user's keys requires
+        `api.users.read`.
+      parameters:
+        - $ref: "#/components/parameters/username"
+      responses:
+        "200":
+          description: List of API keys.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ApiKey"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+    post:
+      operationId: createApiKey
+      tags: [Users]
+      summary: Create a new API key
+      description: |
+        Generate a new API key for the specified user. The raw key value is
+        returned **only once** in the `api_key` field of the response -- it
+        cannot be retrieved again.
+
+        Users can create keys for their own account with `api.access`;
+        creating keys for other users requires `api.users.write`.
+      parameters:
+        - $ref: "#/components/parameters/username"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: A human-readable label for the key.
+                  default: API Key
+                  example: CI/CD Pipeline
+                scopes:
+                  type: array
+                  items:
+                    type: string
+                  description: Optional list of permission scopes to restrict this key.
+                  example: [api.pages.read, api.media.read]
+            example:
+              name: CI/CD Pipeline
+              scopes: [api.pages.read, api.media.read]
+      responses:
+        "201":
+          description: API key created. The raw key is returned only in this response.
+          headers:
+            Location:
+              description: URL of the user's API keys collection.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    allOf:
+                      - $ref: "#/components/schemas/ApiKey"
+                      - type: object
+                        properties:
+                          api_key:
+                            type: string
+                            description: |
+                              The raw API key. Store it securely -- it is
+                              shown only once and cannot be retrieved later.
+                            example: grav_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /users/{username}/api-keys/{keyId}:
+    delete:
+      operationId: deleteApiKey
+      tags: [Users]
+      summary: Revoke an API key
+      description: |
+        Permanently delete an API key. Any future requests using this key
+        will be rejected.
+      parameters:
+        - $ref: "#/components/parameters/username"
+        - name: keyId
+          in: path
+          required: true
+          description: Unique identifier of the API key.
+          schema:
+            type: string
+          example: a1b2c3d4e5f6a7b8
+      responses:
+        "204":
+          description: API key revoked. No content returned.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  # ---------------------------------------------------------------------------
+  # System
+  # ---------------------------------------------------------------------------
+  /system/info:
+    get:
+      operationId: getSystemInfo
+      tags: [System]
+      summary: Get system information
+      description: |
+        Return runtime information about the Grav installation including
+        Grav version, PHP version, loaded extensions, installed plugins and
+        themes.
+      responses:
+        "200":
+          description: System information returned successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/SystemInfo"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /cache:
+    delete:
+      operationId: clearCache
+      tags: [System]
+      summary: Clear the cache
+      description: |
+        Clear the Grav cache. The `scope` query parameter controls which
+        cache pool is purged.
+      parameters:
+        - name: scope
+          in: query
+          description: Cache scope to clear.
+          schema:
+            type: string
+            enum: [all, standard, images, assets, tmp]
+            default: standard
+      responses:
+        "200":
+          description: Cache cleared successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      scope:
+                        type: string
+                        example: standard
+                      message:
+                        type: string
+                        example: "Cache cleared successfully (scope: standard)."
+                      details:
+                        type: array
+                        items:
+                          type: string
+                        description: Per-directory results from the cache clear operation.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /system/logs:
+    get:
+      operationId: getSystemLogs
+      tags: [System]
+      summary: Read log entries
+      description: |
+        Return paginated entries from the Grav log file (`grav.log`).
+        Entries are returned newest-first. Optionally filter by log level.
+      parameters:
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/per_page"
+        - name: level
+          in: query
+          description: Filter entries by log level (case-insensitive).
+          schema:
+            type: string
+            enum: [DEBUG, INFO, NOTICE, WARNING, ERROR, CRITICAL, ALERT, EMERGENCY]
+          example: ERROR
+      responses:
+        "200":
+          description: Paginated list of log entries.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PaginatedEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/LogEntry"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /system/backup:
+    post:
+      operationId: createBackup
+      tags: [System]
+      summary: Create a backup
+      description: Trigger a full site backup and return metadata about the generated archive.
+      responses:
+        "201":
+          description: Backup created successfully.
+          headers:
+            Location:
+              description: URL of the backups list.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Backup"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /system/backups:
+    get:
+      operationId: listBackups
+      tags: [System]
+      summary: List existing backups
+      description: Return metadata for all backup archives found on disk.
+      responses:
+        "200":
+          description: List of backups.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Backup"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+# =============================================================================
+# Components
+# =============================================================================
+components:
+  # ---------------------------------------------------------------------------
+  # Security Schemes
+  # ---------------------------------------------------------------------------
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT access token obtained from `POST /auth/token`.
+
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key generated via `POST /users/{username}/api-keys`.
+
+    sessionAuth:
+      type: apiKey
+      in: cookie
+      name: grav-site
+      description: Session cookie set by the Grav admin panel login.
+
+  # ---------------------------------------------------------------------------
+  # Reusable Parameters
+  # ---------------------------------------------------------------------------
+  parameters:
+    page:
+      name: page
+      in: query
+      description: Page number for pagination (1-based).
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+
+    per_page:
+      name: per_page
+      in: query
+      description: Number of items per page. Capped at the server's configured maximum (default 100).
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+    pageRoute:
+      name: route
+      in: path
+      required: true
+      description: |
+        The page route without leading slash (e.g. `blog/my-post`). Supports
+        nested routes with `/` separators.
+      schema:
+        type: string
+      example: blog/my-first-post
+
+    configScope:
+      name: scope
+      in: path
+      required: true
+      description: |
+        Configuration scope. One of: `system`, `site`, `plugins/{name}`,
+        `themes/{name}`.
+      schema:
+        type: string
+      examples:
+        system:
+          value: system
+          summary: System configuration
+        site:
+          value: site
+          summary: Site configuration
+        plugin:
+          value: plugins/api
+          summary: Plugin configuration
+        theme:
+          value: themes/quark
+          summary: Theme configuration
+
+    username:
+      name: username
+      in: path
+      required: true
+      description: The username of the user account.
+      schema:
+        type: string
+        pattern: "^[a-zA-Z0-9_-]{3,64}$"
+      example: admin
+
+    ifMatch:
+      name: If-Match
+      in: header
+      required: false
+      description: |
+        ETag value from the most recent GET response. When provided, the
+        server returns `409 Conflict` if the resource has changed since
+        the ETag was generated.
+      schema:
+        type: string
+      example: '"a3f8b2c1d4e5f6a7b8c9d0e1f2a3b4c5"'
+
+  # ---------------------------------------------------------------------------
+  # Reusable Headers
+  # ---------------------------------------------------------------------------
+  headers:
+    ETag:
+      description: Entity tag for optimistic concurrency control.
+      schema:
+        type: string
+      example: '"a3f8b2c1d4e5f6a7b8c9d0e1f2a3b4c5"'
+
+  # ---------------------------------------------------------------------------
+  # Reusable Responses
+  # ---------------------------------------------------------------------------
+  responses:
+    Unauthorized:
+      description: Authentication is required or the provided credentials are invalid.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            status: 401
+            title: Unauthorized
+            detail: Invalid username or password.
+
+    Forbidden:
+      description: The authenticated user does not have the required permission.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            status: 403
+            title: Forbidden
+            detail: "Missing required permission: api.pages.write"
+
+    NotFound:
+      description: The requested resource was not found.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            status: 404
+            title: Not Found
+            detail: "Page not found at route: /nonexistent"
+
+    Conflict:
+      description: |
+        The resource has been modified since the provided ETag was
+        generated. Fetch the latest version and retry.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            status: 409
+            title: Conflict
+            detail: The resource has been modified since you last retrieved it. Please fetch the latest version and try again.
+
+    ValidationError:
+      description: The request body failed validation.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ErrorResponse"
+              - type: object
+                properties:
+                  errors:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ValidationError"
+          example:
+            status: 422
+            title: Unprocessable Entity
+            detail: "Missing required fields: title, route"
+            errors:
+              - field: title
+                message: "The 'title' field is required."
+              - field: route
+                message: "The 'route' field is required."
+
+    TooManyRequests:
+      description: Rate limit exceeded.
+      headers:
+        X-RateLimit-Limit:
+          description: Maximum requests allowed per window.
+          schema:
+            type: integer
+        X-RateLimit-Remaining:
+          description: Requests remaining in the current window.
+          schema:
+            type: integer
+        X-RateLimit-Reset:
+          description: UTC epoch timestamp when the rate limit window resets.
+          schema:
+            type: integer
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            status: 429
+            title: Too Many Requests
+            detail: Rate limit exceeded. Try again later.
+
+  # ---------------------------------------------------------------------------
+  # Schemas
+  # ---------------------------------------------------------------------------
+  schemas:
+    # -- Page -----------------------------------------------------------------
+    Page:
+      type: object
+      description: Full page object including content, media, and optional children.
+      properties:
+        route:
+          type: string
+          description: The page route (e.g. `/blog/my-post`).
+          example: /blog/my-first-post
+        slug:
+          type: string
+          description: URL-safe slug derived from the directory name.
+          example: my-first-post
+        title:
+          type: string
+          description: The page title from the header.
+          example: My First Post
+        template:
+          type: string
+          description: The Twig template used to render this page.
+          example: blog
+        header:
+          type: object
+          additionalProperties: true
+          description: The full frontmatter header as a key-value object.
+          example:
+            title: My First Post
+            taxonomy:
+              category: [blog]
+              tag: [intro, grav]
+        taxonomy:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          description: Taxonomy types and their values for this page.
+          example:
+            category: [blog]
+            tag: [intro, grav]
+        published:
+          type: boolean
+          description: Whether the page is published.
+          example: true
+        visible:
+          type: boolean
+          description: Whether the page is visible in navigation menus.
+          example: true
+        routable:
+          type: boolean
+          description: Whether the page is routable (accessible via URL).
+          example: true
+        date:
+          type: string
+          format: date-time
+          nullable: true
+          description: Page date as ISO 8601.
+          example: "2026-03-20T12:00:00+00:00"
+        modified:
+          type: string
+          format: date-time
+          nullable: true
+          description: Last modification time as ISO 8601.
+          example: "2026-03-22T09:30:00+00:00"
+        order:
+          type: integer
+          nullable: true
+          description: Numeric ordering prefix, or `null` for unordered pages.
+          example: 1
+        content:
+          type: string
+          description: Raw Markdown content of the page body.
+          example: |
+            # Hello World
+
+            This is the body of the post.
+        content_html:
+          type: string
+          description: |
+            Rendered HTML content. Only present when `render=true` is
+            requested.
+          example: "<h1>Hello World</h1>\n<p>This is the body of the post.</p>"
+        media:
+          type: array
+          description: Media files attached to this page.
+          items:
+            type: object
+            properties:
+              filename:
+                type: string
+                example: hero.jpg
+              type:
+                type: string
+                description: MIME type of the file.
+                example: image/jpeg
+              size:
+                type: integer
+                description: File size in bytes.
+                example: 204800
+        children:
+          type: array
+          description: |
+            Child pages. Only present when `children=true` is requested.
+            Each child is a full Page object (recursion depth controlled by
+            `children_depth`).
+          items:
+            $ref: "#/components/schemas/Page"
+      required:
+        - route
+        - slug
+        - title
+        - template
+        - header
+        - taxonomy
+        - published
+        - visible
+        - routable
+        - date
+        - modified
+        - order
+
+    PageSummary:
+      type: object
+      description: |
+        Lightweight page representation used in list responses. Excludes
+        content, media, and children for performance.
+      properties:
+        route:
+          type: string
+          example: /blog/my-first-post
+        slug:
+          type: string
+          example: my-first-post
+        title:
+          type: string
+          example: My First Post
+        template:
+          type: string
+          example: blog
+        header:
+          type: object
+          additionalProperties: true
+        taxonomy:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+        published:
+          type: boolean
+          example: true
+        visible:
+          type: boolean
+          example: true
+        routable:
+          type: boolean
+          example: true
+        date:
+          type: string
+          format: date-time
+          nullable: true
+          example: "2026-03-20T12:00:00+00:00"
+        modified:
+          type: string
+          format: date-time
+          nullable: true
+          example: "2026-03-22T09:30:00+00:00"
+        order:
+          type: integer
+          nullable: true
+          example: 1
+      required:
+        - route
+        - slug
+        - title
+        - template
+        - header
+        - taxonomy
+        - published
+        - visible
+        - routable
+        - date
+        - modified
+        - order
+
+    # -- Media ----------------------------------------------------------------
+    MediaItem:
+      type: object
+      description: A media file, either from a page or the site-level images folder.
+      properties:
+        filename:
+          type: string
+          description: The file name.
+          example: hero-image.jpg
+        url:
+          type: string
+          description: Relative URL path to the file.
+          example: /user/images/hero-image.jpg
+        type:
+          type: string
+          description: MIME type of the file.
+          example: image/jpeg
+        size:
+          type: integer
+          description: File size in bytes.
+          example: 204800
+        dimensions:
+          type: object
+          nullable: true
+          description: Image dimensions. Only present for image files.
+          properties:
+            width:
+              type: integer
+              example: 1920
+            height:
+              type: integer
+              example: 1080
+        modified:
+          type: string
+          format: date-time
+          description: Last modification time as ISO 8601.
+          example: "2026-03-22T09:30:00+00:00"
+      required:
+        - filename
+        - url
+        - type
+        - size
+        - modified
+
+    # -- User -----------------------------------------------------------------
+    User:
+      type: object
+      description: A Grav user account.
+      properties:
+        username:
+          type: string
+          example: admin
+        email:
+          type: string
+          format: email
+          nullable: true
+          example: admin@example.com
+        fullname:
+          type: string
+          nullable: true
+          example: Site Administrator
+        title:
+          type: string
+          nullable: true
+          description: Job title or role label.
+          example: Administrator
+        state:
+          type: string
+          enum: [enabled, disabled]
+          description: Whether the account is active.
+          example: enabled
+        access:
+          type: object
+          additionalProperties: true
+          description: |
+            Permission tree. Keys are dot-separated permission groups, values
+            are booleans or nested objects.
+          example:
+            admin:
+              super: true
+            api:
+              access: true
+        created:
+          type: string
+          format: date-time
+          nullable: true
+          example: "2026-01-15T10:00:00+00:00"
+        modified:
+          type: string
+          format: date-time
+          nullable: true
+          example: "2026-03-22T09:30:00+00:00"
+      required:
+        - username
+        - state
+        - access
+
+    # -- Config ---------------------------------------------------------------
+    ConfigObject:
+      type: object
+      additionalProperties: true
+      description: |
+        An arbitrary configuration object. The shape depends on the scope.
+        For scalar values, the response wraps the value as `{"value": ...}`.
+      example:
+        pages:
+          theme: quark
+        debugger:
+          enabled: false
+
+    # -- System ---------------------------------------------------------------
+    SystemInfo:
+      type: object
+      description: Runtime information about the Grav installation.
+      properties:
+        grav_version:
+          type: string
+          description: The installed Grav core version.
+          example: 1.7.48
+        php_version:
+          type: string
+          description: PHP runtime version.
+          example: 8.3.14
+        php_extensions:
+          type: array
+          items:
+            type: string
+          description: List of loaded PHP extensions.
+          example: [curl, gd, intl, json, mbstring, openssl, pdo, zip]
+        server_software:
+          type: string
+          description: Web server identification string.
+          example: Apache/2.4.58 (Unix)
+        environment:
+          type: string
+          description: The active Grav environment name.
+          example: localhost
+        plugins:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                example: API
+              version:
+                type: string
+                example: 1.0.0-beta.1
+              enabled:
+                type: boolean
+                example: true
+          description: Installed plugins with version and enabled state.
+        themes:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                example: Quark
+              version:
+                type: string
+                example: 2.0.4
+              active:
+                type: boolean
+                example: true
+          description: Installed themes with version and active state.
+      required:
+        - grav_version
+        - php_version
+        - php_extensions
+        - server_software
+        - environment
+        - plugins
+        - themes
+
+    LogEntry:
+      type: object
+      description: A single log file entry from `grav.log`.
+      properties:
+        date:
+          type: string
+          nullable: true
+          description: Timestamp of the log entry.
+          example: "2026-03-22 09:30:15"
+        level:
+          type: string
+          description: Log level.
+          enum: [DEBUG, INFO, NOTICE, WARNING, ERROR, CRITICAL, ALERT, EMERGENCY]
+          example: ERROR
+        message:
+          type: string
+          description: The log message.
+          example: "Class 'Grav\\Plugin\\FooPlugin' not found"
+        context:
+          type: string
+          description: Additional context or stack trace information.
+          example: ""
+      required:
+        - date
+        - level
+        - message
+
+    Backup:
+      type: object
+      description: Metadata about a backup archive.
+      properties:
+        filename:
+          type: string
+          description: Name of the backup archive file.
+          example: grav-backup-2026-03-22T09-30-00.zip
+        path:
+          type: string
+          description: Absolute filesystem path. Only present on creation responses.
+          example: /var/www/grav/backup/grav-backup-2026-03-22T09-30-00.zip
+        size:
+          type: integer
+          description: Archive file size in bytes.
+          example: 52428800
+        date:
+          type: string
+          format: date-time
+          nullable: true
+          description: Creation timestamp as ISO 8601.
+          example: "2026-03-22T09:30:00+00:00"
+      required:
+        - filename
+        - size
+
+    ApiKey:
+      type: object
+      description: |
+        API key metadata. The key hash is never exposed; only the prefix
+        (first 12 characters plus `...`) is shown.
+      properties:
+        id:
+          type: string
+          description: Unique identifier for the key.
+          example: a1b2c3d4e5f6a7b8
+        name:
+          type: string
+          description: Human-readable label for the key.
+          example: CI/CD Pipeline
+        prefix:
+          type: string
+          description: First 12 characters of the key plus `...` for identification.
+          example: grav_a1b2c3d4...
+        scopes:
+          type: array
+          items:
+            type: string
+          description: Permission scopes this key is restricted to. Empty means unrestricted.
+          example: [api.pages.read, api.media.read]
+        active:
+          type: boolean
+          description: Whether the key is currently active.
+          example: true
+        created:
+          type: integer
+          nullable: true
+          description: Unix timestamp when the key was created.
+          example: 1711094400
+        last_used:
+          type: integer
+          nullable: true
+          description: Unix timestamp when the key was last used, or `null` if never used.
+          example: 1711180800
+        expires:
+          type: integer
+          nullable: true
+          description: Unix timestamp when the key expires, or `null` for no expiry.
+          example: null
+      required:
+        - id
+        - name
+        - prefix
+        - scopes
+        - active
+
+    # -- Auth -----------------------------------------------------------------
+    TokenResponse:
+      type: object
+      description: JWT token pair returned by the auth endpoints.
+      properties:
+        access_token:
+          type: string
+          description: Short-lived JWT access token.
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        refresh_token:
+          type: string
+          description: Long-lived refresh token for obtaining new access tokens.
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        token_type:
+          type: string
+          description: Token type. Always `Bearer`.
+          example: Bearer
+          enum: [Bearer]
+        expires_in:
+          type: integer
+          description: Access token lifetime in seconds.
+          example: 3600
+      required:
+        - access_token
+        - refresh_token
+        - token_type
+        - expires_in
+
+    # -- Pagination Envelope --------------------------------------------------
+    PaginatedEnvelope:
+      type: object
+      description: Standard paginated response wrapper.
+      properties:
+        data:
+          type: array
+          items: {}
+        meta:
+          type: object
+          properties:
+            pagination:
+              type: object
+              properties:
+                page:
+                  type: integer
+                  description: Current page number (1-based).
+                  example: 1
+                per_page:
+                  type: integer
+                  description: Items per page.
+                  example: 20
+                total:
+                  type: integer
+                  description: Total number of items across all pages.
+                  example: 42
+                total_pages:
+                  type: integer
+                  description: Total number of pages.
+                  example: 3
+              required: [page, per_page, total, total_pages]
+          required: [pagination]
+        links:
+          type: object
+          properties:
+            self:
+              type: string
+              description: URL of the current page.
+              example: "/api/v1/pages?page=1&per_page=20"
+            first:
+              type: string
+              description: URL of the first page. Present when `page > 1`.
+              example: "/api/v1/pages?page=1&per_page=20"
+            prev:
+              type: string
+              description: URL of the previous page. Present when `page > 1`.
+              example: "/api/v1/pages?page=1&per_page=20"
+            next:
+              type: string
+              description: URL of the next page. Present when more pages exist.
+              example: "/api/v1/pages?page=2&per_page=20"
+            last:
+              type: string
+              description: URL of the last page. Present when more pages exist.
+              example: "/api/v1/pages?page=3&per_page=20"
+          required: [self]
+      required: [data, meta, links]
+
+    # -- Error ----------------------------------------------------------------
+    ErrorResponse:
+      type: object
+      description: |
+        Error response following RFC 7807 Problem Details. Returned with
+        content type `application/problem+json`.
+      properties:
+        status:
+          type: integer
+          description: HTTP status code.
+          example: 422
+        title:
+          type: string
+          description: Short, human-readable summary of the problem type.
+          example: Unprocessable Entity
+        detail:
+          type: string
+          description: Human-readable explanation specific to this occurrence.
+          example: "Missing required fields: title"
+        errors:
+          type: array
+          description: |
+            Field-level validation errors. Only present on 422 responses
+            when individual field errors are available.
+          items:
+            $ref: "#/components/schemas/ValidationError"
+      required:
+        - status
+        - title
+        - detail
+
+    ValidationError:
+      type: object
+      description: A single field-level validation error.
+      properties:
+        field:
+          type: string
+          description: The name of the field that failed validation.
+          example: title
+        message:
+          type: string
+          description: Human-readable description of the validation failure.
+          example: "The 'title' field is required."
+      required:
+        - field
+        - message
+
+    # -- Request Bodies -------------------------------------------------------
+    CreatePageRequest:
+      type: object
+      description: Request body for creating a new page.
+      required: [route, title]
+      properties:
+        route:
+          type: string
+          description: Full route for the new page (e.g. `/blog/my-new-post`).
+          example: /blog/my-new-post
+        title:
+          type: string
+          description: Page title.
+          example: My New Post
+        template:
+          type: string
+          description: Template name. Defaults to `default` if omitted.
+          default: default
+          example: blog
+        content:
+          type: string
+          description: Raw Markdown body content.
+          default: ""
+          example: |
+            # Hello World
+
+            This is the body of my new post.
+        header:
+          type: object
+          additionalProperties: true
+          description: |
+            Additional frontmatter fields to merge into the page header.
+            The `title` from the top-level field is always included.
+          example:
+            taxonomy:
+              category: [blog]
+              tag: [new]
+        order:
+          type: integer
+          nullable: true
+          description: |
+            Numeric ordering prefix. When set, creates a visible (ordered)
+            page directory (e.g. `03.my-new-post`). When `null`, creates an
+            unordered page.
+          example: 3
+
+    UpdatePageRequest:
+      type: object
+      description: |
+        Request body for partially updating a page. All fields are optional;
+        only provided fields are changed.
+      properties:
+        title:
+          type: string
+          description: New page title.
+          example: Updated Post Title
+        content:
+          type: string
+          description: New raw Markdown body content.
+          example: |
+            # Updated
+
+            New content here.
+        template:
+          type: string
+          description: Change the page template.
+          example: blog
+        header:
+          type: object
+          additionalProperties: true
+          description: |
+            Header fields to merge into the existing frontmatter. Existing
+            fields not included here are preserved.
+          example:
+            taxonomy:
+              tag: [updated]
+        published:
+          type: boolean
+          description: Set the published state.
+          example: true
+        visible:
+          type: boolean
+          description: Set the visible state.
+          example: true
+
+    MovePageRequest:
+      type: object
+      description: Request body for moving a page.
+      required: [parent]
+      properties:
+        parent:
+          type: string
+          description: Route of the new parent page (use `/` for root).
+          example: /tutorials
+        slug:
+          type: string
+          description: New slug. Defaults to the current slug if omitted.
+          example: renamed-post
+        order:
+          type: integer
+          nullable: true
+          description: New ordering prefix. Defaults to the current order if omitted.
+          example: 5
+
+    CreateUserRequest:
+      type: object
+      description: Request body for creating a new user account.
+      required: [username, password, email]
+      properties:
+        username:
+          type: string
+          description: |
+            Unique username. Must be 3-64 characters containing only letters,
+            numbers, hyphens, and underscores.
+          pattern: "^[a-zA-Z0-9_-]{3,64}$"
+          example: johndoe
+        password:
+          type: string
+          format: password
+          description: Password for the new account.
+          example: s3cureP@ss
+        email:
+          type: string
+          format: email
+          description: Email address.
+          example: john@example.com
+        fullname:
+          type: string
+          description: Full display name.
+          default: ""
+          example: John Doe
+        title:
+          type: string
+          description: Job title or role label.
+          default: ""
+          example: Editor
+        state:
+          type: string
+          enum: [enabled, disabled]
+          description: Initial account state.
+          default: enabled
+          example: enabled
+        access:
+          type: object
+          additionalProperties: true
+          description: Permission tree for the new user.
+          example:
+            api:
+              access: true
+              pages:
+                read: true
+                write: true
+
+    UpdateUserRequest:
+      type: object
+      description: |
+        Request body for partially updating a user. All fields are optional;
+        only provided fields are changed.
+      properties:
+        email:
+          type: string
+          format: email
+          example: jane@example.com
+        fullname:
+          type: string
+          example: Jane Doe
+        title:
+          type: string
+          example: Senior Editor
+        state:
+          type: string
+          enum: [enabled, disabled]
+          example: enabled
+        password:
+          type: string
+          format: password
+          description: New password. Only set if a non-empty value is provided.
+        access:
+          type: object
+          additionalProperties: true
+          description: Updated permission tree.

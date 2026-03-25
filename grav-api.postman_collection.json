@@ -1,0 +1,1383 @@
+{
+	"info": {
+		"_postman_id": "grav-api-collection-v1",
+		"name": "Grav CMS API",
+		"description": "Complete API collection for the Grav CMS RESTful API plugin.\n\n## Setup\n\n1. Set the `base_url` variable to your Grav site URL (e.g., `https://yoursite.com`)\n2. Run the **Auth > Login** request first to get a JWT token\n3. The token is automatically saved to the `access_token` variable\n4. Alternatively, set the `api_key` variable to use API key auth\n\n## Authentication\n\nRequests use the `api_key` header by default. To switch to JWT, update the collection auth to use Bearer with `{{access_token}}`.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"auth": {
+		"type": "apikey",
+		"apikey": [
+			{
+				"key": "key",
+				"value": "X-API-Key",
+				"type": "string"
+			},
+			{
+				"key": "value",
+				"value": "{{api_key}}",
+				"type": "string"
+			},
+			{
+				"key": "in",
+				"value": "header",
+				"type": "string"
+			}
+		]
+	},
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost",
+			"type": "string"
+		},
+		{
+			"key": "api_key",
+			"value": "grav_your_api_key_here",
+			"type": "string"
+		},
+		{
+			"key": "access_token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "refresh_token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "api_prefix",
+			"value": "/api/v1",
+			"type": "string"
+		},
+		{
+			"key": "test_username",
+			"value": "testuser",
+			"type": "string"
+		},
+		{
+			"key": "test_api_key_id",
+			"value": "",
+			"type": "string"
+		}
+	],
+	"item": [
+		{
+			"name": "Auth",
+			"description": "Authentication endpoints. These do not require prior authentication.",
+			"item": [
+				{
+					"name": "Login (Get JWT Tokens)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const res = pm.response.json();",
+									"if (res.data && res.data.access_token) {",
+									"    pm.collectionVariables.set('access_token', res.data.access_token);",
+									"    pm.collectionVariables.set('refresh_token', res.data.refresh_token);",
+									"}",
+									"",
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has access_token', () => pm.expect(res.data).to.have.property('access_token'));",
+									"pm.test('Has refresh_token', () => pm.expect(res.data).to.have.property('refresh_token'));",
+									"pm.test('Token type is Bearer', () => pm.expect(res.data.token_type).to.equal('Bearer'));",
+									"pm.test('Has expires_in', () => pm.expect(res.data.expires_in).to.be.a('number'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"admin\",\n    \"password\": \"your-password\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/auth/token",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["auth", "token"]
+						},
+						"description": "Exchange username/password for JWT access and refresh tokens. The access token is automatically saved for use by other requests."
+					}
+				},
+				{
+					"name": "Refresh Token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const res = pm.response.json();",
+									"if (res.data && res.data.access_token) {",
+									"    pm.collectionVariables.set('access_token', res.data.access_token);",
+									"    pm.collectionVariables.set('refresh_token', res.data.refresh_token);",
+									"}",
+									"",
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('New tokens issued', () => pm.expect(res.data).to.have.property('access_token'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"refresh_token\": \"{{refresh_token}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/auth/refresh",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["auth", "refresh"]
+						},
+						"description": "Exchange a refresh token for a new access/refresh token pair. The old refresh token is revoked (token rotation)."
+					}
+				},
+				{
+					"name": "Revoke Token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status is 204', () => pm.response.to.have.status(204));"
+								]
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"refresh_token\": \"{{refresh_token}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/auth/revoke",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["auth", "revoke"]
+						},
+						"description": "Revoke a refresh token, preventing it from being used to generate new access tokens."
+					}
+				}
+			]
+		},
+		{
+			"name": "Pages",
+			"description": "Content management — create, read, update, delete, move, and copy pages.",
+			"item": [
+				{
+					"name": "List Pages",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const res = pm.response.json();",
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has data array', () => pm.expect(res.data).to.be.an('array'));",
+									"pm.test('Has pagination meta', () => pm.expect(res.meta.pagination).to.have.property('total'));",
+									"pm.test('Has links', () => pm.expect(res.links).to.have.property('self'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/pages?page=1&per_page=20",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["pages"],
+							"query": [
+								{ "key": "page", "value": "1" },
+								{ "key": "per_page", "value": "20" },
+								{ "key": "sort", "value": "date", "disabled": true },
+								{ "key": "order", "value": "desc", "disabled": true },
+								{ "key": "published", "value": "true", "disabled": true },
+								{ "key": "template", "value": "post", "disabled": true },
+								{ "key": "routable", "value": "true", "disabled": true },
+								{ "key": "visible", "value": "true", "disabled": true },
+								{ "key": "parent", "value": "blog", "disabled": true }
+							]
+						},
+						"description": "List all pages with filtering, sorting, and pagination.\n\n**Filters** (enable as needed):\n- `published` - true/false\n- `template` - page template name\n- `routable` - true/false\n- `visible` - true/false\n- `parent` - parent route prefix\n\n**Sorting**: `sort` (date, title, slug, modified, order) + `order` (asc, desc)"
+					}
+				},
+				{
+					"name": "List Pages (Filtered: Blog Posts)",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/pages?published=true&template=post&parent=blog&sort=date&order=desc",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["pages"],
+							"query": [
+								{ "key": "published", "value": "true" },
+								{ "key": "template", "value": "post" },
+								{ "key": "parent", "value": "blog" },
+								{ "key": "sort", "value": "date" },
+								{ "key": "order", "value": "desc" }
+							]
+						},
+						"description": "Example: List published blog posts, newest first."
+					}
+				},
+				{
+					"name": "Get Page",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const res = pm.response.json();",
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has route', () => pm.expect(res.data).to.have.property('route'));",
+									"pm.test('Has title', () => pm.expect(res.data).to.have.property('title'));",
+									"pm.test('Has content', () => pm.expect(res.data).to.have.property('content'));",
+									"pm.test('Has ETag header', () => pm.response.to.have.header('ETag'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/pages/blog",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["pages", "blog"]
+						},
+						"description": "Get a single page by route. Returns full content, frontmatter, taxonomy, and media list."
+					}
+				},
+				{
+					"name": "Get Page (Rendered HTML + Children)",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/pages/blog?render=true&children=true&children_depth=2",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["pages", "blog"],
+							"query": [
+								{ "key": "render", "value": "true" },
+								{ "key": "children", "value": "true" },
+								{ "key": "children_depth", "value": "2" }
+							]
+						},
+						"description": "Get a page with rendered HTML content and child pages up to 2 levels deep."
+					}
+				},
+				{
+					"name": "Create Page",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const res = pm.response.json();",
+									"pm.test('Status is 201', () => pm.response.to.have.status(201));",
+									"pm.test('Has Location header', () => pm.response.to.have.header('Location'));",
+									"pm.test('Has route', () => pm.expect(res.data).to.have.property('route'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"route\": \"/blog/my-new-post\",\n    \"title\": \"My New Blog Post\",\n    \"template\": \"post\",\n    \"content\": \"# Hello World\\n\\nThis is my new blog post created via the API.\",\n    \"header\": {\n        \"taxonomy\": {\n            \"category\": [\"blog\"],\n            \"tag\": [\"api\", \"grav\"]\n        },\n        \"published\": true\n    },\n    \"order\": 1\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/pages",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["pages"]
+						},
+						"description": "Create a new page. Requires `route` and `title`. Optional: `template`, `content`, `header` (frontmatter), `order`."
+					}
+				},
+				{
+					"name": "Update Page",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const res = pm.response.json();",
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has updated content', () => pm.expect(res.data).to.have.property('content'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "If-Match",
+								"value": "\"etag-from-get-request\"",
+								"description": "Optional: ETag from a previous GET for conflict detection",
+								"disabled": true
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"title\": \"Updated Blog Post Title\",\n    \"content\": \"# Updated Content\\n\\nThis content was updated via the API.\",\n    \"header\": {\n        \"taxonomy\": {\n            \"tag\": [\"api\", \"grav\", \"updated\"]\n        }\n    }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/pages/blog/my-new-post",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["pages", "blog", "my-new-post"]
+						},
+						"description": "Partial update — only send the fields you want to change. Supports `content`, `title`, `header`, `template`, `published`, `visible`.\n\nEnable the `If-Match` header for optimistic concurrency control."
+					}
+				},
+				{
+					"name": "Move Page",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"parent\": \"/blog\",\n    \"slug\": \"renamed-post\",\n    \"order\": 5\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/pages/blog/my-new-post/move",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["pages", "blog", "my-new-post", "move"]
+						},
+						"description": "Move a page to a new parent and/or rename its slug. Requires `parent`. Optional: `slug`, `order`."
+					}
+				},
+				{
+					"name": "Copy Page",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status is 201', () => pm.response.to.have.status(201));",
+									"pm.test('Has Location header', () => pm.response.to.have.header('Location'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"route\": \"/blog/copy-of-my-post\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/pages/blog/my-new-post/copy",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["pages", "blog", "my-new-post", "copy"]
+						},
+						"description": "Copy a page (and its media) to a new route."
+					}
+				},
+				{
+					"name": "Delete Page",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status is 204', () => pm.response.to.have.status(204));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "DELETE",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/pages/blog/my-new-post?children=true",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["pages", "blog", "my-new-post"],
+							"query": [
+								{ "key": "children", "value": "true", "description": "Set to true to also delete child pages" }
+							]
+						},
+						"description": "Delete a page. If the page has children and `children=true` is not set, returns a 422 error requiring confirmation."
+					}
+				},
+				{
+					"name": "List Taxonomy",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const res = pm.response.json();",
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has data', () => pm.expect(res.data).to.be.an('object'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/taxonomy",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["taxonomy"]
+						},
+						"description": "List all taxonomy types (categories, tags, etc.) and their values across all pages."
+					}
+				}
+			]
+		},
+		{
+			"name": "Media",
+			"description": "Media management — upload, list, and delete media files for pages and the site.",
+			"item": [
+				{
+					"name": "List Page Media",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const res = pm.response.json();",
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has data array', () => pm.expect(res.data).to.be.an('array'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/pages/blog/media",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["pages", "blog", "media"]
+						},
+						"description": "List all media files attached to a specific page."
+					}
+				},
+				{
+					"name": "Upload Page Media",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status is 201', () => pm.response.to.have.status(201));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": "",
+									"description": "Select a file to upload"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/pages/blog/media",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["pages", "blog", "media"]
+						},
+						"description": "Upload one or more media files to a page. Use multipart/form-data. Files are validated against Grav's security config for dangerous extensions."
+					}
+				},
+				{
+					"name": "Delete Page Media",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status is 204', () => pm.response.to.have.status(204));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "DELETE",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/pages/blog/media/photo.jpg",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["pages", "blog", "media", "photo.jpg"]
+						},
+						"description": "Delete a specific media file from a page."
+					}
+				},
+				{
+					"name": "List Site Media",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const res = pm.response.json();",
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has data array', () => pm.expect(res.data).to.be.an('array'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/media?page=1&per_page=20",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["media"],
+							"query": [
+								{ "key": "page", "value": "1" },
+								{ "key": "per_page", "value": "20" }
+							]
+						},
+						"description": "List site-level media files (from user/images)."
+					}
+				},
+				{
+					"name": "Upload Site Media",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status is 201', () => pm.response.to.have.status(201));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": "",
+									"description": "Select a file to upload"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/media",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["media"]
+						},
+						"description": "Upload media files to the site-level media folder."
+					}
+				},
+				{
+					"name": "Delete Site Media",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status is 204', () => pm.response.to.have.status(204));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "DELETE",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/media/logo.png",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["media", "logo.png"]
+						},
+						"description": "Delete a site-level media file."
+					}
+				}
+			]
+		},
+		{
+			"name": "Config",
+			"description": "Configuration management — read and update system, site, plugin, and theme configs.",
+			"item": [
+				{
+					"name": "Get System Config",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const res = pm.response.json();",
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has data', () => pm.expect(res.data).to.be.an('object'));",
+									"pm.test('Has ETag', () => pm.response.to.have.header('ETag'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/config/system",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["config", "system"]
+						},
+						"description": "Read the system configuration."
+					}
+				},
+				{
+					"name": "Get Site Config",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/config/site",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["config", "site"]
+						},
+						"description": "Read the site configuration (site.yaml)."
+					}
+				},
+				{
+					"name": "Get Plugin Config",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/config/plugins/markdown",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["config", "plugins", "markdown"]
+						},
+						"description": "Read configuration for a specific plugin. Change `markdown` to any plugin name."
+					}
+				},
+				{
+					"name": "Get Theme Config",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/config/themes/quark",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["config", "themes", "quark"]
+						},
+						"description": "Read configuration for a specific theme."
+					}
+				},
+				{
+					"name": "Update Site Config",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const res = pm.response.json();",
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has updated data', () => pm.expect(res.data).to.be.an('object'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "If-Match",
+								"value": "\"etag-from-get\"",
+								"disabled": true
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"title\": \"My Updated Site Title\",\n    \"metadata\": {\n        \"description\": \"Updated via the Grav API\"\n    }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/config/site",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["config", "site"]
+						},
+						"description": "Update site configuration. Values are deep-merged with existing config. Only send the fields you want to change."
+					}
+				},
+				{
+					"name": "Update Plugin Config",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"extra\": true,\n    \"auto_line_breaks\": false\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/config/plugins/markdown",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["config", "plugins", "markdown"]
+						},
+						"description": "Update a plugin's configuration."
+					}
+				}
+			]
+		},
+		{
+			"name": "Users",
+			"description": "User account management and API key administration.",
+			"item": [
+				{
+					"name": "List Users",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const res = pm.response.json();",
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has data array', () => pm.expect(res.data).to.be.an('array'));",
+									"pm.test('Has pagination', () => pm.expect(res.meta.pagination).to.have.property('total'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/users?page=1&per_page=20",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["users"],
+							"query": [
+								{ "key": "page", "value": "1" },
+								{ "key": "per_page", "value": "20" }
+							]
+						},
+						"description": "List all user accounts (paginated). Sensitive fields (password, API key hashes) are excluded."
+					}
+				},
+				{
+					"name": "Get User",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const res = pm.response.json();",
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has username', () => pm.expect(res.data).to.have.property('username'));",
+									"pm.test('No password field', () => pm.expect(res.data).to.not.have.property('hashed_password'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/users/admin",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["users", "admin"]
+						},
+						"description": "Get details for a specific user."
+					}
+				},
+				{
+					"name": "Create User",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status is 201', () => pm.response.to.have.status(201));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"{{test_username}}\",\n    \"password\": \"SecureP@ssw0rd!\",\n    \"email\": \"testuser@example.com\",\n    \"fullname\": \"Test User\",\n    \"title\": \"Editor\",\n    \"access\": {\n        \"api\": {\n            \"access\": true,\n            \"pages\": {\n                \"read\": true,\n                \"write\": true\n            }\n        }\n    }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/users",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["users"]
+						},
+						"description": "Create a new user account. Required: `username`, `password`, `email`."
+					}
+				},
+				{
+					"name": "Update User",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"fullname\": \"Updated Test User\",\n    \"title\": \"Senior Editor\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/users/{{test_username}}",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["users", "{{test_username}}"]
+						},
+						"description": "Partial update a user. Only send the fields you want to change."
+					}
+				},
+				{
+					"name": "List API Keys",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const res = pm.response.json();",
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has data array', () => pm.expect(res.data).to.be.an('array'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/users/{{test_username}}/api-keys",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["users", "{{test_username}}", "api-keys"]
+						},
+						"description": "List all API keys for a user. Returns metadata only (no hashes)."
+					}
+				},
+				{
+					"name": "Create API Key",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const res = pm.response.json();",
+									"pm.test('Status is 201', () => pm.response.to.have.status(201));",
+									"pm.test('Has raw key', () => pm.expect(res.data).to.have.property('key'));",
+									"pm.test('Key starts with grav_', () => pm.expect(res.data.key).to.match(/^grav_/));",
+									"",
+									"if (res.data && res.data.id) {",
+									"    pm.collectionVariables.set('test_api_key_id', res.data.id);",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Test CLI Key\",\n    \"scopes\": [\"api.pages.read\", \"api.pages.write\"]\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/users/{{test_username}}/api-keys",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["users", "{{test_username}}", "api-keys"]
+						},
+						"description": "Generate a new API key. The raw key is returned ONCE — save it immediately. The key ID is saved to the `test_api_key_id` variable for the revoke request."
+					}
+				},
+				{
+					"name": "Revoke API Key",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status is 204', () => pm.response.to.have.status(204));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "DELETE",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/users/{{test_username}}/api-keys/{{test_api_key_id}}",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["users", "{{test_username}}", "api-keys", "{{test_api_key_id}}"]
+						},
+						"description": "Revoke (delete) a specific API key."
+					}
+				},
+				{
+					"name": "Delete User",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status is 204', () => pm.response.to.have.status(204));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "DELETE",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/users/{{test_username}}",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["users", "{{test_username}}"]
+						},
+						"description": "Delete a user account. You cannot delete yourself."
+					}
+				}
+			]
+		},
+		{
+			"name": "System",
+			"description": "System administration — info, cache, logs, and backups.",
+			"item": [
+				{
+					"name": "System Info",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const res = pm.response.json();",
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has grav_version', () => pm.expect(res.data).to.have.property('grav_version'));",
+									"pm.test('Has php_version', () => pm.expect(res.data).to.have.property('php_version'));",
+									"pm.test('Has plugins', () => pm.expect(res.data).to.have.property('plugins'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/system/info",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["system", "info"]
+						},
+						"description": "Get system information: Grav version, PHP version, extensions, plugins, themes, and environment."
+					}
+				},
+				{
+					"name": "Clear Cache (Standard)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "DELETE",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/cache?scope=standard",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["cache"],
+							"query": [
+								{ "key": "scope", "value": "standard", "description": "Options: all, standard, images, assets, tmp" }
+							]
+						},
+						"description": "Clear the Grav cache. Scopes: `all`, `standard`, `images`, `assets`, `tmp`."
+					}
+				},
+				{
+					"name": "Clear Cache (All)",
+					"request": {
+						"method": "DELETE",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/cache?scope=all",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["cache"],
+							"query": [
+								{ "key": "scope", "value": "all" }
+							]
+						},
+						"description": "Clear ALL caches including images and assets."
+					}
+				},
+				{
+					"name": "View Logs",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const res = pm.response.json();",
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has data array', () => pm.expect(res.data).to.be.an('array'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/system/logs?page=1&per_page=50",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["system", "logs"],
+							"query": [
+								{ "key": "page", "value": "1" },
+								{ "key": "per_page", "value": "50" },
+								{ "key": "level", "value": "error", "disabled": true, "description": "Filter: error, warning, info, debug" }
+							]
+						},
+						"description": "Read Grav log entries. Optional `level` filter for error/warning/info/debug."
+					}
+				},
+				{
+					"name": "Create Backup",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/system/backup",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["system", "backup"]
+						},
+						"description": "Create a new site backup."
+					}
+				},
+				{
+					"name": "List Backups",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const res = pm.response.json();",
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has data array', () => pm.expect(res.data).to.be.an('array'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/system/backups",
+							"host": ["{{base_url}}{{api_prefix}}"],
+							"path": ["system", "backups"]
+						},
+						"description": "List all available backups."
+					}
+				}
+			]
+		},
+		{
+			"name": "Workflows",
+			"description": "Multi-step workflow examples that chain API calls together.",
+			"item": [
+				{
+					"name": "01. Create Blog Post with Media",
+					"item": [
+						{
+							"name": "1. Create the page",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('Status is 201', () => pm.response.to.have.status(201));"
+										]
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{ "key": "Content-Type", "value": "application/json" }
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"route\": \"/blog/api-workflow-test\",\n    \"title\": \"API Workflow Test Post\",\n    \"template\": \"post\",\n    \"content\": \"# Workflow Test\\n\\nThis post was created as part of an API workflow test.\\n\\n![Hero Image](hero.jpg)\",\n    \"header\": {\n        \"taxonomy\": {\n            \"category\": [\"blog\"],\n            \"tag\": [\"api\", \"test\"]\n        },\n        \"published\": true\n    }\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}{{api_prefix}}/pages",
+									"host": ["{{base_url}}{{api_prefix}}"],
+									"path": ["pages"]
+								}
+							}
+						},
+						{
+							"name": "2. Upload hero image",
+							"request": {
+								"method": "POST",
+								"body": {
+									"mode": "formdata",
+									"formdata": [
+										{
+											"key": "file",
+											"type": "file",
+											"src": "",
+											"description": "Select hero.jpg"
+										}
+									]
+								},
+								"url": {
+									"raw": "{{base_url}}{{api_prefix}}/pages/blog/api-workflow-test/media",
+									"host": ["{{base_url}}{{api_prefix}}"],
+									"path": ["pages", "blog", "api-workflow-test", "media"]
+								}
+							}
+						},
+						{
+							"name": "3. Verify the page",
+							"request": {
+								"method": "GET",
+								"url": {
+									"raw": "{{base_url}}{{api_prefix}}/pages/blog/api-workflow-test?render=true",
+									"host": ["{{base_url}}{{api_prefix}}"],
+									"path": ["pages", "blog", "api-workflow-test"],
+									"query": [
+										{ "key": "render", "value": "true" }
+									]
+								}
+							}
+						},
+						{
+							"name": "4. Cleanup - delete the page",
+							"request": {
+								"method": "DELETE",
+								"url": {
+									"raw": "{{base_url}}{{api_prefix}}/pages/blog/api-workflow-test?children=true",
+									"host": ["{{base_url}}{{api_prefix}}"],
+									"path": ["pages", "blog", "api-workflow-test"],
+									"query": [
+										{ "key": "children", "value": "true" }
+									]
+								}
+							}
+						}
+					]
+				},
+				{
+					"name": "02. Full User Lifecycle",
+					"item": [
+						{
+							"name": "1. Create user",
+							"request": {
+								"method": "POST",
+								"header": [
+									{ "key": "Content-Type", "value": "application/json" }
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"username\": \"workflow-user\",\n    \"password\": \"T3stP@ss!\",\n    \"email\": \"workflow@example.com\",\n    \"fullname\": \"Workflow User\",\n    \"access\": {\n        \"api\": { \"access\": true, \"pages\": { \"read\": true } }\n    }\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}{{api_prefix}}/users",
+									"host": ["{{base_url}}{{api_prefix}}"],
+									"path": ["users"]
+								}
+							}
+						},
+						{
+							"name": "2. Generate API key for user",
+							"request": {
+								"method": "POST",
+								"header": [
+									{ "key": "Content-Type", "value": "application/json" }
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"name\": \"Workflow Test Key\",\n    \"scopes\": [\"api.pages.read\"]\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}{{api_prefix}}/users/workflow-user/api-keys",
+									"host": ["{{base_url}}{{api_prefix}}"],
+									"path": ["users", "workflow-user", "api-keys"]
+								}
+							}
+						},
+						{
+							"name": "3. Login as user (get JWT)",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"const res = pm.response.json();",
+											"if (res.data) {",
+											"    pm.collectionVariables.set('access_token', res.data.access_token);",
+											"    pm.collectionVariables.set('refresh_token', res.data.refresh_token);",
+											"}"
+										]
+									}
+								}
+							],
+							"request": {
+								"auth": { "type": "noauth" },
+								"method": "POST",
+								"header": [
+									{ "key": "Content-Type", "value": "application/json" }
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"username\": \"workflow-user\",\n    \"password\": \"T3stP@ss!\"\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}{{api_prefix}}/auth/token",
+									"host": ["{{base_url}}{{api_prefix}}"],
+									"path": ["auth", "token"]
+								}
+							}
+						},
+						{
+							"name": "4. List API keys",
+							"request": {
+								"method": "GET",
+								"url": {
+									"raw": "{{base_url}}{{api_prefix}}/users/workflow-user/api-keys",
+									"host": ["{{base_url}}{{api_prefix}}"],
+									"path": ["users", "workflow-user", "api-keys"]
+								}
+							}
+						},
+						{
+							"name": "5. Cleanup - delete user",
+							"request": {
+								"method": "DELETE",
+								"url": {
+									"raw": "{{base_url}}{{api_prefix}}/users/workflow-user",
+									"host": ["{{base_url}}{{api_prefix}}"],
+									"path": ["users", "workflow-user"]
+								}
+							}
+						}
+					]
+				}
+			]
+		}
+	]
+}

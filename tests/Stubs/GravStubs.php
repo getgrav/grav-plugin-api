@@ -1,0 +1,250 @@
+<?php
+
+/**
+ * Minimal stub classes for Grav CMS types used in the API plugin.
+ *
+ * These are loaded ONLY when the real Grav classes are not available
+ * (i.e., when the plugin is tested outside of a Grav installation).
+ * They provide just enough structure for the plugin classes to be
+ * instantiated and tested in isolation.
+ */
+
+// Only declare stubs if the real classes don't exist.
+// This file is loaded by the bootstrap's fallback autoloader.
+
+namespace Grav\Common\Config {
+    if (!class_exists(\Grav\Common\Config\Config::class, false)) {
+        class Config
+        {
+            public function __construct(protected array $items = []) {}
+
+            public function get(string $key, mixed $default = null): mixed
+            {
+                $segments = explode('.', $key);
+                $current = $this->items;
+
+                foreach ($segments as $segment) {
+                    if (!is_array($current) || !array_key_exists($segment, $current)) {
+                        return $default;
+                    }
+                    $current = $current[$segment];
+                }
+
+                return $current;
+            }
+
+            public function set(string $key, mixed $value): void
+            {
+                $segments = explode('.', $key);
+                $current = &$this->items;
+
+                foreach ($segments as $i => $segment) {
+                    if ($i === count($segments) - 1) {
+                        $current[$segment] = $value;
+                    } else {
+                        if (!isset($current[$segment]) || !is_array($current[$segment])) {
+                            $current[$segment] = [];
+                        }
+                        $current = &$current[$segment];
+                    }
+                }
+            }
+        }
+    }
+}
+
+namespace Grav\Common {
+    if (!class_exists(\Grav\Common\Grav::class, false)) {
+        class Grav implements \ArrayAccess
+        {
+            private static ?self $instance = null;
+            private array $services = [];
+
+            public static function instance(): static
+            {
+                if (self::$instance === null) {
+                    self::$instance = new static();
+                }
+                return self::$instance;
+            }
+
+            /** Reset the singleton (useful between tests). */
+            public static function resetInstance(): void
+            {
+                self::$instance = null;
+            }
+
+            public function offsetExists(mixed $offset): bool
+            {
+                return isset($this->services[$offset]);
+            }
+
+            public function offsetGet(mixed $offset): mixed
+            {
+                return $this->services[$offset] ?? null;
+            }
+
+            public function offsetSet(mixed $offset, mixed $value): void
+            {
+                $this->services[$offset] = $value;
+            }
+
+            public function offsetUnset(mixed $offset): void
+            {
+                unset($this->services[$offset]);
+            }
+        }
+    }
+}
+
+namespace Grav\Common\User\Interfaces {
+    if (!interface_exists(\Grav\Common\User\Interfaces\UserInterface::class, false)) {
+        interface UserInterface
+        {
+            public function get(string $key, mixed $default = null): mixed;
+            public function set(string $key, mixed $value): void;
+            public function save(): void;
+            public function exists(): bool;
+        }
+    }
+
+    if (!interface_exists(\Grav\Common\User\Interfaces\UserCollectionInterface::class, false)) {
+        interface UserCollectionInterface extends \Traversable
+        {
+            public function load(string $username): UserInterface;
+        }
+    }
+}
+
+namespace Grav\Framework\Psr7 {
+    if (!class_exists(\Grav\Framework\Psr7\Response::class, false)) {
+        /**
+         * Minimal PSR-7 Response implementation for testing.
+         */
+        class Response implements \Psr\Http\Message\ResponseInterface
+        {
+            /** @var array<string, string[]> */
+            private array $headerValues = [];
+            /** @var string */
+            private string $body;
+
+            public function __construct(
+                private int $statusCode = 200,
+                array $headers = [],
+                string $body = '',
+                private string $protocolVersion = '1.1',
+                private string $reasonPhrase = '',
+            ) {
+                foreach ($headers as $name => $value) {
+                    $this->headerValues[strtolower($name)] = [
+                        'original' => $name,
+                        'values' => is_array($value) ? $value : [$value],
+                    ];
+                }
+                $this->body = $body;
+            }
+
+            public function getStatusCode(): int { return $this->statusCode; }
+
+            public function withStatus(int $code, string $reasonPhrase = ''): static
+            {
+                $clone = clone $this;
+                $clone->statusCode = $code;
+                $clone->reasonPhrase = $reasonPhrase;
+                return $clone;
+            }
+
+            public function getReasonPhrase(): string { return $this->reasonPhrase; }
+            public function getProtocolVersion(): string { return $this->protocolVersion; }
+            public function withProtocolVersion(string $version): static
+            {
+                $clone = clone $this;
+                $clone->protocolVersion = $version;
+                return $clone;
+            }
+
+            public function getHeaders(): array
+            {
+                $result = [];
+                foreach ($this->headerValues as $info) {
+                    $result[$info['original']] = $info['values'];
+                }
+                return $result;
+            }
+
+            public function hasHeader(string $name): bool
+            {
+                return isset($this->headerValues[strtolower($name)]);
+            }
+
+            public function getHeader(string $name): array
+            {
+                return $this->headerValues[strtolower($name)]['values'] ?? [];
+            }
+
+            public function getHeaderLine(string $name): string
+            {
+                return implode(', ', $this->getHeader($name));
+            }
+
+            public function withHeader(string $name, $value): static
+            {
+                $clone = clone $this;
+                $clone->headerValues[strtolower($name)] = [
+                    'original' => $name,
+                    'values' => is_array($value) ? $value : [$value],
+                ];
+                return $clone;
+            }
+
+            public function withAddedHeader(string $name, $value): static
+            {
+                $clone = clone $this;
+                $lower = strtolower($name);
+                $existing = $clone->headerValues[$lower]['values'] ?? [];
+                $clone->headerValues[$lower] = [
+                    'original' => $clone->headerValues[$lower]['original'] ?? $name,
+                    'values' => array_merge($existing, is_array($value) ? $value : [$value]),
+                ];
+                return $clone;
+            }
+
+            public function withoutHeader(string $name): static
+            {
+                $clone = clone $this;
+                unset($clone->headerValues[strtolower($name)]);
+                return $clone;
+            }
+
+            public function getBody(): \Psr\Http\Message\StreamInterface
+            {
+                $content = $this->body;
+                return new class ($content) implements \Psr\Http\Message\StreamInterface {
+                    public function __construct(private readonly string $content) {}
+                    public function __toString(): string { return $this->content; }
+                    public function close(): void {}
+                    public function detach() { return null; }
+                    public function getSize(): ?int { return strlen($this->content); }
+                    public function tell(): int { return 0; }
+                    public function eof(): bool { return true; }
+                    public function isSeekable(): bool { return false; }
+                    public function seek(int $offset, int $whence = SEEK_SET): void {}
+                    public function rewind(): void {}
+                    public function isWritable(): bool { return false; }
+                    public function write(string $string): int { return 0; }
+                    public function isReadable(): bool { return true; }
+                    public function read(int $length): string { return $this->content; }
+                    public function getContents(): string { return $this->content; }
+                    public function getMetadata(?string $key = null): mixed { return null; }
+                };
+            }
+
+            public function withBody(\Psr\Http\Message\StreamInterface $body): static
+            {
+                $clone = clone $this;
+                $clone->body = (string) $body;
+                return $clone;
+            }
+        }
+    }
+}

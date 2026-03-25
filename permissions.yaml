@@ -1,0 +1,49 @@
+actions:
+  api.access:
+    label: API Access
+    type: access
+
+  api.pages:
+    type: access
+    label: Pages API
+    actions:
+      read:
+        label: Read Pages
+      write:
+        label: Create/Update/Delete Pages
+
+  api.media:
+    type: access
+    label: Media API
+    actions:
+      read:
+        label: Read Media
+      write:
+        label: Upload/Delete Media
+
+  api.config:
+    type: access
+    label: Configuration API
+    actions:
+      read:
+        label: Read Configuration
+      write:
+        label: Update Configuration
+
+  api.users:
+    type: access
+    label: Users API
+    actions:
+      read:
+        label: Read Users
+      write:
+        label: Create/Update/Delete Users
+
+  api.system:
+    type: access
+    label: System API
+    actions:
+      read:
+        label: Read System Info/Logs
+      write:
+        label: Cache/Backup/Updates

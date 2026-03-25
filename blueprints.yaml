@@ -1,0 +1,190 @@
+name: API
+slug: api
+type: plugin
+version: 1.0.0-beta.1
+description: RESTful API for Grav CMS. Provides headless access to pages, media, configuration, users, and system management.
+icon: plug
+author:
+  name: Team Grav
+  email: devs@getgrav.org
+  url: https://getgrav.org
+homepage: https://github.com/getgrav/grav-plugin-api
+keywords: api, rest, headless, json
+bugs: https://github.com/getgrav/grav-plugin-api/issues
+docs: https://learn.getgrav.org/api
+license: MIT
+
+dependencies:
+  - { name: grav, version: '>=1.8.0' }
+  - { name: login, version: '>=3.8.0' }
+
+form:
+  validation: loose
+  fields:
+    enabled:
+      type: toggle
+      label: Plugin Status
+      highlight: 1
+      default: 0
+      options:
+        1: Enabled
+        0: Disabled
+      validate:
+        type: bool
+
+    section_general:
+      type: section
+      title: General Settings
+      underline: true
+
+    route:
+      type: text
+      label: API Route
+      help: The base route for the API
+      default: /api
+      validate:
+        type: text
+
+    version_prefix:
+      type: text
+      label: Version Prefix
+      help: Current API version prefix
+      default: v1
+      validate:
+        type: text
+
+    section_auth:
+      type: section
+      title: Authentication
+      underline: true
+
+    auth.api_keys_enabled:
+      type: toggle
+      label: API Key Authentication
+      highlight: 1
+      default: 1
+      options:
+        1: Enabled
+        0: Disabled
+      validate:
+        type: bool
+
+    auth.jwt_enabled:
+      type: toggle
+      label: JWT Authentication
+      highlight: 1
+      default: 1
+      options:
+        1: Enabled
+        0: Disabled
+      validate:
+        type: bool
+
+    auth.jwt_expiry:
+      type: text
+      label: JWT Access Token Expiry
+      help: Access token lifetime in seconds
+      default: 3600
+      validate:
+        type: int
+
+    auth.jwt_refresh_expiry:
+      type: text
+      label: JWT Refresh Token Expiry
+      help: Refresh token lifetime in seconds
+      default: 604800
+      validate:
+        type: int
+
+    auth.session_enabled:
+      type: toggle
+      label: Session Authentication
+      help: Allow existing admin sessions to access the API
+      highlight: 1
+      default: 1
+      options:
+        1: Enabled
+        0: Disabled
+      validate:
+        type: bool
+
+    section_cors:
+      type: section
+      title: CORS Settings
+      underline: true
+
+    cors.enabled:
+      type: toggle
+      label: Enable CORS
+      highlight: 1
+      default: 1
+      options:
+        1: Enabled
+        0: Disabled
+      validate:
+        type: bool
+
+    cors.origins:
+      type: array
+      label: Allowed Origins
+      help: List of allowed origins. Use * for all origins.
+      default:
+        - '*'
+      value_only: true
+
+    cors.methods:
+      type: selectize
+      label: Allowed Methods
+      help: HTTP methods allowed for CORS requests
+      default:
+        - GET
+        - POST
+        - PATCH
+        - DELETE
+        - OPTIONS
+      multiple: true
+      validate:
+        type: commalist
+
+    cors.headers:
+      type: array
+      label: Allowed Headers
+      default:
+        - Content-Type
+        - Authorization
+        - X-API-Key
+        - If-Match
+        - If-None-Match
+      value_only: true
+
+    section_rate_limit:
+      type: section
+      title: Rate Limiting
+      underline: true
+
+    rate_limit.enabled:
+      type: toggle
+      label: Enable Rate Limiting
+      highlight: 1
+      default: 1
+      options:
+        1: Enabled
+        0: Disabled
+      validate:
+        type: bool
+
+    rate_limit.requests:
+      type: text
+      label: Requests Per Window
+      help: Maximum number of requests per time window
+      default: 120
+      validate:
+        type: int
+
+    rate_limit.window:
+      type: text
+      label: Time Window
+      help: Rate limit window in seconds
+      default: 60
+      validate:
+        type: int
