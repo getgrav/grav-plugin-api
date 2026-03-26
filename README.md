@@ -442,6 +442,115 @@ public function onApiRegisterRoutes(Event $event): void
 
 Your controller should extend `AbstractApiController` to get access to all the standard helpers (auth, pagination, response building, etc).
 
+## Events
+
+The API fires events before and after all write operations, allowing plugins to react, validate, modify data, or cancel operations.
+
+### Page Events
+
+| Event | When | Event Data |
+|-------|------|------------|
+| `onApiBeforePageCreate` | Before a page is saved | `route`, `header`, `content`, `template` (modifiable by reference) |
+| `onApiPageCreated` | After page creation | `page` (PageInterface), `route` |
+| `onApiBeforePageUpdate` | Before a page is updated | `page` (PageInterface), `data` (request body, modifiable by reference) |
+| `onApiPageUpdated` | After page update | `page` (PageInterface) |
+| `onApiBeforePageDelete` | Before a page is deleted | `page` (PageInterface) |
+| `onApiPageDeleted` | After page deletion | `route` |
+| `onApiPageMoved` | After page move | `page` (PageInterface), `old_route`, `new_route` |
+
+### Media Events
+
+| Event | When | Event Data |
+|-------|------|------------|
+| `onApiBeforeMediaUpload` | Before each file is saved | `page`, `filename`, `type`, `size` |
+| `onApiMediaUploaded` | After upload completes | `page`, `filenames` (array) |
+| `onApiBeforeMediaDelete` | Before a media file is deleted | `page`, `filename` |
+| `onApiMediaDeleted` | After media deletion | `page`, `filename` |
+
+### Config Events
+
+| Event | When | Event Data |
+|-------|------|------------|
+| `onApiConfigUpdated` | After config is saved | `scope`, `data` |
+
+### User Events
+
+| Event | When | Event Data |
+|-------|------|------------|
+| `onApiUserCreated` | After user creation | `user` (UserInterface) |
+| `onApiUserUpdated` | After user update | `user` (UserInterface) |
+| `onApiBeforeUserDelete` | Before user deletion | `user` (UserInterface) |
+| `onApiUserDeleted` | After user deletion | `username` |
+
+### Route Registration
+
+| Event | When | Event Data |
+|-------|------|------------|
+| `onApiRegisterRoutes` | During router initialization | `routes` (ApiRouteCollector) |
+
+### Using Events in Your Plugin
+
+**React to content changes** (e.g., clear a search index when pages change):
+
+```php
+public static function getSubscribedEvents(): array
+{
+    return [
+        'onApiPageCreated' => ['onApiPageCreated', 0],
+        'onApiPageUpdated' => ['onApiPageUpdated', 0],
+        'onApiPageDeleted' => ['onApiPageDeleted', 0],
+    ];
+}
+
+public function onApiPageCreated(Event $event): void
+{
+    $page = $event['page'];
+    $this->searchIndex->add($page);
+}
+
+public function onApiPageUpdated(Event $event): void
+{
+    $page = $event['page'];
+    $this->searchIndex->update($page);
+}
+
+public function onApiPageDeleted(Event $event): void
+{
+    $route = $event['route'];
+    $this->searchIndex->remove($route);
+}
+```
+
+**Validate or modify data before save** (e.g., enforce content rules):
+
+```php
+public function onApiBeforePageCreate(Event $event): void
+{
+    $header = &$event['header'];
+    $content = &$event['content'];
+
+    // Auto-add a timestamp
+    $header['api_created'] = date('c');
+
+    // Reject empty content
+    if (empty(trim($content))) {
+        throw new \RuntimeException('Page content cannot be empty.');
+    }
+}
+```
+
+**Reject file uploads** (e.g., enforce image-only policy):
+
+```php
+public function onApiBeforeMediaUpload(Event $event): void
+{
+    $type = $event['type'];
+    if (!str_starts_with($type, 'image/')) {
+        throw new \RuntimeException('Only image uploads are allowed.');
+    }
+}
+```
+
 ## Configuration Reference
 
 Full configuration in `user/config/plugins/api.yaml`:

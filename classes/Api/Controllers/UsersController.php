@@ -101,6 +101,8 @@ class UsersController extends AbstractApiController
 
         $user->save();
 
+        $this->fireEvent('onApiUserCreated', ['user' => $user]);
+
         return ApiResponse::created(
             data: $this->serializeUser($user),
             location: $this->getApiBaseUrl() . '/users/' . $username,
@@ -148,6 +150,8 @@ class UsersController extends AbstractApiController
         $user->set('modified', time());
         $user->save();
 
+        $this->fireEvent('onApiUserUpdated', ['user' => $user]);
+
         return $this->respondWithEtag($this->serializeUser($user));
     }
 
@@ -164,11 +168,15 @@ class UsersController extends AbstractApiController
 
         $user = $this->loadUserOrFail($username);
 
+        $this->fireEvent('onApiBeforeUserDelete', ['user' => $user]);
+
         // Remove user file
         $file = $user->file();
         if ($file) {
             $file->delete();
         }
+
+        $this->fireEvent('onApiUserDeleted', ['username' => $username]);
 
         return ApiResponse::noContent();
     }

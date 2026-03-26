@@ -13,6 +13,7 @@ use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use RocketTheme\Toolbox\Event\Event;
 
 abstract class AbstractApiController
 {
@@ -227,5 +228,16 @@ abstract class AbstractApiController
                 array_map(fn($f) => ['field' => $f, 'message' => "The '{$f}' field is required."], $missing)
             );
         }
+    }
+
+    /**
+     * Fire a Grav event with the given data.
+     * Returns the event object so callers can check for modifications.
+     */
+    protected function fireEvent(string $name, array $data = []): Event
+    {
+        $event = new Event($data);
+        $this->grav->fireEvent($name, $event);
+        return $event;
     }
 }

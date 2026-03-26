@@ -143,6 +143,14 @@ class PagesController extends AbstractApiController
         // Build header with title
         $header = array_merge(['title' => $title], $header);
 
+        // Fire before event — plugins can modify $header/$content or throw to cancel
+        $beforeEvent = $this->fireEvent('onApiBeforePageCreate', [
+            'route' => $route,
+            'header' => &$header,
+            'content' => &$content,
+            'template' => &$template,
+        ]);
+
         $page = new Page();
         $page->filePath($pagePath . '/' . $template . '.md');
         $page->header((object) $header);
@@ -154,6 +162,8 @@ class PagesController extends AbstractApiController
         // Re-init pages and fetch the newly created page for serialization
         $this->enablePages(true);
         $newPage = $this->grav['pages']->find($route);
+
+        $this->fireEvent('onApiPageCreated', ['page' => $newPage ?? $page, 'route' => $route]);
 
         $data = $this->serializer->serialize($newPage ?? $page);
         $location = $this->getApiBaseUrl() . '/pages' . $route;
@@ -177,6 +187,9 @@ class PagesController extends AbstractApiController
         $this->validateEtag($request, $this->generateEtag($currentData));
 
         $body = $this->getRequestBody($request);
+
+        // Fire before event — plugins can modify $body or throw to cancel
+        $this->fireEvent('onApiBeforePageUpdate', ['page' => $page, 'data' => &$body]);
 
         if (array_key_exists('content', $body)) {
             $page->rawMarkdown($body['content']);
@@ -213,6 +226,8 @@ class PagesController extends AbstractApiController
         $page->save();
         $this->clearPagesCache();
 
+        $this->fireEvent('onApiPageUpdated', ['page' => $page]);
+
         $data = $this->serializer->serialize($page);
 
         return $this->respondWithEtag($data);
@@ -238,10 +253,14 @@ class PagesController extends AbstractApiController
             );
         }
 
+        $this->fireEvent('onApiBeforePageDelete', ['page' => $page]);
+
         $pagePath = $page->path();
         Folder::delete($pagePath);
 
         $this->clearPagesCache();
+
+        $this->fireEvent('onApiPageDeleted', ['route' => '/' . $route]);
 
         return ApiResponse::noContent();
     }
@@ -298,6 +317,12 @@ class PagesController extends AbstractApiController
         $this->enablePages(true);
         $newRoute = $newParentRoute === '/' ? '/' . $newSlug : $newParentRoute . '/' . $newSlug;
         $movedPage = $this->grav['pages']->find($newRoute);
+
+        $this->fireEvent('onApiPageMoved', [
+            'page' => $movedPage,
+            'old_route' => '/' . $route,
+            'new_route' => $newRoute,
+        ]);
 
         if (!$movedPage) {
             // Fallback: return minimal data if page can't be found at expected route

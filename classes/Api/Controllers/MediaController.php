@@ -55,15 +55,28 @@ class MediaController extends AbstractApiController
             throw new ValidationException('No files were uploaded.');
         }
 
+        $uploadedNames = [];
         foreach ($uploadedFiles as $file) {
+            // Fire before event — plugins can throw to reject specific files
+            $this->fireEvent('onApiBeforeMediaUpload', [
+                'page' => $page,
+                'filename' => $file->getClientFilename(),
+                'type' => $file->getClientMediaType(),
+                'size' => $file->getSize(),
+            ]);
+
             $this->processUploadedFile($file, $pagePath);
+            $uploadedNames[] = $file->getClientFilename();
         }
 
-        // Clear media cache so new files are picked up
-        $page->media()->reset();
+        // Create fresh Media object to pick up newly uploaded files
+        $media = new \Grav\Common\Page\Media($pagePath);
+        $serialized = $this->getSerializer()->serializeCollection($media->all());
 
-        $media = $page->media()->all();
-        $serialized = $this->getSerializer()->serializeCollection($media);
+        $this->fireEvent('onApiMediaUploaded', [
+            'page' => $page,
+            'filenames' => $uploadedNames,
+        ]);
 
         $baseUrl = $this->getApiBaseUrl();
         $route = $this->getRouteParam($request, 'route') ?? '';
@@ -87,17 +100,13 @@ class MediaController extends AbstractApiController
             throw new NotFoundException('Page directory does not exist on disk.');
         }
 
-        // Verify the file actually exists in the page's media collection
-        $media = $page->media()->all();
-        if (!isset($media[$filename])) {
+        // Verify the file exists on disk
+        $filePath = $pagePath . '/' . $filename;
+        if (!file_exists($filePath)) {
             throw new NotFoundException("Media file '{$filename}' not found on this page.");
         }
 
-        $filePath = $pagePath . '/' . $filename;
-
-        if (!file_exists($filePath)) {
-            throw new NotFoundException("Media file '{$filename}' not found on disk.");
-        }
+        $this->fireEvent('onApiBeforeMediaDelete', ['page' => $page, 'filename' => $filename]);
 
         unlink($filePath);
 
@@ -107,7 +116,7 @@ class MediaController extends AbstractApiController
             unlink($metaPath);
         }
 
-        $page->media()->reset();
+        $this->fireEvent('onApiMediaDeleted', ['page' => $page, 'filename' => $filename]);
 
         return ApiResponse::noContent();
     }

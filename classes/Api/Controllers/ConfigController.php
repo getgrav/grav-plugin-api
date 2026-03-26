@@ -71,6 +71,8 @@ class ConfigController extends AbstractApiController
         // Clear config cache
         $this->grav['cache']->clearCache('standard');
 
+        $this->fireEvent('onApiConfigUpdated', ['scope' => $scope, 'data' => $merged]);
+
         $data = is_array($merged) ? $merged : ['value' => $merged];
 
         return $this->respondWithEtag($data);
