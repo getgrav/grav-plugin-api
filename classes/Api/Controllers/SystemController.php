@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Grav\Plugin\Api\Controllers;
 
 use Grav\Common\Backup\Backups;
-use Grav\Common\Helpers\LogViewer;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
@@ -14,6 +13,46 @@ use Psr\Http\Message\ServerRequestInterface;
 
 class SystemController extends AbstractApiController
 {
+    public function environments(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.system.read');
+
+        $currentEnv = $this->grav['uri']->environment();
+        $requestedEnv = $request->getHeaderLine('X-Grav-Environment') ?: $currentEnv;
+
+        $environments = [
+            [
+                'name' => 'default',
+                'active' => !$this->hasEnvironmentOverrides(),
+            ],
+        ];
+
+        // Scan user/env/ for environment-specific directories
+        $envDir = $this->grav['locator']->findResource('user://env', true);
+        if ($envDir && is_dir($envDir)) {
+            foreach (new \DirectoryIterator($envDir) as $item) {
+                if ($item->isDot() || !$item->isDir()) {
+                    continue;
+                }
+                $environments[] = [
+                    'name' => $item->getFilename(),
+                    'active' => $item->getFilename() === $requestedEnv,
+                ];
+            }
+        }
+
+        return ApiResponse::create([
+            'current' => $requestedEnv,
+            'environments' => $environments,
+        ]);
+    }
+
+    private function hasEnvironmentOverrides(): bool
+    {
+        $envDir = $this->grav['locator']->findResource('user://env', true);
+        return $envDir && is_dir($envDir) && (new \FilesystemIterator($envDir))->valid();
+    }
+
     public function info(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'api.system.read');
@@ -66,65 +105,76 @@ class SystemController extends AbstractApiController
         $levelFilter = $query['level'] ?? null;
 
         $logFile = $this->grav['locator']->findResource('log://grav.log');
-
         if (!$logFile || !file_exists($logFile)) {
-            return ApiResponse::paginated(
-                data: [],
-                total: 0,
-                page: $pagination['page'],
-                perPage: $pagination['per_page'],
-                baseUrl: $this->getApiBaseUrl() . '/system/logs',
-            );
+            return ApiResponse::paginated([], 0, $pagination['page'], $pagination['per_page'], $this->getApiBaseUrl() . '/system/logs');
         }
 
-        $viewer = new LogViewer();
-        $viewer->pattern = LogViewer::PATTERN;
-
-        // Read all log entries
-        $allEntries = $viewer->objectTail($logFile, 0, true);
+        $content = file_get_contents($logFile);
+        $lines = explode("\n", $content);
         $entries = [];
 
-        foreach ($allEntries as $entry) {
-            $entryData = [
-                'date' => $entry['date'] ?? null,
-                'level' => $entry['level'] ?? 'DEBUG',
-                'message' => $entry['message'] ?? '',
-                'context' => $entry['context'] ?? '',
-            ];
-
-            // Filter by level if specified
-            if ($levelFilter !== null) {
-                $filterUpper = strtoupper($levelFilter);
-                if (strtoupper($entryData['level']) !== $filterUpper) {
-                    continue;
-                }
+        foreach ($lines as $line) {
+            if ($line === '' || $line[0] !== '[') {
+                continue;
             }
 
-            $entries[] = $entryData;
+            // Extract date
+            $closeBracket = strpos($line, ']');
+            if ($closeBracket === false) {
+                continue;
+            }
+            $date = substr($line, 1, $closeBracket - 1);
+
+            // Extract logger.LEVEL: message
+            $rest = ltrim(substr($line, $closeBracket + 1));
+            $colonPos = strpos($rest, ':');
+            if ($colonPos === false) {
+                continue;
+            }
+
+            $loggerLevel = substr($rest, 0, $colonPos);
+            $dotPos = strpos($loggerLevel, '.');
+            if ($dotPos === false) {
+                continue;
+            }
+
+            $logger = substr($loggerLevel, 0, $dotPos);
+            $level = strtoupper(substr($loggerLevel, $dotPos + 1));
+            $message = trim(substr($rest, $colonPos + 1));
+
+            // Strip trailing [] []
+            $message = preg_replace('/\s*\[\]\s*\[\]\s*$/', '', $message);
+
+            if ($levelFilter !== null && $level !== strtoupper($levelFilter)) {
+                continue;
+            }
+
+            $entries[] = [
+                'date' => $date,
+                'logger' => $logger,
+                'level' => $level,
+                'message' => $message,
+            ];
         }
 
-        // Reverse so newest entries come first
         $entries = array_reverse($entries);
         $total = count($entries);
-
-        // Apply pagination
         $paged = array_slice($entries, $pagination['offset'], $pagination['limit']);
 
-        return ApiResponse::paginated(
-            data: $paged,
-            total: $total,
-            page: $pagination['page'],
-            perPage: $pagination['per_page'],
-            baseUrl: $this->getApiBaseUrl() . '/system/logs',
-        );
+        return ApiResponse::paginated($paged, $total, $pagination['page'], $pagination['per_page'], $this->getApiBaseUrl() . '/system/logs');
     }
 
     public function backup(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'api.system.write');
 
-        $backups = new Backups();
-        $result = $backups::backup();
+        // Ensure backup directory is initialized
+        $backups = $this->grav['backups'] ?? new Backups();
+        if (method_exists($backups, 'init')) {
+            $backups->init();
+        }
+
+        $result = Backups::backup();
 
         $filename = basename($result);
         $size = file_exists($result) ? filesize($result) : 0;
@@ -144,13 +194,12 @@ class SystemController extends AbstractApiController
     {
         $this->requirePermission($request, 'api.system.read');
 
-        $backups = new Backups();
-        $list = $backups::getBackups();
+        $list = Backups::getAvailableBackups(true);
 
         $data = [];
         foreach ($list as $backup) {
             $data[] = [
-                'filename' => $backup['filename'] ?? basename($backup['path'] ?? ''),
+                'filename' => basename($backup['path'] ?? ''),
                 'date' => $backup['date'] ?? null,
                 'size' => $backup['size'] ?? 0,
             ];
@@ -165,7 +214,7 @@ class SystemController extends AbstractApiController
         $gpm = $this->grav['plugins'];
 
         foreach ($gpm as $plugin) {
-            $blueprint = $plugin->blueprints();
+            $blueprint = $plugin->getBlueprint();
             $plugins[] = [
                 'name' => $blueprint->get('name') ?? $plugin->name,
                 'version' => $blueprint->get('version') ?? '0.0.0',

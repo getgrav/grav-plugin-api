@@ -57,6 +57,9 @@ class ApiRouter extends ProcessorBase
                 return (new CorsMiddleware($this->config))->createPreflightResponse();
             }
 
+            // Require and apply Grav environment
+            $this->applyEnvironment($request);
+
             // Authenticate (skip for /auth/* endpoints - use Grav route which is subdirectory-safe)
             $route = $request->getAttribute('route');
             $routePath = $route ? $route->getRoute() : '';
@@ -201,6 +204,7 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('DELETE', '/users/{username}/api-keys/{keyId}', [UsersController::class, 'deleteApiKey']);
 
         // System
+        $r->addRoute('GET', '/system/environments', [SystemController::class, 'environments']);
         $r->addRoute('GET', '/system/info', [SystemController::class, 'info']);
         $r->addRoute('DELETE', '/cache', [SystemController::class, 'clearCache']);
         $r->addRoute('GET', '/system/logs', [SystemController::class, 'logs']);
@@ -215,6 +219,38 @@ class ApiRouter extends ProcessorBase
     {
         $event = new Event(['routes' => new ApiRouteCollector($r)]);
         $this->container->fireEvent('onApiRegisterRoutes', $event);
+    }
+
+    /**
+     * Apply the X-Grav-Environment header if provided.
+     * Defaults to Grav's auto-detected environment (from hostname) if not set.
+     * Reinitializes config and cache when switching environments.
+     */
+    protected function applyEnvironment(ServerRequestInterface $request): void
+    {
+        $environment = $request->getHeaderLine('X-Grav-Environment');
+
+        if (!$environment) {
+            // Default to Grav's auto-detected environment
+            return;
+        }
+
+        // Sanitize — environment should be a valid hostname-style string
+        if (!preg_match('/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/', $environment)) {
+            throw new Exceptions\ApiException(
+                400,
+                'Bad Request',
+                'Invalid environment name. Use a valid hostname (e.g., localhost, mysite.com).'
+            );
+        }
+
+        $currentEnv = $this->container['uri']->environment();
+
+        // Only reinitialize if the requested environment differs from current
+        if ($environment !== $currentEnv) {
+            $this->container->setup($environment);
+            $this->config->reload();
+        }
     }
 
     protected function addRateLimitHeaders(ResponseInterface $response, array $result): ResponseInterface

@@ -2,28 +2,8 @@
 	"info": {
 		"_postman_id": "grav-api-collection-v1",
 		"name": "Grav CMS API",
-		"description": "Complete API collection for the Grav CMS RESTful API plugin.\n\n## Setup\n\n1. Set the `base_url` variable to your Grav site URL (e.g., `https://yoursite.com`)\n2. Run the **Auth > Login** request first to get a JWT token\n3. The token is automatically saved to the `access_token` variable\n4. Alternatively, set the `api_key` variable to use API key auth\n\n## Authentication\n\nRequests use the `api_key` header by default. To switch to JWT, update the collection auth to use Bearer with `{{access_token}}`.",
+		"description": "Complete API collection for the Grav CMS RESTful API plugin.\n\n## Setup\n\n1. Set the `base_url` variable to your Grav site URL (e.g., `https://localhost/grav-api`)\n2. Set the `api_key` variable to a valid API key (generate via `bin/plugin api keys:generate`)\n3. Set `grav_environment` to your Grav environment (default: `localhost`)\n4. All requests include `X-API-Key` and `X-Grav-Environment` headers automatically\n\n## Authentication\n\nAll requests (except `/auth/*` endpoints) require the `X-API-Key` header.\nThe `X-Grav-Environment` header is included on all requests to ensure correct environment context.",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
-	},
-	"auth": {
-		"type": "apikey",
-		"apikey": [
-			{
-				"key": "key",
-				"value": "X-API-Key",
-				"type": "string"
-			},
-			{
-				"key": "value",
-				"value": "{{api_key}}",
-				"type": "string"
-			},
-			{
-				"key": "in",
-				"value": "header",
-				"type": "string"
-			}
-		]
 	},
 	"variable": [
 		{
@@ -59,6 +39,11 @@
 		{
 			"key": "test_api_key_id",
 			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "grav_environment",
+			"value": "localhost",
 			"type": "string"
 		}
 	],
@@ -97,6 +82,11 @@
 						"method": "POST",
 						"header": [
 							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							},
+							{
 								"key": "Content-Type",
 								"value": "application/json"
 							}
@@ -107,8 +97,13 @@
 						},
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/auth/token",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["auth", "token"]
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"auth",
+								"token"
+							]
 						},
 						"description": "Exchange username/password for JWT access and refresh tokens. The access token is automatically saved for use by other requests."
 					}
@@ -140,6 +135,11 @@
 						"method": "POST",
 						"header": [
 							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							},
+							{
 								"key": "Content-Type",
 								"value": "application/json"
 							}
@@ -150,8 +150,13 @@
 						},
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/auth/refresh",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["auth", "refresh"]
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"auth",
+								"refresh"
+							]
 						},
 						"description": "Exchange a refresh token for a new access/refresh token pair. The old refresh token is revoked (token rotation)."
 					}
@@ -176,6 +181,11 @@
 						"method": "POST",
 						"header": [
 							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							},
+							{
 								"key": "Content-Type",
 								"value": "application/json"
 							}
@@ -186,8 +196,13 @@
 						},
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/auth/revoke",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["auth", "revoke"]
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"auth",
+								"revoke"
+							]
 						},
 						"description": "Revoke a refresh token, preventing it from being used to generate new access tokens."
 					}
@@ -219,21 +234,71 @@
 						"method": "GET",
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/pages?page=1&per_page=20",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["pages"],
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"pages"
+							],
 							"query": [
-								{ "key": "page", "value": "1" },
-								{ "key": "per_page", "value": "20" },
-								{ "key": "sort", "value": "date", "disabled": true },
-								{ "key": "order", "value": "desc", "disabled": true },
-								{ "key": "published", "value": "true", "disabled": true },
-								{ "key": "template", "value": "post", "disabled": true },
-								{ "key": "routable", "value": "true", "disabled": true },
-								{ "key": "visible", "value": "true", "disabled": true },
-								{ "key": "parent", "value": "blog", "disabled": true }
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "per_page",
+									"value": "20"
+								},
+								{
+									"key": "sort",
+									"value": "date",
+									"disabled": true
+								},
+								{
+									"key": "order",
+									"value": "desc",
+									"disabled": true
+								},
+								{
+									"key": "published",
+									"value": "true",
+									"disabled": true
+								},
+								{
+									"key": "template",
+									"value": "post",
+									"disabled": true
+								},
+								{
+									"key": "routable",
+									"value": "true",
+									"disabled": true
+								},
+								{
+									"key": "visible",
+									"value": "true",
+									"disabled": true
+								},
+								{
+									"key": "parent",
+									"value": "blog",
+									"disabled": true
+								}
 							]
 						},
-						"description": "List all pages with filtering, sorting, and pagination.\n\n**Filters** (enable as needed):\n- `published` - true/false\n- `template` - page template name\n- `routable` - true/false\n- `visible` - true/false\n- `parent` - parent route prefix\n\n**Sorting**: `sort` (date, title, slug, modified, order) + `order` (asc, desc)"
+						"description": "List all pages with filtering, sorting, and pagination.\n\n**Filters** (enable as needed):\n- `published` - true/false\n- `template` - page template name\n- `routable` - true/false\n- `visible` - true/false\n- `parent` - parent route prefix\n\n**Sorting**: `sort` (date, title, slug, modified, order) + `order` (asc, desc)",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
 					}
 				},
 				{
@@ -242,17 +307,48 @@
 						"method": "GET",
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/pages?published=true&template=post&parent=blog&sort=date&order=desc",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["pages"],
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"pages"
+							],
 							"query": [
-								{ "key": "published", "value": "true" },
-								{ "key": "template", "value": "post" },
-								{ "key": "parent", "value": "blog" },
-								{ "key": "sort", "value": "date" },
-								{ "key": "order", "value": "desc" }
+								{
+									"key": "published",
+									"value": "true"
+								},
+								{
+									"key": "template",
+									"value": "post"
+								},
+								{
+									"key": "parent",
+									"value": "blog"
+								},
+								{
+									"key": "sort",
+									"value": "date"
+								},
+								{
+									"key": "order",
+									"value": "desc"
+								}
 							]
 						},
-						"description": "Example: List published blog posts, newest first."
+						"description": "Example: List published blog posts, newest first.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
 					}
 				},
 				{
@@ -277,10 +373,27 @@
 						"method": "GET",
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/pages/blog",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["pages", "blog"]
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"pages",
+								"blog"
+							]
 						},
-						"description": "Get a single page by route. Returns full content, frontmatter, taxonomy, and media list."
+						"description": "Get a single page by route. Returns full content, frontmatter, taxonomy, and media list.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
 					}
 				},
 				{
@@ -289,15 +402,41 @@
 						"method": "GET",
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/pages/blog?render=true&children=true&children_depth=2",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["pages", "blog"],
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"pages",
+								"blog"
+							],
 							"query": [
-								{ "key": "render", "value": "true" },
-								{ "key": "children", "value": "true" },
-								{ "key": "children_depth", "value": "2" }
+								{
+									"key": "render",
+									"value": "true"
+								},
+								{
+									"key": "children",
+									"value": "true"
+								},
+								{
+									"key": "children_depth",
+									"value": "2"
+								}
 							]
 						},
-						"description": "Get a page with rendered HTML content and child pages up to 2 levels deep."
+						"description": "Get a page with rendered HTML content and child pages up to 2 levels deep.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
 					}
 				},
 				{
@@ -320,6 +459,16 @@
 						"method": "POST",
 						"header": [
 							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							},
+							{
 								"key": "Content-Type",
 								"value": "application/json"
 							}
@@ -330,8 +479,12 @@
 						},
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/pages",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["pages"]
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"pages"
+							]
 						},
 						"description": "Create a new page. Requires `route` and `title`. Optional: `template`, `content`, `header` (frontmatter), `order`."
 					}
@@ -355,6 +508,16 @@
 						"method": "PATCH",
 						"header": [
 							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							},
+							{
 								"key": "Content-Type",
 								"value": "application/json"
 							},
@@ -371,8 +534,14 @@
 						},
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/pages/blog/my-new-post",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["pages", "blog", "my-new-post"]
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"pages",
+								"blog",
+								"my-new-post"
+							]
 						},
 						"description": "Partial update — only send the fields you want to change. Supports `content`, `title`, `header`, `template`, `published`, `visible`.\n\nEnable the `If-Match` header for optimistic concurrency control."
 					}
@@ -394,6 +563,16 @@
 						"method": "POST",
 						"header": [
 							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							},
+							{
 								"key": "Content-Type",
 								"value": "application/json"
 							}
@@ -404,8 +583,15 @@
 						},
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/pages/blog/my-new-post/move",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["pages", "blog", "my-new-post", "move"]
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"pages",
+								"blog",
+								"my-new-post",
+								"move"
+							]
 						},
 						"description": "Move a page to a new parent and/or rename its slug. Requires `parent`. Optional: `slug`, `order`."
 					}
@@ -428,6 +614,16 @@
 						"method": "POST",
 						"header": [
 							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							},
+							{
 								"key": "Content-Type",
 								"value": "application/json"
 							}
@@ -438,8 +634,15 @@
 						},
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/pages/blog/my-new-post/copy",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["pages", "blog", "my-new-post", "copy"]
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"pages",
+								"blog",
+								"my-new-post",
+								"copy"
+							]
 						},
 						"description": "Copy a page (and its media) to a new route."
 					}
@@ -461,13 +664,35 @@
 						"method": "DELETE",
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/pages/blog/my-new-post?children=true",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["pages", "blog", "my-new-post"],
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"pages",
+								"blog",
+								"my-new-post"
+							],
 							"query": [
-								{ "key": "children", "value": "true", "description": "Set to true to also delete child pages" }
+								{
+									"key": "children",
+									"value": "true",
+									"description": "Set to true to also delete child pages"
+								}
 							]
 						},
-						"description": "Delete a page. If the page has children and `children=true` is not set, returns a 422 error requiring confirmation."
+						"description": "Delete a page. If the page has children and `children=true` is not set, returns a 422 error requiring confirmation.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
 					}
 				},
 				{
@@ -489,10 +714,26 @@
 						"method": "GET",
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/taxonomy",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["taxonomy"]
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"taxonomy"
+							]
 						},
-						"description": "List all taxonomy types (categories, tags, etc.) and their values across all pages."
+						"description": "List all taxonomy types (categories, tags, etc.) and their values across all pages.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
 					}
 				}
 			]
@@ -520,10 +761,28 @@
 						"method": "GET",
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/pages/blog/media",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["pages", "blog", "media"]
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"pages",
+								"blog",
+								"media"
+							]
 						},
-						"description": "List all media files attached to a specific page."
+						"description": "List all media files attached to a specific page.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
 					}
 				},
 				{
@@ -554,10 +813,28 @@
 						},
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/pages/blog/media",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["pages", "blog", "media"]
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"pages",
+								"blog",
+								"media"
+							]
 						},
-						"description": "Upload one or more media files to a page. Use multipart/form-data. Files are validated against Grav's security config for dangerous extensions."
+						"description": "Upload one or more media files to a page. Use multipart/form-data. Files are validated against Grav's security config for dangerous extensions.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
 					}
 				},
 				{
@@ -577,10 +854,29 @@
 						"method": "DELETE",
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/pages/blog/media/photo.jpg",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["pages", "blog", "media", "photo.jpg"]
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"pages",
+								"blog",
+								"media",
+								"photo.jpg"
+							]
 						},
-						"description": "Delete a specific media file from a page."
+						"description": "Delete a specific media file from a page.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
 					}
 				},
 				{
@@ -602,14 +898,36 @@
 						"method": "GET",
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/media?page=1&per_page=20",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["media"],
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"media"
+							],
 							"query": [
-								{ "key": "page", "value": "1" },
-								{ "key": "per_page", "value": "20" }
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "per_page",
+									"value": "20"
+								}
 							]
 						},
-						"description": "List site-level media files (from user/images)."
+						"description": "List site-level media files (from user/images).",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
 					}
 				},
 				{
@@ -640,10 +958,26 @@
 						},
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/media",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["media"]
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"media"
+							]
 						},
-						"description": "Upload media files to the site-level media folder."
+						"description": "Upload media files to the site-level media folder.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
 					}
 				},
 				{
@@ -663,10 +997,27 @@
 						"method": "DELETE",
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/media/logo.png",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["media", "logo.png"]
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"media",
+								"logo.png"
+							]
 						},
-						"description": "Delete a site-level media file."
+						"description": "Delete a site-level media file.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
 					}
 				}
 			]
@@ -695,10 +1046,27 @@
 						"method": "GET",
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/config/system",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["config", "system"]
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"config",
+								"system"
+							]
 						},
-						"description": "Read the system configuration."
+						"description": "Read the system configuration.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
 					}
 				},
 				{
@@ -707,10 +1075,27 @@
 						"method": "GET",
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/config/site",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["config", "site"]
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"config",
+								"site"
+							]
 						},
-						"description": "Read the site configuration (site.yaml)."
+						"description": "Read the site configuration (site.yaml).",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
 					}
 				},
 				{
@@ -719,10 +1104,28 @@
 						"method": "GET",
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/config/plugins/markdown",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["config", "plugins", "markdown"]
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"config",
+								"plugins",
+								"markdown"
+							]
 						},
-						"description": "Read configuration for a specific plugin. Change `markdown` to any plugin name."
+						"description": "Read configuration for a specific plugin. Change `markdown` to any plugin name.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
 					}
 				},
 				{
@@ -731,10 +1134,28 @@
 						"method": "GET",
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/config/themes/quark",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["config", "themes", "quark"]
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"config",
+								"themes",
+								"quark"
+							]
 						},
-						"description": "Read configuration for a specific theme."
+						"description": "Read configuration for a specific theme.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
 					}
 				},
 				{
@@ -756,6 +1177,16 @@
 						"method": "PATCH",
 						"header": [
 							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							},
+							{
 								"key": "Content-Type",
 								"value": "application/json"
 							},
@@ -771,8 +1202,13 @@
 						},
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/config/site",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["config", "site"]
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"config",
+								"site"
+							]
 						},
 						"description": "Update site configuration. Values are deep-merged with existing config. Only send the fields you want to change."
 					}
@@ -782,6 +1218,16 @@
 					"request": {
 						"method": "PATCH",
 						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							},
 							{
 								"key": "Content-Type",
 								"value": "application/json"
@@ -793,8 +1239,14 @@
 						},
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/config/plugins/markdown",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["config", "plugins", "markdown"]
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"config",
+								"plugins",
+								"markdown"
+							]
 						},
 						"description": "Update a plugin's configuration."
 					}
@@ -825,14 +1277,36 @@
 						"method": "GET",
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/users?page=1&per_page=20",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["users"],
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"users"
+							],
 							"query": [
-								{ "key": "page", "value": "1" },
-								{ "key": "per_page", "value": "20" }
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "per_page",
+									"value": "20"
+								}
 							]
 						},
-						"description": "List all user accounts (paginated). Sensitive fields (password, API key hashes) are excluded."
+						"description": "List all user accounts (paginated). Sensitive fields (password, API key hashes) are excluded.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
 					}
 				},
 				{
@@ -855,10 +1329,27 @@
 						"method": "GET",
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/users/admin",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["users", "admin"]
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"users",
+								"admin"
+							]
 						},
-						"description": "Get details for a specific user."
+						"description": "Get details for a specific user.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
 					}
 				},
 				{
@@ -878,6 +1369,16 @@
 						"method": "POST",
 						"header": [
 							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							},
+							{
 								"key": "Content-Type",
 								"value": "application/json"
 							}
@@ -888,8 +1389,12 @@
 						},
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/users",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["users"]
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"users"
+							]
 						},
 						"description": "Create a new user account. Required: `username`, `password`, `email`."
 					}
@@ -911,6 +1416,16 @@
 						"method": "PATCH",
 						"header": [
 							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							},
+							{
 								"key": "Content-Type",
 								"value": "application/json"
 							}
@@ -921,8 +1436,13 @@
 						},
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/users/{{test_username}}",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["users", "{{test_username}}"]
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"users",
+								"{{test_username}}"
+							]
 						},
 						"description": "Partial update a user. Only send the fields you want to change."
 					}
@@ -946,10 +1466,28 @@
 						"method": "GET",
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/users/{{test_username}}/api-keys",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["users", "{{test_username}}", "api-keys"]
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"users",
+								"{{test_username}}",
+								"api-keys"
+							]
 						},
-						"description": "List all API keys for a user. Returns metadata only (no hashes)."
+						"description": "List all API keys for a user. Returns metadata only (no hashes).",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
 					}
 				},
 				{
@@ -976,6 +1514,16 @@
 						"method": "POST",
 						"header": [
 							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							},
+							{
 								"key": "Content-Type",
 								"value": "application/json"
 							}
@@ -986,8 +1534,14 @@
 						},
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/users/{{test_username}}/api-keys",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["users", "{{test_username}}", "api-keys"]
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"users",
+								"{{test_username}}",
+								"api-keys"
+							]
 						},
 						"description": "Generate a new API key. The raw key is returned ONCE — save it immediately. The key ID is saved to the `test_api_key_id` variable for the revoke request."
 					}
@@ -1009,10 +1563,29 @@
 						"method": "DELETE",
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/users/{{test_username}}/api-keys/{{test_api_key_id}}",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["users", "{{test_username}}", "api-keys", "{{test_api_key_id}}"]
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"users",
+								"{{test_username}}",
+								"api-keys",
+								"{{test_api_key_id}}"
+							]
 						},
-						"description": "Revoke (delete) a specific API key."
+						"description": "Revoke (delete) a specific API key.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
 					}
 				},
 				{
@@ -1032,10 +1605,27 @@
 						"method": "DELETE",
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/users/{{test_username}}",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["users", "{{test_username}}"]
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"users",
+								"{{test_username}}"
+							]
 						},
-						"description": "Delete a user account. You cannot delete yourself."
+						"description": "Delete a user account. You cannot delete yourself.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
 					}
 				}
 			]
@@ -1065,10 +1655,27 @@
 						"method": "GET",
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/system/info",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["system", "info"]
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"system",
+								"info"
+							]
 						},
-						"description": "Get system information: Grav version, PHP version, extensions, plugins, themes, and environment."
+						"description": "Get system information: Grav version, PHP version, extensions, plugins, themes, and environment.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
 					}
 				},
 				{
@@ -1088,13 +1695,33 @@
 						"method": "DELETE",
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/cache?scope=standard",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["cache"],
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"cache"
+							],
 							"query": [
-								{ "key": "scope", "value": "standard", "description": "Options: all, standard, images, assets, tmp" }
+								{
+									"key": "scope",
+									"value": "standard",
+									"description": "Options: all, standard, images, assets, tmp"
+								}
 							]
 						},
-						"description": "Clear the Grav cache. Scopes: `all`, `standard`, `images`, `assets`, `tmp`."
+						"description": "Clear the Grav cache. Scopes: `all`, `standard`, `images`, `assets`, `tmp`.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
 					}
 				},
 				{
@@ -1103,13 +1730,32 @@
 						"method": "DELETE",
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/cache?scope=all",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["cache"],
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"cache"
+							],
 							"query": [
-								{ "key": "scope", "value": "all" }
+								{
+									"key": "scope",
+									"value": "all"
+								}
 							]
 						},
-						"description": "Clear ALL caches including images and assets."
+						"description": "Clear ALL caches including images and assets.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
 					}
 				},
 				{
@@ -1131,15 +1777,43 @@
 						"method": "GET",
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/system/logs?page=1&per_page=50",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["system", "logs"],
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"system",
+								"logs"
+							],
 							"query": [
-								{ "key": "page", "value": "1" },
-								{ "key": "per_page", "value": "50" },
-								{ "key": "level", "value": "error", "disabled": true, "description": "Filter: error, warning, info, debug" }
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "per_page",
+									"value": "50"
+								},
+								{
+									"key": "level",
+									"value": "error",
+									"disabled": true,
+									"description": "Filter: error, warning, info, debug"
+								}
 							]
 						},
-						"description": "Read Grav log entries. Optional `level` filter for error/warning/info/debug."
+						"description": "Read Grav log entries. Optional `level` filter for error/warning/info/debug.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
 					}
 				},
 				{
@@ -1159,10 +1833,27 @@
 						"method": "POST",
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/system/backup",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["system", "backup"]
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"system",
+								"backup"
+							]
 						},
-						"description": "Create a new site backup."
+						"description": "Create a new site backup.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
 					}
 				},
 				{
@@ -1184,10 +1875,27 @@
 						"method": "GET",
 						"url": {
 							"raw": "{{base_url}}{{api_prefix}}/system/backups",
-							"host": ["{{base_url}}{{api_prefix}}"],
-							"path": ["system", "backups"]
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"system",
+								"backups"
+							]
 						},
-						"description": "List all available backups."
+						"description": "List all available backups.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
 					}
 				}
 			]
@@ -1215,7 +1923,20 @@
 							"request": {
 								"method": "POST",
 								"header": [
-									{ "key": "Content-Type", "value": "application/json" }
+									{
+										"key": "X-API-Key",
+										"value": "{{api_key}}",
+										"description": "API Key authentication"
+									},
+									{
+										"key": "X-Grav-Environment",
+										"value": "{{grav_environment}}",
+										"description": "Grav environment"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
 								],
 								"body": {
 									"mode": "raw",
@@ -1223,8 +1944,12 @@
 								},
 								"url": {
 									"raw": "{{base_url}}{{api_prefix}}/pages",
-									"host": ["{{base_url}}{{api_prefix}}"],
-									"path": ["pages"]
+									"host": [
+										"{{base_url}}{{api_prefix}}"
+									],
+									"path": [
+										"pages"
+									]
 								}
 							}
 						},
@@ -1245,9 +1970,28 @@
 								},
 								"url": {
 									"raw": "{{base_url}}{{api_prefix}}/pages/blog/api-workflow-test/media",
-									"host": ["{{base_url}}{{api_prefix}}"],
-									"path": ["pages", "blog", "api-workflow-test", "media"]
-								}
+									"host": [
+										"{{base_url}}{{api_prefix}}"
+									],
+									"path": [
+										"pages",
+										"blog",
+										"api-workflow-test",
+										"media"
+									]
+								},
+								"header": [
+									{
+										"key": "X-API-Key",
+										"value": "{{api_key}}",
+										"description": "API Key authentication"
+									},
+									{
+										"key": "X-Grav-Environment",
+										"value": "{{grav_environment}}",
+										"description": "Grav environment"
+									}
+								]
 							}
 						},
 						{
@@ -1256,12 +2000,33 @@
 								"method": "GET",
 								"url": {
 									"raw": "{{base_url}}{{api_prefix}}/pages/blog/api-workflow-test?render=true",
-									"host": ["{{base_url}}{{api_prefix}}"],
-									"path": ["pages", "blog", "api-workflow-test"],
+									"host": [
+										"{{base_url}}{{api_prefix}}"
+									],
+									"path": [
+										"pages",
+										"blog",
+										"api-workflow-test"
+									],
 									"query": [
-										{ "key": "render", "value": "true" }
+										{
+											"key": "render",
+											"value": "true"
+										}
 									]
-								}
+								},
+								"header": [
+									{
+										"key": "X-API-Key",
+										"value": "{{api_key}}",
+										"description": "API Key authentication"
+									},
+									{
+										"key": "X-Grav-Environment",
+										"value": "{{grav_environment}}",
+										"description": "Grav environment"
+									}
+								]
 							}
 						},
 						{
@@ -1270,12 +2035,33 @@
 								"method": "DELETE",
 								"url": {
 									"raw": "{{base_url}}{{api_prefix}}/pages/blog/api-workflow-test?children=true",
-									"host": ["{{base_url}}{{api_prefix}}"],
-									"path": ["pages", "blog", "api-workflow-test"],
+									"host": [
+										"{{base_url}}{{api_prefix}}"
+									],
+									"path": [
+										"pages",
+										"blog",
+										"api-workflow-test"
+									],
 									"query": [
-										{ "key": "children", "value": "true" }
+										{
+											"key": "children",
+											"value": "true"
+										}
 									]
-								}
+								},
+								"header": [
+									{
+										"key": "X-API-Key",
+										"value": "{{api_key}}",
+										"description": "API Key authentication"
+									},
+									{
+										"key": "X-Grav-Environment",
+										"value": "{{grav_environment}}",
+										"description": "Grav environment"
+									}
+								]
 							}
 						}
 					]
@@ -1288,7 +2074,20 @@
 							"request": {
 								"method": "POST",
 								"header": [
-									{ "key": "Content-Type", "value": "application/json" }
+									{
+										"key": "X-API-Key",
+										"value": "{{api_key}}",
+										"description": "API Key authentication"
+									},
+									{
+										"key": "X-Grav-Environment",
+										"value": "{{grav_environment}}",
+										"description": "Grav environment"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
 								],
 								"body": {
 									"mode": "raw",
@@ -1296,8 +2095,12 @@
 								},
 								"url": {
 									"raw": "{{base_url}}{{api_prefix}}/users",
-									"host": ["{{base_url}}{{api_prefix}}"],
-									"path": ["users"]
+									"host": [
+										"{{base_url}}{{api_prefix}}"
+									],
+									"path": [
+										"users"
+									]
 								}
 							}
 						},
@@ -1306,7 +2109,20 @@
 							"request": {
 								"method": "POST",
 								"header": [
-									{ "key": "Content-Type", "value": "application/json" }
+									{
+										"key": "X-API-Key",
+										"value": "{{api_key}}",
+										"description": "API Key authentication"
+									},
+									{
+										"key": "X-Grav-Environment",
+										"value": "{{grav_environment}}",
+										"description": "Grav environment"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
 								],
 								"body": {
 									"mode": "raw",
@@ -1314,8 +2130,14 @@
 								},
 								"url": {
 									"raw": "{{base_url}}{{api_prefix}}/users/workflow-user/api-keys",
-									"host": ["{{base_url}}{{api_prefix}}"],
-									"path": ["users", "workflow-user", "api-keys"]
+									"host": [
+										"{{base_url}}{{api_prefix}}"
+									],
+									"path": [
+										"users",
+										"workflow-user",
+										"api-keys"
+									]
 								}
 							}
 						},
@@ -1337,10 +2159,20 @@
 								}
 							],
 							"request": {
-								"auth": { "type": "noauth" },
+								"auth": {
+									"type": "noauth"
+								},
 								"method": "POST",
 								"header": [
-									{ "key": "Content-Type", "value": "application/json" }
+									{
+										"key": "X-Grav-Environment",
+										"value": "{{grav_environment}}",
+										"description": "Grav environment"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
 								],
 								"body": {
 									"mode": "raw",
@@ -1348,8 +2180,13 @@
 								},
 								"url": {
 									"raw": "{{base_url}}{{api_prefix}}/auth/token",
-									"host": ["{{base_url}}{{api_prefix}}"],
-									"path": ["auth", "token"]
+									"host": [
+										"{{base_url}}{{api_prefix}}"
+									],
+									"path": [
+										"auth",
+										"token"
+									]
 								}
 							}
 						},
@@ -1359,9 +2196,27 @@
 								"method": "GET",
 								"url": {
 									"raw": "{{base_url}}{{api_prefix}}/users/workflow-user/api-keys",
-									"host": ["{{base_url}}{{api_prefix}}"],
-									"path": ["users", "workflow-user", "api-keys"]
-								}
+									"host": [
+										"{{base_url}}{{api_prefix}}"
+									],
+									"path": [
+										"users",
+										"workflow-user",
+										"api-keys"
+									]
+								},
+								"header": [
+									{
+										"key": "X-API-Key",
+										"value": "{{api_key}}",
+										"description": "API Key authentication"
+									},
+									{
+										"key": "X-Grav-Environment",
+										"value": "{{grav_environment}}",
+										"description": "Grav environment"
+									}
+								]
 							}
 						},
 						{
@@ -1370,9 +2225,26 @@
 								"method": "DELETE",
 								"url": {
 									"raw": "{{base_url}}{{api_prefix}}/users/workflow-user",
-									"host": ["{{base_url}}{{api_prefix}}"],
-									"path": ["users", "workflow-user"]
-								}
+									"host": [
+										"{{base_url}}{{api_prefix}}"
+									],
+									"path": [
+										"users",
+										"workflow-user"
+									]
+								},
+								"header": [
+									{
+										"key": "X-API-Key",
+										"value": "{{api_key}}",
+										"description": "API Key authentication"
+									},
+									{
+										"key": "X-Grav-Environment",
+										"value": "{{grav_environment}}",
+										"description": "Grav environment"
+									}
+								]
 							}
 						}
 					]

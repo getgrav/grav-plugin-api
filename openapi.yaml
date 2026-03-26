@@ -57,6 +57,12 @@ info:
     }
     ```
 
+    ## Environments
+
+    Send the optional `X-Grav-Environment` header to target a specific Grav
+    environment. If omitted, defaults to the auto-detected environment (from
+    hostname). Use `GET /system/environments` to discover available environments.
+
     ## Rate Limiting
 
     When rate limiting is enabled, every response includes:
@@ -1341,6 +1347,41 @@ paths:
   # ---------------------------------------------------------------------------
   # System
   # ---------------------------------------------------------------------------
+  /system/environments:
+    get:
+      operationId: getEnvironments
+      summary: List available environments
+      tags: [System]
+      description: |
+        Returns the current Grav environment and all environment-specific
+        overrides found in `user/env/`.
+      responses:
+        '200':
+          description: Environment list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      current:
+                        type: string
+                        example: localhost
+                      environments:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                              example: mysite.com
+                            active:
+                              type: boolean
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
   /system/info:
     get:
       operationId: getSystemInfo
@@ -1610,6 +1651,18 @@ components:
       schema:
         type: string
       example: '"a3f8b2c1d4e5f6a7b8c9d0e1f2a3b4c5"'
+
+    gravEnvironment:
+      name: X-Grav-Environment
+      in: header
+      required: false
+      description: |
+        Target Grav environment. Defaults to the auto-detected environment
+        (from hostname) if omitted. Use `GET /system/environments` to
+        discover available environments.
+      schema:
+        type: string
+        example: localhost
 
   # ---------------------------------------------------------------------------
   # Reusable Headers

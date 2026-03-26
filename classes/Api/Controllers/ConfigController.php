@@ -28,6 +28,9 @@ class ConfigController extends AbstractApiController
         // Normalize to array for consistent response
         $data = is_array($data) ? $data : ['value' => $data];
 
+        // Redact sensitive fields
+        $data = $this->redactSensitiveFields($data);
+
         return $this->respondWithEtag($data);
     }
 
@@ -119,5 +122,21 @@ class ConfigController extends AbstractApiController
         }
 
         file_put_contents($filePath, $yaml);
+    }
+
+    /**
+     * Redact sensitive fields from config output.
+     */
+    private function redactSensitiveFields(array $data): array
+    {
+        $sensitiveKeys = ['jwt_secret', 'secret', 'password', 'hashed_password', 'api_key', 'private_key'];
+
+        array_walk_recursive($data, function (&$value, $key) use ($sensitiveKeys) {
+            if (is_string($value) && in_array($key, $sensitiveKeys, true)) {
+                $value = '********';
+            }
+        });
+
+        return $data;
     }
 }

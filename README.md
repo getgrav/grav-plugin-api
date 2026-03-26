@@ -52,6 +52,37 @@ curl https://yoursite.com/api/v1/pages \
   -H "X-API-Key: grav_abc123..."
 ```
 
+## Environments
+
+Grav supports multiple environments (e.g., `localhost`, `staging.mysite.com`, `mysite.com`) with per-environment config overrides stored in `user/env/{environment}/config/`. The API respects this system via the optional `X-Grav-Environment` header.
+
+```bash
+# Explicitly target an environment
+curl -H "X-Grav-Environment: mysite.com" -H "X-API-Key: ..." https://yoursite.com/api/v1/pages
+```
+
+If the header is omitted, the API defaults to Grav's auto-detected environment (derived from the hostname). When the header specifies a different environment, Grav reinitializes its config and cache context for that environment before processing the request.
+
+**Discover available environments:**
+
+```bash
+curl -H "X-API-Key: ..." https://yoursite.com/api/v1/system/environments
+```
+
+Returns the current environment and all environment-specific overrides found in `user/env/`:
+
+```json
+{
+  "data": {
+    "current": "localhost",
+    "environments": [
+      {"name": "default", "active": true},
+      {"name": "mysite.com", "active": false}
+    ]
+  }
+}
+```
+
 ## Authentication
 
 The API supports three authentication methods. All three provide the same level of access — the authenticated user's permissions apply regardless of which method is used. When a request is received, the API tries each method in order until one succeeds.
@@ -230,6 +261,7 @@ curl -X PATCH https://yoursite.com/api/v1/config/plugins/markdown \
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
+| `GET` | `/system/environments` | List available environments |
 | `GET` | `/system/info` | System information |
 | `DELETE` | `/cache` | Clear cache |
 | `GET` | `/system/logs` | Read logs |

@@ -153,6 +153,7 @@ form:
         - Content-Type
         - Authorization
         - X-API-Key
+        - X-Grav-Environment
         - If-Match
         - If-None-Match
       value_only: true

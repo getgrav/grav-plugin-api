@@ -373,7 +373,13 @@ class PagesController extends AbstractApiController
         $this->requirePermission($request, self::PERMISSION_READ);
         $this->enablePages();
 
-        $taxonomy = $this->grav['taxonomy']->taxonomy();
+        $raw = $this->grav['taxonomy']->taxonomy();
+
+        // Simplify: return just taxonomy type => [values] without internal file paths
+        $taxonomy = [];
+        foreach ($raw as $type => $values) {
+            $taxonomy[$type] = array_keys($values);
+        }
 
         return ApiResponse::create($taxonomy);
     }
@@ -383,21 +389,19 @@ class PagesController extends AbstractApiController
     // -------------------------------------------------------------------------
 
     /**
-     * Enable the Pages subsystem. Required before accessing pages in admin context.
+     * Enable the Pages subsystem. API disables pages on init for performance,
+     * so we re-enable when page endpoints are actually called.
      */
     private function enablePages(bool $forceReinit = false): void
     {
+        $pages = $this->grav['pages'];
+
         if ($forceReinit) {
-            $this->grav['pages']->reset();
+            $pages->reset();
         }
 
-        /** @var \Grav\Plugin\Admin\Admin|null $admin */
-        $admin = $this->grav['admin'] ?? null;
-        if ($admin) {
-            $admin::enablePages();
-        }
-
-        $this->grav['pages']->init();
+        // Pages::enablePages() flips the flag and calls init()
+        $pages->enablePages();
     }
 
     /**
