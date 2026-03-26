@@ -12,10 +12,14 @@ use Grav\Common\Processors\ProcessorBase;
 use Grav\Framework\Psr7\Response;
 use Grav\Plugin\Api\Controllers\AuthController;
 use Grav\Plugin\Api\Controllers\ConfigController;
+use Grav\Plugin\Api\Controllers\DashboardController;
+use Grav\Plugin\Api\Controllers\GpmController;
 use Grav\Plugin\Api\Controllers\MediaController;
+use Grav\Plugin\Api\Controllers\SchedulerController;
 use Grav\Plugin\Api\Controllers\PagesController;
 use Grav\Plugin\Api\Controllers\SystemController;
 use Grav\Plugin\Api\Controllers\UsersController;
+use Grav\Plugin\Api\Controllers\WebhookController;
 use Grav\Plugin\Api\Exceptions\ApiException;
 use Grav\Plugin\Api\Middleware\AuthMiddleware;
 use Grav\Plugin\Api\Middleware\CorsMiddleware;
@@ -169,9 +173,16 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('POST', '/auth/refresh', [AuthController::class, 'refresh']);
         $r->addRoute('POST', '/auth/revoke', [AuthController::class, 'revoke']);
 
+        // Languages
+        $r->addRoute('GET', '/languages', [PagesController::class, 'siteLanguages']);
+
         // Pages
         $r->addRoute('GET', '/pages', [PagesController::class, 'index']);
         $r->addRoute('POST', '/pages', [PagesController::class, 'create']);
+        $r->addRoute('POST', '/pages/batch', [PagesController::class, 'batch']);
+        $r->addRoute('GET', '/pages/{route:.+}/languages', [PagesController::class, 'languages']);
+        $r->addRoute('POST', '/pages/{route:.+}/translate', [PagesController::class, 'translate']);
+        $r->addRoute('POST', '/pages/{route:.+}/reorder', [PagesController::class, 'reorder']);
         $r->addRoute('GET', '/pages/{route:.+}/media', [MediaController::class, 'pageMedia']);
         $r->addRoute('POST', '/pages/{route:.+}/media', [MediaController::class, 'uploadPageMedia']);
         $r->addRoute('DELETE', '/pages/{route:.+}/media/{filename}', [MediaController::class, 'deletePageMedia']);
@@ -202,6 +213,45 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('GET', '/users/{username}/api-keys', [UsersController::class, 'apiKeys']);
         $r->addRoute('POST', '/users/{username}/api-keys', [UsersController::class, 'createApiKey']);
         $r->addRoute('DELETE', '/users/{username}/api-keys/{keyId}', [UsersController::class, 'deleteApiKey']);
+
+        // GPM (Package Manager)
+        $r->addRoute('GET', '/gpm/plugins', [GpmController::class, 'plugins']);
+        $r->addRoute('GET', '/gpm/plugins/{slug}', [GpmController::class, 'plugin']);
+        $r->addRoute('GET', '/gpm/themes', [GpmController::class, 'themes']);
+        $r->addRoute('GET', '/gpm/themes/{slug}', [GpmController::class, 'theme']);
+        $r->addRoute('GET', '/gpm/updates', [GpmController::class, 'updates']);
+        $r->addRoute('POST', '/gpm/install', [GpmController::class, 'install']);
+        $r->addRoute('POST', '/gpm/remove', [GpmController::class, 'remove']);
+        $r->addRoute('POST', '/gpm/update', [GpmController::class, 'update']);
+        $r->addRoute('POST', '/gpm/update-all', [GpmController::class, 'updateAll']);
+        $r->addRoute('POST', '/gpm/upgrade', [GpmController::class, 'upgrade']);
+        $r->addRoute('POST', '/gpm/direct-install', [GpmController::class, 'directInstall']);
+        $r->addRoute('GET', '/gpm/search', [GpmController::class, 'search']);
+        $r->addRoute('GET', '/gpm/repository/plugins', [GpmController::class, 'repositoryPlugins']);
+        $r->addRoute('GET', '/gpm/repository/themes', [GpmController::class, 'repositoryThemes']);
+        $r->addRoute('GET', '/gpm/repository/{slug}', [GpmController::class, 'repositoryPackage']);
+
+        // Dashboard
+        $r->addRoute('GET', '/dashboard/notifications', [DashboardController::class, 'notifications']);
+        $r->addRoute('POST', '/dashboard/notifications/{id}/hide', [DashboardController::class, 'hideNotification']);
+        $r->addRoute('GET', '/dashboard/feed', [DashboardController::class, 'feed']);
+        $r->addRoute('GET', '/dashboard/stats', [DashboardController::class, 'stats']);
+
+        // Scheduler & Reports
+        $r->addRoute('GET', '/scheduler/jobs', [SchedulerController::class, 'jobs']);
+        $r->addRoute('GET', '/scheduler/status', [SchedulerController::class, 'status']);
+        $r->addRoute('GET', '/scheduler/history', [SchedulerController::class, 'history']);
+        $r->addRoute('POST', '/scheduler/run', [SchedulerController::class, 'run']);
+        $r->addRoute('GET', '/reports', [SchedulerController::class, 'reports']);
+
+        // Webhooks
+        $r->addRoute('GET', '/webhooks', [WebhookController::class, 'index']);
+        $r->addRoute('POST', '/webhooks', [WebhookController::class, 'create']);
+        $r->addRoute('GET', '/webhooks/{id}', [WebhookController::class, 'show']);
+        $r->addRoute('PATCH', '/webhooks/{id}', [WebhookController::class, 'update']);
+        $r->addRoute('DELETE', '/webhooks/{id}', [WebhookController::class, 'delete']);
+        $r->addRoute('GET', '/webhooks/{id}/deliveries', [WebhookController::class, 'deliveries']);
+        $r->addRoute('POST', '/webhooks/{id}/test', [WebhookController::class, 'test']);
 
         // System
         $r->addRoute('GET', '/system/environments', [SystemController::class, 'environments']);

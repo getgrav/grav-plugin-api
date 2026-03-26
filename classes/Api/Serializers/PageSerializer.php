@@ -19,11 +19,14 @@ class PageSerializer implements SerializerInterface
         $childrenDepth = $options['children_depth'] ?? 1;
         $includeMedia = $options['include_media'] ?? true;
 
+        $includeTranslations = $options['include_translations'] ?? false;
+
         $data = [
             'route' => $resource->route(),
             'slug' => $resource->slug(),
             'title' => $resource->title(),
             'template' => $resource->template(),
+            'language' => $resource->language(),
             'header' => $this->serializeHeader($resource->header()),
             'taxonomy' => $resource->taxonomy(),
             'published' => $resource->published(),
@@ -33,6 +36,11 @@ class PageSerializer implements SerializerInterface
             'modified' => $this->formatTimestamp($resource->modified()),
             'order' => $resource->order(),
         ];
+
+        if ($includeTranslations) {
+            $data['translated_languages'] = $resource->translatedLanguages();
+            $data['untranslated_languages'] = $resource->untranslatedLanguages();
+        }
 
         if ($includeContent) {
             $data['content'] = $resource->rawMarkdown();

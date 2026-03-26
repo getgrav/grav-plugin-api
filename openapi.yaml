@@ -110,6 +110,16 @@ tags:
     description: User account and API key management.
   - name: System
     description: System information, cache management, logs, and backups.
+  - name: Languages
+    description: Site language configuration and page translations.
+  - name: GPM
+    description: Package management -- install, remove, update plugins, themes, and Grav core.
+  - name: Scheduler
+    description: Job scheduling, status, and execution history.
+  - name: Dashboard
+    description: Notifications, news feed, and statistics.
+  - name: Webhooks
+    description: Outbound webhook configuration and delivery management.
 
 security:
   - bearerAuth: []
@@ -261,6 +271,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/page"
         - $ref: "#/components/parameters/per_page"
+        - $ref: "#/components/parameters/lang"
         - name: sort
           in: query
           description: |
@@ -364,7 +375,8 @@ paths:
       description: |
         Create a new page at the given route. The parent page must already
         exist (except when creating top-level pages). Supply an optional
-        `order` to create an ordered (visible) page.
+        `order` to create an ordered (visible) page. Include `lang` in the
+        body to create the page in a specific language.
       requestBody:
         required: true
         content:
@@ -423,6 +435,7 @@ paths:
         concurrency on subsequent PATCH requests.
       parameters:
         - $ref: "#/components/parameters/pageRoute"
+        - $ref: "#/components/parameters/lang"
         - name: render
           in: query
           description: When `true`, include the rendered HTML in `content_html`.
@@ -442,6 +455,14 @@ paths:
             type: integer
             minimum: 1
             default: 1
+        - name: translations
+          in: query
+          description: |
+            When `true`, include `translated_languages` and `untranslated_languages`
+            arrays in the response.
+          schema:
+            type: boolean
+            default: false
       responses:
         "200":
           description: Page returned successfully.
@@ -477,6 +498,7 @@ paths:
         the resource has been modified since the client last fetched it.
       parameters:
         - $ref: "#/components/parameters/pageRoute"
+        - $ref: "#/components/parameters/lang"
         - $ref: "#/components/parameters/ifMatch"
       requestBody:
         required: true
@@ -530,6 +552,7 @@ paths:
         page that has children (a 422 error will be returned instead).
       parameters:
         - $ref: "#/components/parameters/pageRoute"
+        - $ref: "#/components/parameters/lang"
         - name: children
           in: query
           description: |
@@ -637,6 +660,260 @@ paths:
                 properties:
                   data:
                     $ref: "#/components/schemas/Page"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /pages/{route}/languages:
+    get:
+      operationId: listPageTranslations
+      tags: [Pages]
+      summary: List translations for a page
+      description: |
+        Return the list of languages the page has been translated into and
+        those still missing. Useful for building translation management UIs.
+      parameters:
+        - $ref: "#/components/parameters/pageRoute"
+      responses:
+        "200":
+          description: Translation status for the page.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/TranslationInfo"
+              example:
+                data:
+                  route: /blog/my-first-post
+                  default_language: en
+                  translated:
+                    en:
+                      title: My First Post
+                      last_modified: "2026-03-22T09:30:00+00:00"
+                    fr:
+                      title: Mon Premier Article
+                      last_modified: "2026-03-23T11:00:00+00:00"
+                  untranslated:
+                    - de
+                    - es
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /pages/{route}/translate:
+    post:
+      operationId: createPageTranslation
+      tags: [Pages]
+      summary: Create a translation for a page
+      description: |
+        Create a new language translation for an existing page. The `lang`
+        field specifies the target language code. If a translation already
+        exists for that language, a `409 Conflict` is returned.
+      parameters:
+        - $ref: "#/components/parameters/pageRoute"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lang]
+              properties:
+                lang:
+                  type: string
+                  description: Two-letter language code for the translation.
+                  example: fr
+                title:
+                  type: string
+                  description: Page title in the target language.
+                  example: Mon Premier Article
+                content:
+                  type: string
+                  description: Raw Markdown body in the target language.
+                  example: |
+                    # Bonjour le Monde
+
+                    Ceci est le corps de l'article.
+                header:
+                  type: object
+                  additionalProperties: true
+                  description: Additional frontmatter fields for the translation.
+            example:
+              lang: fr
+              title: Mon Premier Article
+              content: |
+                # Bonjour le Monde
+
+                Ceci est le corps de l'article.
+      responses:
+        "201":
+          description: Translation created successfully.
+          headers:
+            Location:
+              description: URL of the page in the new language.
+              schema:
+                type: string
+                example: /api/v1/pages/blog/my-first-post?lang=fr
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Page"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /pages/batch:
+    post:
+      operationId: batchPages
+      tags: [Pages]
+      summary: Batch operations on multiple pages
+      description: |
+        Apply the same operation to multiple pages at once. Supported
+        operations are `publish`, `unpublish`, `delete`, and `copy`. Each
+        route is processed independently; partial failures are reported in
+        the results array.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [operation, routes]
+              properties:
+                operation:
+                  type: string
+                  enum: [publish, unpublish, delete, copy]
+                  description: The operation to apply to all specified pages.
+                  example: publish
+                routes:
+                  type: array
+                  items:
+                    type: string
+                  description: Array of page routes to operate on.
+                  example: [/blog/draft-one, /blog/draft-two]
+                options:
+                  type: object
+                  additionalProperties: true
+                  description: |
+                    Optional parameters for the operation. For `copy`, you may
+                    provide `{parent: "/target"}` to copy all pages under a
+                    new parent.
+            example:
+              operation: publish
+              routes:
+                - /blog/draft-one
+                - /blog/draft-two
+      responses:
+        "200":
+          description: Batch operation completed. Check individual results for status.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/BatchResult"
+              example:
+                data:
+                  - route: /blog/draft-one
+                    status: success
+                  - route: /blog/draft-two
+                    status: success
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /pages/{route}/reorder:
+    post:
+      operationId: reorderPages
+      tags: [Pages]
+      summary: Reorder children of a page
+      description: |
+        Set the ordering of child pages under the specified parent route.
+        The `order` array must contain the slugs of all immediate children
+        in the desired order. Children not listed retain their current
+        position.
+      parameters:
+        - $ref: "#/components/parameters/pageRoute"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [order]
+              properties:
+                order:
+                  type: array
+                  items:
+                    type: string
+                  description: Ordered list of child slugs.
+                  example: [third-post, first-post, second-post]
+            example:
+              order:
+                - third-post
+                - first-post
+                - second-post
+      responses:
+        "200":
+          description: Children reordered successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PageSummary"
+              example:
+                data:
+                  - route: /blog/third-post
+                    slug: third-post
+                    title: Third Post
+                    template: blog
+                    header: {}
+                    taxonomy: {}
+                    published: true
+                    visible: true
+                    routable: true
+                    date: "2026-03-20T12:00:00+00:00"
+                    modified: "2026-03-22T09:30:00+00:00"
+                    order: 1
+                    language: en
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1547,6 +1824,1446 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  # ---------------------------------------------------------------------------
+  # Languages
+  # ---------------------------------------------------------------------------
+  /languages:
+    get:
+      operationId: listLanguages
+      tags: [Languages]
+      summary: List configured site languages
+      description: |
+        Return the language configuration for the site, including which
+        languages are enabled, the default language, and which language is
+        currently active based on the request context.
+      responses:
+        "200":
+          description: Language configuration returned successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/LanguageInfo"
+              example:
+                data:
+                  enabled: true
+                  languages:
+                    - en
+                    - fr
+                    - de
+                  default: en
+                  active: en
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  # ---------------------------------------------------------------------------
+  # GPM
+  # ---------------------------------------------------------------------------
+  /gpm/plugins:
+    get:
+      operationId: listInstalledPlugins
+      tags: [GPM]
+      summary: List installed plugins
+      description: |
+        Return a list of all installed plugins with their version, enabled
+        state, and whether an update is available.
+      responses:
+        "200":
+          description: List of installed plugins.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Package"
+              example:
+                data:
+                  - slug: api
+                    name: API
+                    version: 1.0.0-beta.1
+                    type: plugin
+                    enabled: true
+                    update_available: false
+                    available_version: null
+                    author: Team Grav
+                    description: RESTful API for Grav CMS.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /gpm/plugins/{slug}:
+    get:
+      operationId: getInstalledPlugin
+      tags: [GPM]
+      summary: Get installed plugin details
+      description: |
+        Return detailed information about a specific installed plugin
+        including its configuration blueprint, README, and changelog.
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          description: Plugin slug (e.g. `admin`, `api`).
+          schema:
+            type: string
+          example: api
+      responses:
+        "200":
+          description: Plugin details returned successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Package"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /gpm/themes:
+    get:
+      operationId: listInstalledThemes
+      tags: [GPM]
+      summary: List installed themes
+      description: |
+        Return a list of all installed themes with their version, active
+        state, and whether an update is available.
+      responses:
+        "200":
+          description: List of installed themes.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Package"
+              example:
+                data:
+                  - slug: quark
+                    name: Quark
+                    version: 2.0.4
+                    type: theme
+                    enabled: true
+                    update_available: false
+                    available_version: null
+                    author: Team Grav
+                    description: Quark is the default theme for Grav CMS.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /gpm/themes/{slug}:
+    get:
+      operationId: getInstalledTheme
+      tags: [GPM]
+      summary: Get installed theme details
+      description: |
+        Return detailed information about a specific installed theme
+        including its configuration blueprint and README.
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          description: Theme slug (e.g. `quark`).
+          schema:
+            type: string
+          example: quark
+      responses:
+        "200":
+          description: Theme details returned successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Package"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /gpm/updates:
+    get:
+      operationId: checkUpdates
+      tags: [GPM]
+      summary: Check for updates
+      description: |
+        Check the GPM repository for available updates to Grav core,
+        installed plugins, and installed themes.
+      responses:
+        "200":
+          description: Update check completed.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      grav:
+                        type: object
+                        nullable: true
+                        description: Grav core update info, or `null` if up to date.
+                        properties:
+                          current:
+                            type: string
+                            example: 1.7.48
+                          available:
+                            type: string
+                            example: 1.7.49
+                      plugins:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            slug:
+                              type: string
+                              example: admin
+                            current:
+                              type: string
+                              example: 1.10.44
+                            available:
+                              type: string
+                              example: 1.10.45
+                      themes:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            slug:
+                              type: string
+                              example: quark
+                            current:
+                              type: string
+                              example: 2.0.4
+                            available:
+                              type: string
+                              example: 2.0.5
+                      total:
+                        type: integer
+                        description: Total number of available updates.
+                        example: 3
+                      installed:
+                        type: object
+                        properties:
+                          plugins:
+                            type: integer
+                            example: 12
+                          themes:
+                            type: integer
+                            example: 2
+              example:
+                data:
+                  grav:
+                    current: 1.7.48
+                    available: 1.7.49
+                  plugins:
+                    - slug: admin
+                      current: 1.10.44
+                      available: 1.10.45
+                  themes: []
+                  total: 2
+                  installed:
+                    plugins: 12
+                    themes: 2
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /gpm/install:
+    post:
+      operationId: installPackage
+      tags: [GPM]
+      summary: Install a package
+      description: |
+        Install a plugin or theme from the GPM repository. Requires
+        `api.gpm.write` permission.
+
+        For premium packages, include a `license` field or ensure the license
+        has already been registered via the license-manager plugin/API.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [package, type]
+              properties:
+                package:
+                  type: string
+                  description: Package slug to install.
+                  example: shortcode-core
+                type:
+                  type: string
+                  enum: [plugin, theme]
+                  description: Package type.
+                  example: plugin
+                license:
+                  type: string
+                  description: |
+                    License key for premium packages. Format: `XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX`.
+                    If omitted, the system checks `user://data/licenses.yaml` for an existing license.
+                  example: A1B2C3D4-E5F6A7B8-C9D0E1F2-A3B4C5D6
+            example:
+              package: shortcode-core
+              type: plugin
+      responses:
+        "200":
+          description: Package installed successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Package"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /gpm/remove:
+    post:
+      operationId: removePackage
+      tags: [GPM]
+      summary: Remove a package
+      description: |
+        Remove an installed plugin or theme. Requires super admin
+        permissions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [package]
+              properties:
+                package:
+                  type: string
+                  description: Package slug to remove.
+                  example: shortcode-core
+            example:
+              package: shortcode-core
+      responses:
+        "200":
+          description: Package removed successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      package:
+                        type: string
+                        example: shortcode-core
+                      message:
+                        type: string
+                        example: Plugin shortcode-core removed successfully.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /gpm/update:
+    post:
+      operationId: updatePackage
+      tags: [GPM]
+      summary: Update a package
+      description: |
+        Update a single installed plugin or theme to the latest version.
+        Requires super admin permissions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [package]
+              properties:
+                package:
+                  type: string
+                  description: Package slug to update.
+                  example: admin
+            example:
+              package: admin
+      responses:
+        "200":
+          description: Package updated successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Package"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /gpm/update-all:
+    post:
+      operationId: updateAllPackages
+      tags: [GPM]
+      summary: Update all packages
+      description: |
+        Update all installed plugins and themes that have available updates.
+        Requires super admin permissions.
+      responses:
+        "200":
+          description: All packages updated.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      updated:
+                        type: array
+                        items:
+                          type: string
+                        description: Slugs of packages that were updated.
+                        example: [admin, form, email]
+                      failed:
+                        type: array
+                        items:
+                          type: string
+                        description: Slugs of packages that failed to update.
+                        example: []
+                      total:
+                        type: integer
+                        example: 3
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /gpm/upgrade:
+    post:
+      operationId: upgradeGrav
+      tags: [GPM]
+      summary: Self-upgrade Grav core
+      description: |
+        Upgrade Grav to the latest available version. Requires super admin
+        permissions.
+      responses:
+        "200":
+          description: Grav upgraded successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      previous_version:
+                        type: string
+                        example: 1.7.48
+                      current_version:
+                        type: string
+                        example: 1.7.49
+                      message:
+                        type: string
+                        example: Grav upgraded successfully to 1.7.49.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /gpm/direct-install:
+    post:
+      operationId: directInstallPackage
+      tags: [GPM]
+      summary: Install from URL or file upload
+      description: |
+        Install a plugin or theme directly from a URL or an uploaded ZIP
+        file. This bypasses the GPM repository and allows installing custom
+        or development packages. Requires super admin permissions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url:
+                  type: string
+                  format: uri
+                  description: URL pointing to a ZIP archive of the package.
+                  example: https://github.com/user/grav-plugin-custom/archive/main.zip
+            example:
+              url: https://github.com/user/grav-plugin-custom/archive/main.zip
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: ZIP archive to install.
+      responses:
+        "200":
+          description: Package installed from direct source.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      package:
+                        type: string
+                        example: custom-plugin
+                      type:
+                        type: string
+                        example: plugin
+                      message:
+                        type: string
+                        example: Package installed successfully from URL.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /gpm/search:
+    get:
+      operationId: searchPackages
+      tags: [GPM]
+      summary: Search GPM repository
+      description: |
+        Search across all plugins and themes in the GPM repository by keyword.
+        Matches against slug, name, description, author, and keywords.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Search query string.
+          schema:
+            type: string
+          example: email
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/per_page"
+      responses:
+        "200":
+          description: Paginated search results across plugins and themes.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PaginatedEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Package"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /gpm/repository/plugins:
+    get:
+      operationId: browseRepositoryPlugins
+      tags: [GPM]
+      summary: Browse available plugins
+      description: |
+        Return a paginated list of plugins available in the GPM repository.
+        Includes metadata about each package and whether it is already
+        installed. Use the `q` parameter to filter by keyword.
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: Filter by keyword (matches slug, name, description, author, keywords).
+          schema:
+            type: string
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/per_page"
+      responses:
+        "200":
+          description: Paginated list of available plugins.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PaginatedEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Package"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /gpm/repository/themes:
+    get:
+      operationId: browseRepositoryThemes
+      tags: [GPM]
+      summary: Browse available themes
+      description: |
+        Return a paginated list of themes available in the GPM repository.
+        Includes metadata about each theme and whether it is already
+        installed. Use the `q` parameter to filter by keyword.
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: Filter by keyword (matches slug, name, description, author, keywords).
+          schema:
+            type: string
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/per_page"
+      responses:
+        "200":
+          description: Paginated list of available themes.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PaginatedEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Package"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /gpm/repository/{slug}:
+    get:
+      operationId: getRepositoryPackage
+      tags: [GPM]
+      summary: Get repository package details
+      description: |
+        Return detailed information about a package available in the GPM
+        repository, including its README, changelog, and screenshots.
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          description: Package slug in the repository.
+          schema:
+            type: string
+          example: admin
+      responses:
+        "200":
+          description: Repository package details returned successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Package"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  # ---------------------------------------------------------------------------
+  # Scheduler
+  # ---------------------------------------------------------------------------
+  /scheduler/jobs:
+    get:
+      operationId: listSchedulerJobs
+      tags: [Scheduler]
+      summary: List scheduler jobs
+      description: |
+        Return all configured scheduler jobs with their cron expressions,
+        enabled state, last run time, and error status.
+      responses:
+        "200":
+          description: List of scheduler jobs.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Job"
+              example:
+                data:
+                  - id: default-site-backup
+                    command: Grav\Common\Backup\Backups::backup
+                    expression: "0 3 * * *"
+                    enabled: true
+                    status: success
+                    last_run: "2026-03-26T03:00:00+00:00"
+                    error: null
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /scheduler/status:
+    get:
+      operationId: getSchedulerStatus
+      tags: [Scheduler]
+      summary: Get cron status
+      description: |
+        Return the current status of the system cron integration, including
+        whether the cron tab entry is properly installed and the commands
+        used.
+      responses:
+        "200":
+          description: Scheduler status returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      crontab_status:
+                        type: string
+                        description: Whether the crontab entry is installed.
+                        enum: [installed, not_installed, error]
+                        example: installed
+                      cron_command:
+                        type: string
+                        description: The cron command as it should appear in the crontab.
+                        example: "* * * * * cd /var/www/grav && bin/grav scheduler 1>> /dev/null 2>&1"
+                      scheduler_command:
+                        type: string
+                        description: The Grav scheduler CLI command.
+                        example: bin/grav scheduler
+                      whoami:
+                        type: string
+                        description: System user running the cron process.
+                        example: www-data
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /scheduler/history:
+    get:
+      operationId: getSchedulerHistory
+      tags: [Scheduler]
+      summary: Get job execution history
+      description: |
+        Return a paginated list of past scheduler job runs, ordered by
+        execution time (newest first).
+      parameters:
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/per_page"
+      responses:
+        "200":
+          description: Paginated job execution history.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PaginatedEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              example: default-site-backup
+                            command:
+                              type: string
+                              example: Grav\Common\Backup\Backups::backup
+                            started:
+                              type: string
+                              format: date-time
+                              example: "2026-03-26T03:00:00+00:00"
+                            completed:
+                              type: string
+                              format: date-time
+                              example: "2026-03-26T03:00:45+00:00"
+                            status:
+                              type: string
+                              enum: [success, error]
+                              example: success
+                            output:
+                              type: string
+                              nullable: true
+                              example: Backup created successfully.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /scheduler/run:
+    post:
+      operationId: triggerSchedulerRun
+      tags: [Scheduler]
+      summary: Trigger a scheduler run
+      description: |
+        Trigger the scheduler to process all due jobs immediately. Optionally
+        force all jobs to run regardless of their schedule. Requires super
+        admin permissions.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                force:
+                  type: boolean
+                  description: When `true`, run all jobs regardless of schedule.
+                  default: false
+            example:
+              force: false
+      responses:
+        "200":
+          description: Scheduler run completed.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      jobs_run:
+                        type: integer
+                        description: Number of jobs that were executed.
+                        example: 2
+                      results:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              example: default-site-backup
+                            status:
+                              type: string
+                              enum: [success, error, skipped]
+                              example: success
+                            message:
+                              type: string
+                              nullable: true
+                              example: null
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /reports:
+    get:
+      operationId: getSystemReports
+      tags: [Scheduler]
+      summary: Get system reports
+      description: |
+        Return a system health report including PHP info, Grav status, disk
+        usage, plugin health, and cache status.
+      responses:
+        "200":
+          description: System reports returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      php:
+                        type: object
+                        description: PHP runtime details and extension status.
+                        additionalProperties: true
+                      grav:
+                        type: object
+                        description: Grav version and health info.
+                        additionalProperties: true
+                      disk:
+                        type: object
+                        description: Disk usage information.
+                        properties:
+                          total:
+                            type: integer
+                            description: Total disk space in bytes.
+                            example: 53687091200
+                          free:
+                            type: integer
+                            description: Free disk space in bytes.
+                            example: 21474836480
+                          used_percent:
+                            type: number
+                            format: float
+                            example: 60.0
+                      plugins:
+                        type: object
+                        description: Plugin health summary.
+                        additionalProperties: true
+                      cache:
+                        type: object
+                        description: Cache driver and status.
+                        additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  # ---------------------------------------------------------------------------
+  # Dashboard
+  # ---------------------------------------------------------------------------
+  /dashboard/notifications:
+    get:
+      operationId: getDashboardNotifications
+      tags: [Dashboard]
+      summary: Get notifications
+      description: |
+        Return current notifications for the dashboard. Notifications may
+        come from Grav core, plugin updates, or security advisories.
+      parameters:
+        - name: location
+          in: query
+          description: Filter notifications by location (e.g. `dashboard`, `plugins`).
+          schema:
+            type: string
+          example: dashboard
+        - name: force
+          in: query
+          description: When `true`, bypass the notification cache and fetch fresh data.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Notifications returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Notification"
+              example:
+                data:
+                  - id: grav-update-1.7.49
+                    type: info
+                    message: Grav 1.7.49 is now available.
+                    date: "2026-03-25T10:00:00+00:00"
+                    location: dashboard
+                    link: https://getgrav.org/blog/grav-1.7.49
+                    read: false
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /dashboard/notifications/{id}/hide:
+    post:
+      operationId: hideNotification
+      tags: [Dashboard]
+      summary: Dismiss a notification
+      description: |
+        Mark a notification as hidden/dismissed so it no longer appears in
+        the dashboard feed.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Notification ID.
+          schema:
+            type: string
+          example: grav-update-1.7.49
+      responses:
+        "200":
+          description: Notification dismissed.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        example: grav-update-1.7.49
+                      hidden:
+                        type: boolean
+                        example: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /dashboard/feed:
+    get:
+      operationId: getDashboardFeed
+      tags: [Dashboard]
+      summary: Get news feed
+      description: |
+        Return the latest news feed items from the Grav blog and community.
+      parameters:
+        - name: force
+          in: query
+          description: When `true`, bypass the feed cache and fetch fresh data.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Feed items returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FeedItem"
+              example:
+                data:
+                  - title: Grav 1.7.49 Released
+                    url: https://getgrav.org/blog/grav-1.7.49
+                    date: "2026-03-25T10:00:00+00:00"
+                    excerpt: This release includes performance improvements and bug fixes.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /dashboard/stats:
+    get:
+      operationId: getDashboardStats
+      tags: [Dashboard]
+      summary: Get statistics snapshot
+      description: |
+        Return a summary of site statistics suitable for rendering a
+        dashboard overview.
+      responses:
+        "200":
+          description: Dashboard stats returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/DashboardStats"
+              example:
+                data:
+                  pages: 42
+                  users: 5
+                  plugins: 12
+                  theme: quark
+                  grav_version: 1.7.49
+                  php_version: 8.3.14
+                  last_backup: "2026-03-26T03:00:00+00:00"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  # ---------------------------------------------------------------------------
+  # Webhooks
+  # ---------------------------------------------------------------------------
+  /webhooks:
+    get:
+      operationId: listWebhooks
+      tags: [Webhooks]
+      summary: List webhooks
+      description: |
+        Return all configured outbound webhooks with their event
+        subscriptions and enabled state.
+      responses:
+        "200":
+          description: List of webhooks.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Webhook"
+              example:
+                data:
+                  - id: wh_abc123
+                    url: https://example.com/hooks/grav
+                    events:
+                      - pages.created
+                      - pages.updated
+                    enabled: true
+                    headers: {}
+                    created: "2026-03-20T12:00:00+00:00"
+                    last_delivery: "2026-03-25T14:30:00+00:00"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+    post:
+      operationId: createWebhook
+      tags: [Webhooks]
+      summary: Create a webhook
+      description: |
+        Register a new outbound webhook. The response includes a
+        `secret` field that can be used to verify delivery signatures.
+        The secret is only returned once at creation time.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url:
+                  type: string
+                  format: uri
+                  description: Destination URL for webhook deliveries.
+                  example: https://example.com/hooks/grav
+                events:
+                  type: array
+                  items:
+                    type: string
+                  description: |
+                    Event types to subscribe to. If empty or omitted, the
+                    webhook receives all events.
+                  example: [pages.created, pages.updated, pages.deleted]
+                enabled:
+                  type: boolean
+                  description: Whether the webhook is active.
+                  default: true
+                headers:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  description: Custom HTTP headers to include in deliveries.
+                  example: {}
+            example:
+              url: https://example.com/hooks/grav
+              events: [pages.created, pages.updated]
+              enabled: true
+      responses:
+        "201":
+          description: Webhook created. The `secret` is returned only once.
+          headers:
+            Location:
+              description: URL of the newly created webhook resource.
+              schema:
+                type: string
+                example: /api/v1/webhooks/wh_abc123
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    allOf:
+                      - $ref: "#/components/schemas/Webhook"
+                      - type: object
+                        properties:
+                          secret:
+                            type: string
+                            description: |
+                              HMAC secret for verifying delivery signatures.
+                              Store it securely -- it is shown only once.
+                            example: whsec_a1b2c3d4e5f6g7h8i9j0
+              example:
+                data:
+                  id: wh_abc123
+                  url: https://example.com/hooks/grav
+                  events: [pages.created, pages.updated]
+                  enabled: true
+                  headers: {}
+                  created: "2026-03-26T12:00:00+00:00"
+                  last_delivery: null
+                  secret: whsec_a1b2c3d4e5f6g7h8i9j0
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /webhooks/{id}:
+    get:
+      operationId: getWebhook
+      tags: [Webhooks]
+      summary: Get a webhook
+      description: Retrieve a single webhook by its ID.
+      parameters:
+        - $ref: "#/components/parameters/webhookId"
+      responses:
+        "200":
+          description: Webhook returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Webhook"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+    patch:
+      operationId: updateWebhook
+      tags: [Webhooks]
+      summary: Update a webhook
+      description: |
+        Partially update a webhook. Only the fields included in the request
+        body are modified.
+      parameters:
+        - $ref: "#/components/parameters/webhookId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url:
+                  type: string
+                  format: uri
+                  example: https://example.com/hooks/grav-v2
+                events:
+                  type: array
+                  items:
+                    type: string
+                  example: [pages.created, pages.updated, pages.deleted]
+                enabled:
+                  type: boolean
+                  example: true
+                headers:
+                  type: object
+                  additionalProperties:
+                    type: string
+            example:
+              url: https://example.com/hooks/grav-v2
+              events: [pages.created, pages.updated, pages.deleted]
+      responses:
+        "200":
+          description: Webhook updated.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Webhook"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+    delete:
+      operationId: deleteWebhook
+      tags: [Webhooks]
+      summary: Delete a webhook
+      description: Permanently remove a webhook and all its delivery history.
+      parameters:
+        - $ref: "#/components/parameters/webhookId"
+      responses:
+        "204":
+          description: Webhook deleted. No content returned.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /webhooks/{id}/deliveries:
+    get:
+      operationId: listWebhookDeliveries
+      tags: [Webhooks]
+      summary: List webhook deliveries
+      description: |
+        Return a paginated log of deliveries for a specific webhook,
+        ordered newest first.
+      parameters:
+        - $ref: "#/components/parameters/webhookId"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/per_page"
+      responses:
+        "200":
+          description: Paginated delivery log.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PaginatedEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/WebhookDelivery"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /webhooks/{id}/test:
+    post:
+      operationId: testWebhook
+      tags: [Webhooks]
+      summary: Send a test delivery
+      description: |
+        Send a test payload to the webhook's URL to verify connectivity.
+        The test event type is `webhook.test`.
+      parameters:
+        - $ref: "#/components/parameters/webhookId"
+      responses:
+        "200":
+          description: Test delivery sent.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/WebhookDelivery"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
 # =============================================================================
 # Components
 # =============================================================================
@@ -1651,6 +3368,27 @@ components:
       schema:
         type: string
       example: '"a3f8b2c1d4e5f6a7b8c9d0e1f2a3b4c5"'
+
+    lang:
+      name: lang
+      in: query
+      required: false
+      description: |
+        Two-letter language code. When provided, the request operates on
+        the page translation for that language. If omitted, the default
+        site language is used.
+      schema:
+        type: string
+      example: en
+
+    webhookId:
+      name: id
+      in: path
+      required: true
+      description: Unique identifier of the webhook.
+      schema:
+        type: string
+      example: wh_abc123
 
     gravEnvironment:
       name: X-Grav-Environment
@@ -1882,6 +3620,26 @@ components:
             `children_depth`).
           items:
             $ref: "#/components/schemas/Page"
+        language:
+          type: string
+          description: Language code of the page content (e.g. `en`, `fr`).
+          example: en
+        translated_languages:
+          type: array
+          description: |
+            Languages this page has been translated into. Only present when
+            `translations=true` is requested.
+          items:
+            type: string
+          example: [en, fr]
+        untranslated_languages:
+          type: array
+          description: |
+            Configured languages that this page has not been translated into.
+            Only present when `translations=true` is requested.
+          items:
+            type: string
+          example: [de, es]
       required:
         - route
         - slug
@@ -1946,6 +3704,10 @@ components:
           type: integer
           nullable: true
           example: 1
+        language:
+          type: string
+          description: Language code of the page content (e.g. `en`, `fr`).
+          example: en
       required:
         - route
         - slug
@@ -2417,6 +4179,12 @@ components:
             page directory (e.g. `03.my-new-post`). When `null`, creates an
             unordered page.
           example: 3
+        lang:
+          type: string
+          description: |
+            Two-letter language code. When provided, creates the page in the
+            specified language. If omitted, uses the default site language.
+          example: en
 
     UpdatePageRequest:
       type: object
@@ -2553,3 +4321,426 @@ components:
           type: object
           additionalProperties: true
           description: Updated permission tree.
+
+    # -- Languages ------------------------------------------------------------
+    LanguageInfo:
+      type: object
+      description: Site language configuration.
+      properties:
+        enabled:
+          type: boolean
+          description: Whether multi-language support is enabled.
+          example: true
+        languages:
+          type: array
+          items:
+            type: string
+          description: List of configured language codes.
+          example: [en, fr, de]
+        default:
+          type: string
+          description: The default language code.
+          example: en
+        active:
+          type: string
+          description: The currently active language based on the request context.
+          example: en
+      required:
+        - enabled
+        - languages
+        - default
+        - active
+
+    TranslationInfo:
+      type: object
+      description: Translation status for a page across configured languages.
+      properties:
+        route:
+          type: string
+          description: The page route.
+          example: /blog/my-first-post
+        default_language:
+          type: string
+          description: The default language code.
+          example: en
+        translated:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              title:
+                type: string
+                description: Page title in that language.
+              last_modified:
+                type: string
+                format: date-time
+                description: Last modification time of the translation.
+          description: |
+            Map of language code to translation metadata for each language
+            that has a translation.
+          example:
+            en:
+              title: My First Post
+              last_modified: "2026-03-22T09:30:00+00:00"
+            fr:
+              title: Mon Premier Article
+              last_modified: "2026-03-23T11:00:00+00:00"
+        untranslated:
+          type: array
+          items:
+            type: string
+          description: Language codes that do not yet have a translation.
+          example: [de, es]
+      required:
+        - route
+        - default_language
+        - translated
+        - untranslated
+
+    # -- GPM ------------------------------------------------------------------
+    Package:
+      type: object
+      description: A Grav plugin or theme package.
+      properties:
+        slug:
+          type: string
+          description: Package slug identifier.
+          example: admin
+        name:
+          type: string
+          description: Human-readable package name.
+          example: Admin Panel
+        version:
+          type: string
+          description: Installed version, or latest available version for repository packages.
+          example: 1.10.44
+        type:
+          type: string
+          enum: [plugin, theme]
+          description: Package type.
+          example: plugin
+        enabled:
+          type: boolean
+          description: Whether the package is currently enabled.
+          example: true
+        update_available:
+          type: boolean
+          description: Whether a newer version is available in the repository.
+          example: false
+        available_version:
+          type: string
+          nullable: true
+          description: The latest available version, or `null` if up to date.
+          example: null
+        author:
+          type: string
+          description: Package author name.
+          example: Team Grav
+        description:
+          type: string
+          description: Short description of the package.
+          example: Provides an admin panel for Grav CMS.
+        homepage:
+          type: string
+          nullable: true
+          description: URL to the package homepage or repository.
+          example: https://github.com/getgrav/grav-plugin-admin
+        keywords:
+          type: array
+          items:
+            type: string
+          description: Tags or keywords associated with the package.
+          example: [admin, panel, manager]
+        installed:
+          type: boolean
+          description: Whether the package is installed locally. Used in repository listings.
+          example: true
+      required:
+        - slug
+        - name
+        - version
+        - type
+
+    # -- Scheduler ------------------------------------------------------------
+    Job:
+      type: object
+      description: A configured scheduler job.
+      properties:
+        id:
+          type: string
+          description: Unique job identifier.
+          example: default-site-backup
+        command:
+          type: string
+          description: The command or callable to execute.
+          example: Grav\Common\Backup\Backups::backup
+        expression:
+          type: string
+          description: Cron expression for the schedule.
+          example: "0 3 * * *"
+        enabled:
+          type: boolean
+          description: Whether the job is enabled.
+          example: true
+        status:
+          type: string
+          enum: [success, error, pending]
+          description: Status of the last run.
+          example: success
+        last_run:
+          type: string
+          format: date-time
+          nullable: true
+          description: Timestamp of the last execution.
+          example: "2026-03-26T03:00:00+00:00"
+        error:
+          type: string
+          nullable: true
+          description: Error message from the last run, or `null` if successful.
+          example: null
+      required:
+        - id
+        - command
+        - expression
+        - enabled
+        - status
+
+    # -- Webhooks -------------------------------------------------------------
+    Webhook:
+      type: object
+      description: An outbound webhook configuration.
+      properties:
+        id:
+          type: string
+          description: Unique webhook identifier.
+          example: wh_abc123
+        url:
+          type: string
+          format: uri
+          description: Destination URL for deliveries.
+          example: https://example.com/hooks/grav
+        events:
+          type: array
+          items:
+            type: string
+          description: Event types subscribed to. Empty means all events.
+          example: [pages.created, pages.updated]
+        enabled:
+          type: boolean
+          description: Whether the webhook is active.
+          example: true
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          description: Custom HTTP headers included in deliveries.
+          example: {}
+        created:
+          type: string
+          format: date-time
+          description: Creation timestamp.
+          example: "2026-03-20T12:00:00+00:00"
+        last_delivery:
+          type: string
+          format: date-time
+          nullable: true
+          description: Timestamp of the most recent delivery, or `null` if never delivered.
+          example: "2026-03-25T14:30:00+00:00"
+      required:
+        - id
+        - url
+        - events
+        - enabled
+        - created
+
+    WebhookDelivery:
+      type: object
+      description: A record of a single webhook delivery attempt.
+      properties:
+        id:
+          type: string
+          description: Unique delivery identifier.
+          example: del_xyz789
+        webhook_id:
+          type: string
+          description: ID of the parent webhook.
+          example: wh_abc123
+        event:
+          type: string
+          description: The event type that triggered this delivery.
+          example: pages.updated
+        url:
+          type: string
+          format: uri
+          description: The URL the payload was delivered to.
+          example: https://example.com/hooks/grav
+        request_headers:
+          type: object
+          additionalProperties:
+            type: string
+          description: HTTP headers sent with the delivery.
+        request_body:
+          type: string
+          description: JSON payload sent in the request body.
+        response_status:
+          type: integer
+          nullable: true
+          description: HTTP status code returned by the receiver, or `null` if the request failed.
+          example: 200
+        response_body:
+          type: string
+          nullable: true
+          description: Response body from the receiver (truncated to 10 KB).
+        success:
+          type: boolean
+          description: Whether the delivery was successful (2xx response).
+          example: true
+        duration_ms:
+          type: integer
+          description: Request duration in milliseconds.
+          example: 234
+        delivered_at:
+          type: string
+          format: date-time
+          description: Timestamp of the delivery attempt.
+          example: "2026-03-25T14:30:00+00:00"
+      required:
+        - id
+        - webhook_id
+        - event
+        - url
+        - success
+        - delivered_at
+
+    # -- Dashboard ------------------------------------------------------------
+    Notification:
+      type: object
+      description: A dashboard notification.
+      properties:
+        id:
+          type: string
+          description: Unique notification identifier.
+          example: grav-update-1.7.49
+        type:
+          type: string
+          enum: [info, warning, error, success]
+          description: Notification severity level.
+          example: info
+        message:
+          type: string
+          description: Notification message text.
+          example: Grav 1.7.49 is now available.
+        date:
+          type: string
+          format: date-time
+          description: When the notification was created.
+          example: "2026-03-25T10:00:00+00:00"
+        location:
+          type: string
+          description: Where the notification should appear.
+          example: dashboard
+        link:
+          type: string
+          nullable: true
+          description: Optional URL for more information.
+          example: https://getgrav.org/blog/grav-1.7.49
+        read:
+          type: boolean
+          description: Whether the notification has been read/dismissed.
+          example: false
+      required:
+        - id
+        - type
+        - message
+
+    FeedItem:
+      type: object
+      description: A news feed item from the Grav blog or community.
+      properties:
+        title:
+          type: string
+          description: Article title.
+          example: Grav 1.7.49 Released
+        url:
+          type: string
+          format: uri
+          description: URL to the full article.
+          example: https://getgrav.org/blog/grav-1.7.49
+        date:
+          type: string
+          format: date-time
+          description: Publication date.
+          example: "2026-03-25T10:00:00+00:00"
+        excerpt:
+          type: string
+          description: Short excerpt or summary.
+          example: This release includes performance improvements and bug fixes.
+      required:
+        - title
+        - url
+        - date
+
+    DashboardStats:
+      type: object
+      description: Summary statistics for the dashboard overview.
+      properties:
+        pages:
+          type: integer
+          description: Total number of pages.
+          example: 42
+        users:
+          type: integer
+          description: Total number of user accounts.
+          example: 5
+        plugins:
+          type: integer
+          description: Number of installed plugins.
+          example: 12
+        theme:
+          type: string
+          description: Currently active theme slug.
+          example: quark
+        grav_version:
+          type: string
+          description: Installed Grav version.
+          example: 1.7.49
+        php_version:
+          type: string
+          description: PHP runtime version.
+          example: 8.3.14
+        last_backup:
+          type: string
+          format: date-time
+          nullable: true
+          description: Timestamp of the most recent backup, or `null` if no backups exist.
+          example: "2026-03-26T03:00:00+00:00"
+      required:
+        - pages
+        - users
+        - plugins
+        - theme
+        - grav_version
+        - php_version
+
+    # -- Batch ----------------------------------------------------------------
+    BatchResult:
+      type: object
+      description: Result of a single operation within a batch request.
+      properties:
+        route:
+          type: string
+          description: The page route that was operated on.
+          example: /blog/draft-one
+        status:
+          type: string
+          enum: [success, error]
+          description: Whether this individual operation succeeded.
+          example: success
+        message:
+          type: string
+          nullable: true
+          description: Error message if the operation failed, or `null` on success.
+          example: null
+      required:
+        - route
+        - status

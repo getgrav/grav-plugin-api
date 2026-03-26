@@ -45,6 +45,31 @@
 			"key": "grav_environment",
 			"value": "localhost",
 			"type": "string"
+		},
+		{
+			"key": "page_route",
+			"value": "blog",
+			"type": "string"
+		},
+		{
+			"key": "lang",
+			"value": "en",
+			"type": "string"
+		},
+		{
+			"key": "package_slug",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "webhook_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "notification_id",
+			"value": "",
+			"type": "string"
 		}
 	],
 	"item": [
@@ -1896,6 +1921,1974 @@
 								"description": "Grav environment"
 							}
 						]
+					}
+				}
+			]
+		},
+		{
+			"name": "Languages",
+			"description": "Site language configuration and multi-language support.",
+			"item": [
+				{
+					"name": "List Site Languages",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const res = pm.response.json();",
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has data', () => pm.expect(res).to.have.property('data'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/languages",
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"languages"
+							]
+						},
+						"description": "List all configured site languages and their status.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
+					}
+				}
+			]
+		},
+		{
+			"name": "Pages / Multi-Language",
+			"description": "Multi-language page operations — translations, language-specific content.",
+			"item": [
+				{
+					"name": "Get Page in Language",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const res = pm.response.json();",
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has data', () => pm.expect(res).to.have.property('data'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/pages/{{page_route}}?lang={{lang}}",
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"pages",
+								"{{page_route}}"
+							],
+							"query": [
+								{
+									"key": "lang",
+									"value": "{{lang}}"
+								}
+							]
+						},
+						"description": "Get a page in a specific language.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
+					}
+				},
+				{
+					"name": "Get Page Translations",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const res = pm.response.json();",
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has data', () => pm.expect(res).to.have.property('data'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/pages/{{page_route}}/languages",
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"pages",
+								"{{page_route}}",
+								"languages"
+							]
+						},
+						"description": "List all available translations for a page.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
+					}
+				},
+				{
+					"name": "Create Translation",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status is 201', () => pm.response.to.have.status(201));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"lang\": \"fr\",\n    \"title\": \"Mon titre\",\n    \"content\": \"# Contenu\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/pages/{{page_route}}/translate",
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"pages",
+								"{{page_route}}",
+								"translate"
+							]
+						},
+						"description": "Create a new translation for a page in a specific language."
+					}
+				},
+				{
+					"name": "Update Page in Language",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"title\": \"Updated\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/pages/{{page_route}}?lang={{lang}}",
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"pages",
+								"{{page_route}}"
+							],
+							"query": [
+								{
+									"key": "lang",
+									"value": "{{lang}}"
+								}
+							]
+						},
+						"description": "Update a page in a specific language."
+					}
+				},
+				{
+					"name": "Delete Language File",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status is 204', () => pm.response.to.have.status(204));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "DELETE",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/pages/{{page_route}}?lang=fr",
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"pages",
+								"{{page_route}}"
+							],
+							"query": [
+								{
+									"key": "lang",
+									"value": "fr"
+								}
+							]
+						},
+						"description": "Delete a specific language file for a page.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
+					}
+				}
+			]
+		},
+		{
+			"name": "Pages / Batch Operations",
+			"description": "Batch page operations — reorder children, bulk publish, bulk delete.",
+			"item": [
+				{
+					"name": "Reorder Children",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"order\": [\"child-1\", \"child-2\", \"child-3\"]\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/pages/{{page_route}}/reorder",
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"pages",
+								"{{page_route}}",
+								"reorder"
+							]
+						},
+						"description": "Reorder child pages under a parent page."
+					}
+				},
+				{
+					"name": "Batch Publish",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"operation\": \"publish\",\n    \"routes\": [\"/blog/post-1\", \"/blog/post-2\"]\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/pages/batch",
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"pages",
+								"batch"
+							]
+						},
+						"description": "Batch publish multiple pages at once."
+					}
+				},
+				{
+					"name": "Batch Delete",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"operation\": \"delete\",\n    \"routes\": [\"/temp/page-1\"]\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/pages/batch",
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"pages",
+								"batch"
+							]
+						},
+						"description": "Batch delete multiple pages at once."
+					}
+				}
+			]
+		},
+		{
+			"name": "GPM",
+			"description": "Grav Package Manager — manage plugins, themes, updates, and the repository.",
+			"item": [
+				{
+					"name": "GPM / Installed",
+					"description": "List and inspect installed plugins and themes.",
+					"item": [
+						{
+							"name": "List Installed Plugins",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"const res = pm.response.json();",
+											"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+											"pm.test('Has data', () => pm.expect(res).to.have.property('data'));"
+										]
+									}
+								}
+							],
+							"request": {
+								"method": "GET",
+								"url": {
+									"raw": "{{base_url}}{{api_prefix}}/gpm/plugins",
+									"host": [
+										"{{base_url}}{{api_prefix}}"
+									],
+									"path": [
+										"gpm",
+										"plugins"
+									]
+								},
+								"description": "List all installed plugins with their versions and status.",
+								"header": [
+									{
+										"key": "X-API-Key",
+										"value": "{{api_key}}",
+										"description": "API Key authentication"
+									},
+									{
+										"key": "X-Grav-Environment",
+										"value": "{{grav_environment}}",
+										"description": "Grav environment"
+									}
+								]
+							}
+						},
+						{
+							"name": "Plugin Details",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"const res = pm.response.json();",
+											"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+											"pm.test('Has data', () => pm.expect(res).to.have.property('data'));"
+										]
+									}
+								}
+							],
+							"request": {
+								"method": "GET",
+								"url": {
+									"raw": "{{base_url}}{{api_prefix}}/gpm/plugins/{{package_slug}}",
+									"host": [
+										"{{base_url}}{{api_prefix}}"
+									],
+									"path": [
+										"gpm",
+										"plugins",
+										"{{package_slug}}"
+									]
+								},
+								"description": "Get details for a specific installed plugin.",
+								"header": [
+									{
+										"key": "X-API-Key",
+										"value": "{{api_key}}",
+										"description": "API Key authentication"
+									},
+									{
+										"key": "X-Grav-Environment",
+										"value": "{{grav_environment}}",
+										"description": "Grav environment"
+									}
+								]
+							}
+						},
+						{
+							"name": "List Installed Themes",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"const res = pm.response.json();",
+											"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+											"pm.test('Has data', () => pm.expect(res).to.have.property('data'));"
+										]
+									}
+								}
+							],
+							"request": {
+								"method": "GET",
+								"url": {
+									"raw": "{{base_url}}{{api_prefix}}/gpm/themes",
+									"host": [
+										"{{base_url}}{{api_prefix}}"
+									],
+									"path": [
+										"gpm",
+										"themes"
+									]
+								},
+								"description": "List all installed themes with their versions and status.",
+								"header": [
+									{
+										"key": "X-API-Key",
+										"value": "{{api_key}}",
+										"description": "API Key authentication"
+									},
+									{
+										"key": "X-Grav-Environment",
+										"value": "{{grav_environment}}",
+										"description": "Grav environment"
+									}
+								]
+							}
+						},
+						{
+							"name": "Theme Details",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"const res = pm.response.json();",
+											"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+											"pm.test('Has data', () => pm.expect(res).to.have.property('data'));"
+										]
+									}
+								}
+							],
+							"request": {
+								"method": "GET",
+								"url": {
+									"raw": "{{base_url}}{{api_prefix}}/gpm/themes/{{package_slug}}",
+									"host": [
+										"{{base_url}}{{api_prefix}}"
+									],
+									"path": [
+										"gpm",
+										"themes",
+										"{{package_slug}}"
+									]
+								},
+								"description": "Get details for a specific installed theme.",
+								"header": [
+									{
+										"key": "X-API-Key",
+										"value": "{{api_key}}",
+										"description": "API Key authentication"
+									},
+									{
+										"key": "X-Grav-Environment",
+										"value": "{{grav_environment}}",
+										"description": "Grav environment"
+									}
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "GPM / Updates",
+					"description": "Check for available updates.",
+					"item": [
+						{
+							"name": "Check Updates",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"const res = pm.response.json();",
+											"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+											"pm.test('Has data', () => pm.expect(res).to.have.property('data'));"
+										]
+									}
+								}
+							],
+							"request": {
+								"method": "GET",
+								"url": {
+									"raw": "{{base_url}}{{api_prefix}}/gpm/updates",
+									"host": [
+										"{{base_url}}{{api_prefix}}"
+									],
+									"path": [
+										"gpm",
+										"updates"
+									]
+								},
+								"description": "Check for available updates to plugins, themes, and Grav core.",
+								"header": [
+									{
+										"key": "X-API-Key",
+										"value": "{{api_key}}",
+										"description": "API Key authentication"
+									},
+									{
+										"key": "X-Grav-Environment",
+										"value": "{{grav_environment}}",
+										"description": "Grav environment"
+									}
+								]
+							}
+						},
+						{
+							"name": "Check Updates (flush cache)",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"const res = pm.response.json();",
+											"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+											"pm.test('Has data', () => pm.expect(res).to.have.property('data'));"
+										]
+									}
+								}
+							],
+							"request": {
+								"method": "GET",
+								"url": {
+									"raw": "{{base_url}}{{api_prefix}}/gpm/updates?flush=true",
+									"host": [
+										"{{base_url}}{{api_prefix}}"
+									],
+									"path": [
+										"gpm",
+										"updates"
+									],
+									"query": [
+										{
+											"key": "flush",
+											"value": "true"
+										}
+									]
+								},
+								"description": "Check for updates with cache flushed to get the latest information.",
+								"header": [
+									{
+										"key": "X-API-Key",
+										"value": "{{api_key}}",
+										"description": "API Key authentication"
+									},
+									{
+										"key": "X-Grav-Environment",
+										"value": "{{grav_environment}}",
+										"description": "Grav environment"
+									}
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "GPM / Install & Remove",
+					"description": "Install and remove packages.",
+					"item": [
+						{
+							"name": "Install Plugin",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('Status is 200', () => pm.response.to.have.status(200));"
+										]
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-API-Key",
+										"value": "{{api_key}}",
+										"description": "API Key authentication"
+									},
+									{
+										"key": "X-Grav-Environment",
+										"value": "{{grav_environment}}",
+										"description": "Grav environment"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"package\": \"admin\",\n    \"type\": \"plugin\"\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}{{api_prefix}}/gpm/install",
+									"host": [
+										"{{base_url}}{{api_prefix}}"
+									],
+									"path": [
+										"gpm",
+										"install"
+									]
+								},
+								"description": "Install a plugin from the GPM repository. For premium packages, add a `license` field: `\"license\": \"XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX\"`."
+							}
+						},
+						{
+							"name": "Install Theme",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('Status is 200', () => pm.response.to.have.status(200));"
+										]
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-API-Key",
+										"value": "{{api_key}}",
+										"description": "API Key authentication"
+									},
+									{
+										"key": "X-Grav-Environment",
+										"value": "{{grav_environment}}",
+										"description": "Grav environment"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"package\": \"quark\",\n    \"type\": \"theme\"\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}{{api_prefix}}/gpm/install",
+									"host": [
+										"{{base_url}}{{api_prefix}}"
+									],
+									"path": [
+										"gpm",
+										"install"
+									]
+								},
+								"description": "Install a theme from the GPM repository. For premium themes, add a `license` field: `\"license\": \"XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX\"`."
+							}
+						},
+						{
+							"name": "Remove Package",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('Status is 200', () => pm.response.to.have.status(200));"
+										]
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-API-Key",
+										"value": "{{api_key}}",
+										"description": "API Key authentication"
+									},
+									{
+										"key": "X-Grav-Environment",
+										"value": "{{grav_environment}}",
+										"description": "Grav environment"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"package\": \"some-plugin\"\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}{{api_prefix}}/gpm/remove",
+									"host": [
+										"{{base_url}}{{api_prefix}}"
+									],
+									"path": [
+										"gpm",
+										"remove"
+									]
+								},
+								"description": "Remove an installed plugin or theme."
+							}
+						},
+						{
+							"name": "Direct Install from URL",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('Status is 200', () => pm.response.to.have.status(200));"
+										]
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-API-Key",
+										"value": "{{api_key}}",
+										"description": "API Key authentication"
+									},
+									{
+										"key": "X-Grav-Environment",
+										"value": "{{grav_environment}}",
+										"description": "Grav environment"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"url\": \"https://example.com/package.zip\"\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}{{api_prefix}}/gpm/direct-install",
+									"host": [
+										"{{base_url}}{{api_prefix}}"
+									],
+									"path": [
+										"gpm",
+										"direct-install"
+									]
+								},
+								"description": "Install a package directly from a URL (zip file)."
+							}
+						}
+					]
+				},
+				{
+					"name": "GPM / Update",
+					"description": "Update packages and Grav core.",
+					"item": [
+						{
+							"name": "Update Package",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('Status is 200', () => pm.response.to.have.status(200));"
+										]
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-API-Key",
+										"value": "{{api_key}}",
+										"description": "API Key authentication"
+									},
+									{
+										"key": "X-Grav-Environment",
+										"value": "{{grav_environment}}",
+										"description": "Grav environment"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"package\": \"admin\"\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}{{api_prefix}}/gpm/update",
+									"host": [
+										"{{base_url}}{{api_prefix}}"
+									],
+									"path": [
+										"gpm",
+										"update"
+									]
+								},
+								"description": "Update a specific package to the latest version."
+							}
+						},
+						{
+							"name": "Update All",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('Status is 200', () => pm.response.to.have.status(200));"
+										]
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-API-Key",
+										"value": "{{api_key}}",
+										"description": "API Key authentication"
+									},
+									{
+										"key": "X-Grav-Environment",
+										"value": "{{grav_environment}}",
+										"description": "Grav environment"
+									}
+								],
+								"url": {
+									"raw": "{{base_url}}{{api_prefix}}/gpm/update-all",
+									"host": [
+										"{{base_url}}{{api_prefix}}"
+									],
+									"path": [
+										"gpm",
+										"update-all"
+									]
+								},
+								"description": "Update all installed packages to their latest versions."
+							}
+						},
+						{
+							"name": "Upgrade Grav",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('Status is 200', () => pm.response.to.have.status(200));"
+										]
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-API-Key",
+										"value": "{{api_key}}",
+										"description": "API Key authentication"
+									},
+									{
+										"key": "X-Grav-Environment",
+										"value": "{{grav_environment}}",
+										"description": "Grav environment"
+									}
+								],
+								"url": {
+									"raw": "{{base_url}}{{api_prefix}}/gpm/upgrade",
+									"host": [
+										"{{base_url}}{{api_prefix}}"
+									],
+									"path": [
+										"gpm",
+										"upgrade"
+									]
+								},
+								"description": "Upgrade Grav core to the latest version."
+							}
+						}
+					]
+				},
+				{
+					"name": "GPM / Repository",
+					"description": "Browse and search the GPM repository for available packages.",
+					"item": [
+						{
+							"name": "Search Packages",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"const res = pm.response.json();",
+											"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+											"pm.test('Has data', () => pm.expect(res).to.have.property('data'));"
+										]
+									}
+								}
+							],
+							"request": {
+								"method": "GET",
+								"url": {
+									"raw": "{{base_url}}{{api_prefix}}/gpm/search?q=email",
+									"host": [
+										"{{base_url}}{{api_prefix}}"
+									],
+									"path": [
+										"gpm",
+										"search"
+									],
+									"query": [
+										{
+											"key": "q",
+											"value": "email",
+											"description": "Search query (matches slug, name, description, author, keywords)"
+										}
+									]
+								},
+								"description": "Search across all plugins and themes in the GPM repository by keyword.",
+								"header": [
+									{
+										"key": "X-API-Key",
+										"value": "{{api_key}}",
+										"description": "API Key authentication"
+									},
+									{
+										"key": "X-Grav-Environment",
+										"value": "{{grav_environment}}",
+										"description": "Grav environment"
+									}
+								]
+							}
+						},
+						{
+							"name": "Browse Repository Plugins",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"const res = pm.response.json();",
+											"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+											"pm.test('Has data', () => pm.expect(res).to.have.property('data'));"
+										]
+									}
+								}
+							],
+							"request": {
+								"method": "GET",
+								"url": {
+									"raw": "{{base_url}}{{api_prefix}}/gpm/repository/plugins",
+									"host": [
+										"{{base_url}}{{api_prefix}}"
+									],
+									"path": [
+										"gpm",
+										"repository",
+										"plugins"
+									],
+									"query": [
+										{
+											"key": "q",
+											"value": "",
+											"description": "Optional keyword filter (matches slug, name, description, author, keywords)",
+											"disabled": true
+										}
+									]
+								},
+								"description": "Browse available plugins in the GPM repository. Use ?q=keyword to filter.",
+								"header": [
+									{
+										"key": "X-API-Key",
+										"value": "{{api_key}}",
+										"description": "API Key authentication"
+									},
+									{
+										"key": "X-Grav-Environment",
+										"value": "{{grav_environment}}",
+										"description": "Grav environment"
+									}
+								]
+							}
+						},
+						{
+							"name": "Browse Repository Themes",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"const res = pm.response.json();",
+											"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+											"pm.test('Has data', () => pm.expect(res).to.have.property('data'));"
+										]
+									}
+								}
+							],
+							"request": {
+								"method": "GET",
+								"url": {
+									"raw": "{{base_url}}{{api_prefix}}/gpm/repository/themes",
+									"host": [
+										"{{base_url}}{{api_prefix}}"
+									],
+									"path": [
+										"gpm",
+										"repository",
+										"themes"
+									],
+									"query": [
+										{
+											"key": "q",
+											"value": "",
+											"description": "Optional keyword filter (matches slug, name, description, author, keywords)",
+											"disabled": true
+										}
+									]
+								},
+								"description": "Browse available themes in the GPM repository. Use ?q=keyword to filter.",
+								"header": [
+									{
+										"key": "X-API-Key",
+										"value": "{{api_key}}",
+										"description": "API Key authentication"
+									},
+									{
+										"key": "X-Grav-Environment",
+										"value": "{{grav_environment}}",
+										"description": "Grav environment"
+									}
+								]
+							}
+						},
+						{
+							"name": "Repository Package Details",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"const res = pm.response.json();",
+											"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+											"pm.test('Has data', () => pm.expect(res).to.have.property('data'));"
+										]
+									}
+								}
+							],
+							"request": {
+								"method": "GET",
+								"url": {
+									"raw": "{{base_url}}{{api_prefix}}/gpm/repository/{{package_slug}}",
+									"host": [
+										"{{base_url}}{{api_prefix}}"
+									],
+									"path": [
+										"gpm",
+										"repository",
+										"{{package_slug}}"
+									]
+								},
+								"description": "Get details for a specific package in the GPM repository.",
+								"header": [
+									{
+										"key": "X-API-Key",
+										"value": "{{api_key}}",
+										"description": "API Key authentication"
+									},
+									{
+										"key": "X-Grav-Environment",
+										"value": "{{grav_environment}}",
+										"description": "Grav environment"
+									}
+								]
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Scheduler",
+			"description": "Scheduler management — list jobs, view status, check history, and run the scheduler.",
+			"item": [
+				{
+					"name": "List Jobs",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const res = pm.response.json();",
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has data', () => pm.expect(res).to.have.property('data'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/scheduler/jobs",
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"scheduler",
+								"jobs"
+							]
+						},
+						"description": "List all configured scheduler jobs.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
+					}
+				},
+				{
+					"name": "Scheduler Status",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const res = pm.response.json();",
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has data', () => pm.expect(res).to.have.property('data'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/scheduler/status",
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"scheduler",
+								"status"
+							]
+						},
+						"description": "Get the current scheduler status and cron configuration.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
+					}
+				},
+				{
+					"name": "Job History",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const res = pm.response.json();",
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has data', () => pm.expect(res).to.have.property('data'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/scheduler/history",
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"scheduler",
+								"history"
+							]
+						},
+						"description": "View the history of scheduler job executions.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
+					}
+				},
+				{
+					"name": "Run Scheduler",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"force\": false\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/scheduler/run",
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"scheduler",
+								"run"
+							]
+						},
+						"description": "Trigger the scheduler to run. Set force to true to run regardless of schedule."
+					}
+				}
+			]
+		},
+		{
+			"name": "Reports",
+			"description": "System reports and diagnostics.",
+			"item": [
+				{
+					"name": "System Reports",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const res = pm.response.json();",
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has data', () => pm.expect(res).to.have.property('data'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/reports",
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"reports"
+							]
+						},
+						"description": "Get system reports including environment checks and diagnostics.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
+					}
+				}
+			]
+		},
+		{
+			"name": "Dashboard",
+			"description": "Dashboard data — notifications, news feed, and statistics.",
+			"item": [
+				{
+					"name": "Get Notifications",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const res = pm.response.json();",
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has data', () => pm.expect(res).to.have.property('data'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/dashboard/notifications",
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"dashboard",
+								"notifications"
+							]
+						},
+						"description": "Get all dashboard notifications.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
+					}
+				},
+				{
+					"name": "Hide Notification",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/dashboard/notifications/{{notification_id}}/hide",
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"dashboard",
+								"notifications",
+								"{{notification_id}}",
+								"hide"
+							]
+						},
+						"description": "Hide a specific notification by ID."
+					}
+				},
+				{
+					"name": "News Feed",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const res = pm.response.json();",
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has data', () => pm.expect(res).to.have.property('data'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/dashboard/feed",
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"dashboard",
+								"feed"
+							]
+						},
+						"description": "Get the dashboard news feed.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
+					}
+				},
+				{
+					"name": "Dashboard Stats",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const res = pm.response.json();",
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has data', () => pm.expect(res).to.have.property('data'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/dashboard/stats",
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"dashboard",
+								"stats"
+							]
+						},
+						"description": "Get dashboard statistics (page counts, user counts, etc.).",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
+					}
+				}
+			]
+		},
+		{
+			"name": "Webhooks",
+			"description": "Webhook management — create, update, delete, and test webhooks.",
+			"item": [
+				{
+					"name": "List Webhooks",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const res = pm.response.json();",
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has data', () => pm.expect(res).to.have.property('data'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/webhooks",
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"webhooks"
+							]
+						},
+						"description": "List all configured webhooks.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
+					}
+				},
+				{
+					"name": "Create Webhook",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const res = pm.response.json();",
+									"pm.test('Status is 201', () => pm.response.to.have.status(201));",
+									"",
+									"if (res.data && res.data.id) {",
+									"    pm.collectionVariables.set('webhook_id', res.data.id);",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"url\": \"https://example.com/webhook\",\n    \"events\": [\"page.created\", \"page.updated\"],\n    \"enabled\": true\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/webhooks",
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"webhooks"
+							]
+						},
+						"description": "Create a new webhook. The webhook ID is automatically saved to the `webhook_id` variable."
+					}
+				},
+				{
+					"name": "Get Webhook",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const res = pm.response.json();",
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has data', () => pm.expect(res).to.have.property('data'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/webhooks/{{webhook_id}}",
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"webhooks",
+								"{{webhook_id}}"
+							]
+						},
+						"description": "Get details for a specific webhook.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
+					}
+				},
+				{
+					"name": "Update Webhook",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"events\": [\"page.created\", \"page.updated\", \"page.deleted\"]\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/webhooks/{{webhook_id}}",
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"webhooks",
+								"{{webhook_id}}"
+							]
+						},
+						"description": "Update an existing webhook configuration."
+					}
+				},
+				{
+					"name": "Delete Webhook",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status is 204', () => pm.response.to.have.status(204));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "DELETE",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/webhooks/{{webhook_id}}",
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"webhooks",
+								"{{webhook_id}}"
+							]
+						},
+						"description": "Delete a webhook.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
+					}
+				},
+				{
+					"name": "Webhook Deliveries",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const res = pm.response.json();",
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has data', () => pm.expect(res).to.have.property('data'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/webhooks/{{webhook_id}}/deliveries",
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"webhooks",
+								"{{webhook_id}}",
+								"deliveries"
+							]
+						},
+						"description": "View delivery history for a specific webhook.",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						]
+					}
+				},
+				{
+					"name": "Test Webhook",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"description": "API Key authentication"
+							},
+							{
+								"key": "X-Grav-Environment",
+								"value": "{{grav_environment}}",
+								"description": "Grav environment"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/webhooks/{{webhook_id}}/test",
+							"host": [
+								"{{base_url}}{{api_prefix}}"
+							],
+							"path": [
+								"webhooks",
+								"{{webhook_id}}",
+								"test"
+							]
+						},
+						"description": "Send a test payload to a webhook endpoint."
 					}
 				}
 			]

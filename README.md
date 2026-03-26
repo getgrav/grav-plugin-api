@@ -177,6 +177,8 @@ All endpoints are prefixed with `/api/v1`. All responses use a standard JSON env
 | `DELETE` | `/pages/{route}` | Delete a page |
 | `POST` | `/pages/{route}/move` | Move a page |
 | `POST` | `/pages/{route}/copy` | Copy a page |
+| `POST` | `/pages/{route}/reorder` | Reorder child pages |
+| `POST` | `/pages/batch` | Batch operations on multiple pages |
 | `GET` | `/taxonomy` | List all taxonomy types and values |
 
 **Filtering pages:**
@@ -204,6 +206,49 @@ GET /api/v1/pages/blog/my-post?render=true
 **Including children:**
 ```
 GET /api/v1/pages/blog?children=true&children_depth=2
+```
+
+**Reordering children:**
+```bash
+curl -X POST https://yoursite.com/api/v1/pages/blog/reorder \
+  -H "X-API-Key: ..." -H "Content-Type: application/json" \
+  -d '{"order": ["third-post", "first-post", "second-post"]}'
+```
+
+**Batch operations** (publish, unpublish, delete, copy — up to 50 items):
+```bash
+curl -X POST https://yoursite.com/api/v1/pages/batch \
+  -H "X-API-Key: ..." -H "Content-Type: application/json" \
+  -d '{"operation": "publish", "routes": ["/blog/draft-1", "/blog/draft-2"]}'
+```
+
+### Multi-Language
+
+All page endpoints support the `?lang=xx` query parameter to target a specific language. Grav stores translations as separate files (e.g., `default.en.md`, `default.fr.md`).
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/languages` | List configured site languages |
+| `GET` | `/pages/{route}/languages` | List available/missing translations for a page |
+| `POST` | `/pages/{route}/translate` | Create a new translation |
+
+```bash
+# Get a page in French
+GET /api/v1/pages/about?lang=fr
+
+# List pages in German
+GET /api/v1/pages?lang=de
+
+# Create a French translation
+curl -X POST https://yoursite.com/api/v1/pages/about/translate \
+  -H "X-API-Key: ..." -H "Content-Type: application/json" \
+  -d '{"lang": "fr", "title": "À propos", "content": "# Bienvenue"}'
+
+# Delete only the French translation (keeps other languages)
+DELETE /api/v1/pages/about?lang=fr
+
+# Include translation info in page response
+GET /api/v1/pages/about?translations=true
 ```
 
 ### Media
@@ -267,6 +312,144 @@ curl -X PATCH https://yoursite.com/api/v1/config/plugins/markdown \
 | `GET` | `/system/logs` | Read logs |
 | `POST` | `/system/backup` | Create a backup |
 | `GET` | `/system/backups` | List backups |
+
+### GPM (Package Manager)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/gpm/plugins` | List installed plugins (with update status) |
+| `GET` | `/gpm/plugins/{slug}` | Get installed plugin details |
+| `GET` | `/gpm/themes` | List installed themes (with update status) |
+| `GET` | `/gpm/themes/{slug}` | Get installed theme details |
+| `GET` | `/gpm/updates` | Check for available updates |
+| `POST` | `/gpm/install` | Install a plugin or theme |
+| `POST` | `/gpm/remove` | Remove a plugin or theme |
+| `POST` | `/gpm/update` | Update a specific package |
+| `POST` | `/gpm/update-all` | Update all packages |
+| `POST` | `/gpm/upgrade` | Self-upgrade Grav core |
+| `POST` | `/gpm/direct-install` | Install from URL or zip upload |
+| `GET` | `/gpm/search` | Search repository (plugins + themes) |
+| `GET` | `/gpm/repository/plugins` | Browse available plugins |
+| `GET` | `/gpm/repository/themes` | Browse available themes |
+| `GET` | `/gpm/repository/{slug}` | Get repository package details |
+
+**Installing a package:**
+```bash
+curl -X POST https://yoursite.com/api/v1/gpm/install \
+  -H "X-API-Key: ..." -H "Content-Type: application/json" \
+  -d '{"package": "shortcode-core", "type": "plugin"}'
+```
+
+**Installing a premium package** (pass the license inline, or pre-register it via the license-manager plugin):
+```bash
+curl -X POST https://yoursite.com/api/v1/gpm/install \
+  -H "X-API-Key: ..." -H "Content-Type: application/json" \
+  -d '{"package": "typhoon", "type": "theme", "license": "A1B2C3D4-E5F6A7B8-C9D0E1F2-A3B4C5D6"}'
+```
+
+**Searching the repository:**
+```bash
+# Search across all plugins and themes
+GET /api/v1/gpm/search?q=email
+
+# Search plugins only
+GET /api/v1/gpm/repository/plugins?q=form
+
+# Search themes only
+GET /api/v1/gpm/repository/themes?q=blog
+```
+
+Searches match against slug, name, description, author, and keywords. All repository endpoints support pagination (`?page=2&per_page=50`).
+
+### Scheduler & Tools
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/scheduler/jobs` | List all scheduler jobs with status |
+| `GET` | `/scheduler/status` | Get cron installation status |
+| `GET` | `/scheduler/history` | Job execution history (paginated) |
+| `POST` | `/scheduler/run` | Trigger scheduler run manually |
+| `GET` | `/reports` | Generate system reports |
+
+### Dashboard
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/dashboard/notifications` | Get system notifications |
+| `POST` | `/dashboard/notifications/{id}/hide` | Dismiss a notification |
+| `GET` | `/dashboard/feed` | Get getgrav.org news feed |
+| `GET` | `/dashboard/stats` | Dashboard statistics snapshot |
+
+### Webhooks
+
+Webhooks send HTTP POST notifications to external URLs when content changes via the API.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/webhooks` | List configured webhooks |
+| `POST` | `/webhooks` | Create a webhook |
+| `GET` | `/webhooks/{id}` | Get webhook details |
+| `PATCH` | `/webhooks/{id}` | Update a webhook |
+| `DELETE` | `/webhooks/{id}` | Delete a webhook |
+| `GET` | `/webhooks/{id}/deliveries` | View delivery log (paginated) |
+| `POST` | `/webhooks/{id}/test` | Send a test payload |
+
+**Creating a webhook:**
+```bash
+curl -X POST https://yoursite.com/api/v1/webhooks \
+  -H "X-API-Key: ..." -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://yourapp.com/webhook-receiver",
+    "events": ["page.created", "page.updated", "page.deleted"],
+    "enabled": true
+  }'
+```
+
+The response includes a `secret` for verifying payload signatures. Use `"events": ["*"]` to subscribe to all events.
+
+**Available events:**
+
+| Event | Trigger |
+|-------|---------|
+| `page.created` | Page created |
+| `page.updated` | Page updated |
+| `page.deleted` | Page deleted |
+| `page.moved` | Page moved |
+| `page.translated` | Translation created |
+| `pages.reordered` | Children reordered |
+| `media.uploaded` | Media uploaded |
+| `media.deleted` | Media deleted |
+| `user.created` | User created |
+| `user.updated` | User updated |
+| `user.deleted` | User deleted |
+| `config.updated` | Config changed |
+| `gpm.installed` | Package installed |
+| `gpm.removed` | Package removed |
+| `grav.upgraded` | Grav core upgraded |
+
+**Payload format:**
+```json
+{
+  "event": "page.created",
+  "timestamp": "2026-03-26T20:00:00+00:00",
+  "webhook_id": "wh_abc123...",
+  "data": {
+    "page": {"route": "/blog/new-post", "title": "New Post", "slug": "new-post"},
+    "route": "/blog/new-post"
+  }
+}
+```
+
+**Security:** Each delivery includes an `X-Grav-Signature` header containing an HMAC-SHA256 hash of the payload body, signed with the webhook's `secret`. Verify it in your receiver:
+
+```php
+$signature = hash_hmac('sha256', $rawBody, $webhookSecret);
+$valid = hash_equals($signature, $_SERVER['HTTP_X_GRAV_SIGNATURE']);
+```
+
+**Reliability:** Failed deliveries (5xx responses or timeouts) are retried up to 3 times with exponential backoff. After 5 consecutive failures, the webhook is automatically disabled. The failure count resets on any successful delivery.
+
+**Note:** Webhooks fire only for changes made through the API. Changes via the admin panel or direct filesystem edits use different code paths and won't trigger webhooks.
 
 ### Authentication
 
@@ -381,15 +564,21 @@ The API uses Grav's built-in ACL system. Available permissions:
 |------------|-------------|
 | `api.access` | Basic API access (required for all authenticated requests) |
 | `api.pages.read` | Read pages and taxonomy |
-| `api.pages.write` | Create, update, delete, move, copy pages |
+| `api.pages.write` | Create, update, delete, move, copy, reorder, batch pages |
 | `api.media.read` | Read/list media files |
 | `api.media.write` | Upload and delete media files |
 | `api.config.read` | Read configuration |
 | `api.config.write` | Update configuration |
 | `api.users.read` | Read user accounts |
 | `api.users.write` | Create, update, delete users |
-| `api.system.read` | Read system info and logs |
-| `api.system.write` | Clear cache, create backups |
+| `api.system.read` | Read system info, logs, dashboard, notifications, feed |
+| `api.system.write` | Clear cache, create backups, dismiss notifications |
+| `api.gpm.read` | List packages, check updates, browse/search repository |
+| `api.gpm.write` | Install, remove, update packages |
+| `api.scheduler.read` | View scheduler jobs, status, history |
+| `api.scheduler.write` | Trigger scheduler runs |
+| `api.webhooks.read` | View webhooks and delivery logs |
+| `api.webhooks.write` | Create, update, delete, test webhooks |
 
 Users with `admin.super` bypass all permission checks.
 
@@ -450,13 +639,17 @@ The API fires events before and after all write operations, allowing plugins to 
 
 | Event | When | Event Data |
 |-------|------|------------|
-| `onApiBeforePageCreate` | Before a page is saved | `route`, `header`, `content`, `template` (modifiable by reference) |
-| `onApiPageCreated` | After page creation | `page` (PageInterface), `route` |
+| `onApiBeforePageCreate` | Before a page is saved | `route`, `header`, `content`, `template`, `lang` (modifiable by reference) |
+| `onApiPageCreated` | After page creation | `page` (PageInterface), `route`, `lang` |
 | `onApiBeforePageUpdate` | Before a page is updated | `page` (PageInterface), `data` (request body, modifiable by reference) |
 | `onApiPageUpdated` | After page update | `page` (PageInterface) |
-| `onApiBeforePageDelete` | Before a page is deleted | `page` (PageInterface) |
-| `onApiPageDeleted` | After page deletion | `route` |
+| `onApiBeforePageDelete` | Before a page is deleted | `page` (PageInterface), `lang` (if language-specific delete) |
+| `onApiPageDeleted` | After page deletion | `route`, `lang` (if language-specific delete) |
 | `onApiPageMoved` | After page move | `page` (PageInterface), `old_route`, `new_route` |
+| `onApiBeforePageTranslate` | Before a translation is created | `page`, `lang`, `header`, `content` (modifiable by reference) |
+| `onApiPageTranslated` | After translation created | `page`, `route`, `lang` |
+| `onApiBeforePagesReorder` | Before children are reordered | `parent` (PageInterface), `order` (slug array) |
+| `onApiPagesReordered` | After children reordered | `parent` (PageInterface), `order` |
 
 ### Media Events
 
@@ -481,6 +674,17 @@ The API fires events before and after all write operations, allowing plugins to 
 | `onApiUserUpdated` | After user update | `user` (UserInterface) |
 | `onApiBeforeUserDelete` | Before user deletion | `user` (UserInterface) |
 | `onApiUserDeleted` | After user deletion | `username` |
+
+### GPM Events
+
+| Event | When | Event Data |
+|-------|------|------------|
+| `onApiBeforePackageInstall` | Before package install | `package`, `type` |
+| `onApiPackageInstalled` | After package installed | `package`, `type` |
+| `onApiBeforePackageRemove` | Before package removal | `package`, `type` |
+| `onApiPackageRemoved` | After package removed | `package`, `type` |
+| `onApiBeforeGravUpgrade` | Before Grav upgrade | `current_version`, `available_version` |
+| `onApiGravUpgraded` | After Grav upgraded | `previous_version`, `new_version` |
 
 ### Route Registration
 
@@ -635,10 +839,14 @@ grav-plugin-api/
 │   │   ├── AbstractApiController.php
 │   │   ├── AuthController.php
 │   │   ├── ConfigController.php
+│   │   ├── DashboardController.php
+│   │   ├── GpmController.php
 │   │   ├── MediaController.php
 │   │   ├── PagesController.php
+│   │   ├── SchedulerController.php
 │   │   ├── SystemController.php
-│   │   └── UsersController.php
+│   │   ├── UsersController.php
+│   │   └── WebhookController.php
 │   ├── Exceptions/
 │   │   ├── ApiException.php
 │   │   ├── ConflictException.php
@@ -654,11 +862,15 @@ grav-plugin-api/
 │   ├── Response/
 │   │   ├── ApiResponse.php
 │   │   └── ErrorResponse.php
-│   └── Serializers/
-│       ├── SerializerInterface.php
-│       ├── PageSerializer.php
-│       ├── MediaSerializer.php
-│       └── UserSerializer.php
+│   ├── Serializers/
+│   │   ├── SerializerInterface.php
+│   │   ├── PageSerializer.php
+│   │   ├── MediaSerializer.php
+│   │   ├── PackageSerializer.php
+│   │   └── UserSerializer.php
+│   └── Webhooks/
+│       ├── WebhookManager.php
+│       └── WebhookDispatcher.php
 └── tests/
     ├── bootstrap.php
     ├── Stubs/

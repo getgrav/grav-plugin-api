@@ -47,3 +47,30 @@ actions:
         label: Read System Info/Logs
       write:
         label: Cache/Backup/Updates
+
+  api.gpm:
+    type: access
+    label: GPM API
+    actions:
+      read:
+        label: List Packages / Check Updates
+      write:
+        label: Install/Remove/Update Packages
+
+  api.scheduler:
+    type: access
+    label: Scheduler API
+    actions:
+      read:
+        label: View Jobs/Status/History
+      write:
+        label: Run Jobs
+
+  api.webhooks:
+    type: access
+    label: Webhooks API
+    actions:
+      read:
+        label: View Webhooks
+      write:
+        label: Manage Webhooks

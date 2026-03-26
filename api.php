@@ -12,6 +12,7 @@ use Grav\Events\PermissionsRegisterEvent;
 use Grav\Framework\Acl\PermissionsReader;
 use Grav\Plugin\Api\ApiRouter;
 use Grav\Plugin\Api\Auth\ApiKeyManager;
+use Grav\Plugin\Api\Webhooks\WebhookDispatcher;
 use RocketTheme\Toolbox\Event\Event;
 
 class ApiPlugin extends Plugin
@@ -67,6 +68,9 @@ class ApiPlugin extends Plugin
 
     public function onPluginsInitialized(): void
     {
+        // Register webhook event listeners (always active, not just on API routes)
+        $this->registerWebhookListeners();
+
         if ($this->active) {
             // Disable pages processing for API requests - we don't need Twig/templates
             $this->grav['pages']->disablePages();
@@ -235,6 +239,28 @@ class ApiPlugin extends Plugin
 
         if (str_starts_with($path, $this->base)) {
             $event->addMiddleware('api_router', new ApiRouter($this->grav, $this->config));
+        }
+    }
+
+    /**
+     * Register webhook event listeners for all API mutation events.
+     */
+    protected function registerWebhookListeners(): void
+    {
+        $events = WebhookDispatcher::getSubscribedEvents();
+
+        /** @var \Symfony\Component\EventDispatcher\EventDispatcher $dispatcher */
+        $eventDispatcher = $this->grav['events'];
+        $webhookDispatcher = null;
+
+        foreach ($events as $eventName => [$method, $priority]) {
+            $eventDispatcher->addListener($eventName, function (Event $event) use ($eventName, &$webhookDispatcher) {
+                // Lazy-load dispatcher only when first event fires
+                if ($webhookDispatcher === null) {
+                    $webhookDispatcher = new WebhookDispatcher();
+                }
+                $webhookDispatcher->dispatch($eventName, $event->toArray());
+            }, $priority);
         }
     }
 
