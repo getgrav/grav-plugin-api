@@ -70,9 +70,188 @@
       "key": "notification_id",
       "value": "",
       "type": "string"
+    },
+    {
+      "key": "username",
+      "value": "admin",
+      "type": "string"
+    },
+    {
+      "key": "password",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "test_page_route",
+      "value": "",
+      "type": "string"
     }
   ],
   "item": [
+    {
+      "name": "Setup",
+      "description": "Setup requests that run before all other tests. Creates test data and authenticates.",
+      "item": [
+        {
+          "name": "Setup: Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Has access_token\", () => pm.expect(res.data).to.have.property(\"access_token\"));",
+                  "",
+                  "if (res.data && res.data.access_token) {",
+                  "    pm.collectionVariables.set(\"access_token\", res.data.access_token);",
+                  "    pm.collectionVariables.set(\"refresh_token\", res.data.refresh_token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"username\": \"{{username}}\",\n    \"password\": \"{{password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/auth/token",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "auth",
+                "token"
+              ]
+            },
+            "description": "Authenticate and save access_token and refresh_token to collection variables."
+          }
+        },
+        {
+          "name": "Setup: Create Test Page",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.data && res.data.route) {",
+                  "    pm.collectionVariables.set('test_page_route', res.data.route);",
+                  "}",
+                  "",
+                  "pm.test('Status is 201', () => pm.response.to.have.status(201));",
+                  "pm.test('Has route', () => pm.expect(res.data).to.have.property('route'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "API Key authentication"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"route\": \"/newman-test-page\",\n  \"title\": \"Newman Test Page\",\n  \"template\": \"default\",\n  \"content\": \"# Test Page\\nCreated by Newman test runner.\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/pages",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "pages"
+              ]
+            },
+            "description": "Create a test page used by subsequent tests. Saves the route to test_page_route."
+          }
+        },
+        {
+          "name": "Setup: Create Test Webhook",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test(\"Status is 201\", () => pm.response.to.have.status(201));",
+                  "",
+                  "if (res.data && res.data.id) {",
+                  "    pm.collectionVariables.set(\"webhook_id\", res.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "API Key authentication"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"url\": \"https://httpbin.org/post\",\n    \"events\": [\n        \"page.created\"\n    ],\n    \"secret\": \"newman-test-secret\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/webhooks",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "webhooks"
+              ]
+            },
+            "description": "Create a test webhook. Saves the webhook_id to collection variables."
+          }
+        }
+      ]
+    },
     {
       "name": "Auth",
       "description": "Authentication endpoints. These do not require prior authentication.",
@@ -118,7 +297,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n    \"username\": \"admin\",\n    \"password\": \"your-password\"\n}"
+              "raw": "{\n    \"username\": \"{{username}}\",\n    \"password\": \"{{password}}\"\n}"
             },
             "url": {
               "raw": "{{base_url}}{{api_prefix}}/auth/token",
@@ -500,7 +679,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n    \"route\": \"/blog/my-new-post\",\n    \"title\": \"My New Blog Post\",\n    \"template\": \"post\",\n    \"content\": \"# Hello World\\n\\nThis is my new blog post created via the API.\",\n    \"header\": {\n        \"taxonomy\": {\n            \"category\": [\"blog\"],\n            \"tag\": [\"api\", \"grav\"]\n        },\n        \"published\": true\n    },\n    \"order\": 1\n}"
+              "raw": "{\n    \"route\": \"/newman-test-create-{{$timestamp}}\",\n    \"title\": \"Newman Created Page\",\n    \"template\": \"default\",\n    \"content\": \"# Test Page\\n\\nCreated by Newman with timestamp.\",\n    \"header\": {\n        \"taxonomy\": {\n            \"category\": [\"test\"],\n            \"tag\": [\"api\", \"newman\"]\n        },\n        \"published\": true\n    }\n}"
             },
             "url": {
               "raw": "{{base_url}}{{api_prefix}}/pages",
@@ -558,14 +737,14 @@
               "raw": "{\n    \"title\": \"Updated Blog Post Title\",\n    \"content\": \"# Updated Content\\n\\nThis content was updated via the API.\",\n    \"header\": {\n        \"taxonomy\": {\n            \"tag\": [\"api\", \"grav\", \"updated\"]\n        }\n    }\n}"
             },
             "url": {
-              "raw": "{{base_url}}{{api_prefix}}/pages/blog/my-new-post",
+              "raw": "{{base_url}}{{api_prefix}}/pages/newman-test-page",
               "host": [
                 "{{base_url}}{{api_prefix}}"
               ],
               "path": [
                 "pages",
-                "blog",
-                "my-new-post"
+                "test",
+                "newman-page"
               ]
             },
             "description": "Partial update \u2014 only send the fields you want to change. Supports `content`, `title`, `header`, `template`, `published`, `visible`.\n\nEnable the `If-Match` header for optimistic concurrency control."
@@ -604,17 +783,17 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n    \"parent\": \"/blog\",\n    \"slug\": \"renamed-post\",\n    \"order\": 5\n}"
+              "raw": "{\n  \"parent\": \"/\",\n  \"slug\": \"newman-moved-page\"\n}"
             },
             "url": {
-              "raw": "{{base_url}}{{api_prefix}}/pages/blog/my-new-post/move",
+              "raw": "{{base_url}}{{api_prefix}}/pages/newman-test-page/move",
               "host": [
-                "{{base_url}}{{api_prefix}}"
+                "{{base_url}}{{api_prefix}}/pages/newman-test-page/move"
               ],
               "path": [
                 "pages",
-                "blog",
-                "my-new-post",
+                "test",
+                "newman-page",
                 "move"
               ]
             },
@@ -655,17 +834,17 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n    \"route\": \"/blog/copy-of-my-post\"\n}"
+              "raw": "{\n    \"route\": \"/newman-test-copy\"\n}"
             },
             "url": {
-              "raw": "{{base_url}}{{api_prefix}}/pages/blog/my-new-post/copy",
+              "raw": "{{base_url}}{{api_prefix}}/pages/newman-test-page/copy",
               "host": [
                 "{{base_url}}{{api_prefix}}"
               ],
               "path": [
                 "pages",
-                "blog",
-                "my-new-post",
+                "test",
+                "newman-page",
                 "copy"
               ]
             },
@@ -688,14 +867,14 @@
           "request": {
             "method": "DELETE",
             "url": {
-              "raw": "{{base_url}}{{api_prefix}}/pages/blog/my-new-post?children=true",
+              "raw": "{{base_url}}{{api_prefix}}/pages/newman-test-copy?children=true",
               "host": [
                 "{{base_url}}{{api_prefix}}"
               ],
               "path": [
                 "pages",
-                "blog",
-                "my-new-post"
+                "test",
+                "newman-copy"
               ],
               "query": [
                 {
@@ -2346,16 +2525,16 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n    \"order\": [\"child-1\", \"child-2\", \"child-3\"]\n}"
+              "raw": "{\n    \"order\": [\"sunshine-in-the-hills\", \"london-at-night\", \"forest-in-the-fog\"]\n}"
             },
             "url": {
-              "raw": "{{base_url}}{{api_prefix}}/pages/{{page_route}}/reorder",
+              "raw": "{{base_url}}{{api_prefix}}/pages/blog/reorder",
               "host": [
                 "{{base_url}}{{api_prefix}}"
               ],
               "path": [
                 "pages",
-                "{{page_route}}",
+                "blog",
                 "reorder"
               ]
             },
@@ -2395,7 +2574,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n    \"operation\": \"publish\",\n    \"routes\": [\"/blog/post-1\", \"/blog/post-2\"]\n}"
+              "raw": "{\n    \"operation\": \"publish\",\n    \"routes\": [\"/newman-test-page\"]\n}"
             },
             "url": {
               "raw": "{{base_url}}{{api_prefix}}/pages/batch",
@@ -2443,7 +2622,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n    \"operation\": \"delete\",\n    \"routes\": [\"/temp/page-1\"]\n}"
+              "raw": "{\n  \"operation\": \"delete\",\n  \"routes\": [\n    \"/newman-test-copy\"\n  ]\n}"
             },
             "url": {
               "raw": "{{base_url}}{{api_prefix}}/pages/batch",
@@ -4685,6 +4864,151 @@
             "description": "Get translation strings filtered by PLUGIN_ADMIN prefix. Useful for partial/incremental loading."
           },
           "response": []
+        }
+      ]
+    },
+    {
+      "name": "Teardown",
+      "description": "Teardown requests that run after all other tests. Cleans up test data.",
+      "item": [
+        {
+          "name": "Teardown: Delete Test Page",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 204 or 404\", () => {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([204, 404]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "API Key authentication"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/pages/newman-test-page?children=true",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "pages",
+                "test",
+                "newman-page"
+              ],
+              "query": [
+                {
+                  "key": "children",
+                  "value": "true"
+                }
+              ]
+            },
+            "description": "Delete the test page created during setup."
+          }
+        },
+        {
+          "name": "Teardown: Delete Test Webhook",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 204 or 404\", () => {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([204, 404]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "API Key authentication"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/webhooks/{{webhook_id}}",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "webhooks",
+                "{{webhook_id}}"
+              ]
+            },
+            "description": "Delete the test webhook created during setup."
+          }
+        },
+        {
+          "name": "Teardown: Revoke Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 204 or 401\", () => {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([204, 401]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"refresh_token\": \"{{refresh_token}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/auth/revoke",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "auth",
+                "revoke"
+              ]
+            },
+            "description": "Revoke the refresh token obtained during setup."
+          }
         }
       ]
     }
