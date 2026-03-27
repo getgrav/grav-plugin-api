@@ -22,7 +22,7 @@ class PagesController extends AbstractApiController
     private const PERMISSION_READ = 'api.pages.read';
     private const PERMISSION_WRITE = 'api.pages.write';
 
-    private const ALLOWED_FILTERS = ['published', 'template', 'routable', 'visible', 'parent'];
+    private const ALLOWED_FILTERS = ['published', 'template', 'routable', 'visible', 'parent', 'children_of', 'root'];
     private const ALLOWED_SORT_FIELDS = ['date', 'title', 'slug', 'modified', 'order'];
 
     private readonly PageSerializer $serializer;
@@ -825,6 +825,8 @@ class PagesController extends AbstractApiController
                 'routable' => $page->routable() === filter_var($value, FILTER_VALIDATE_BOOLEAN),
                 'visible' => $page->visible() === filter_var($value, FILTER_VALIDATE_BOOLEAN),
                 'parent' => str_starts_with($page->route(), '/' . trim($value, '/')),
+                'children_of' => $this->isDirectChildOf($page, $value),
+                'root' => filter_var($value, FILTER_VALIDATE_BOOLEAN) && substr_count(trim($page->route(), '/'), '/') === 0,
                 default => true,
             };
 
@@ -834,6 +836,29 @@ class PagesController extends AbstractApiController
         }
 
         return true;
+    }
+
+    /**
+     * Check if a page is a direct child of the given parent route.
+     * Direct child = parent route + one slug segment, no deeper.
+     */
+    private function isDirectChildOf(PageInterface $page, string $parentValue): bool
+    {
+        $parentRoute = '/' . trim($parentValue, '/');
+        $pageRoute = $page->route();
+
+        if ($parentRoute === '/') {
+            // Root children: routes like /home, /blog (one segment only)
+            return substr_count(trim($pageRoute, '/'), '/') === 0;
+        }
+
+        // Must start with parent route + / and have exactly one more segment
+        if (!str_starts_with($pageRoute, $parentRoute . '/')) {
+            return false;
+        }
+
+        $remainder = substr($pageRoute, strlen($parentRoute) + 1);
+        return !str_contains($remainder, '/');
     }
 
     /**

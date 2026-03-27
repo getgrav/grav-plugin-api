@@ -35,6 +35,7 @@ class PageSerializer implements SerializerInterface
             'date' => $this->formatTimestamp($resource->date()),
             'modified' => $this->formatTimestamp($resource->modified()),
             'order' => $resource->order(),
+            'has_children' => count($resource->children()) > 0,
         ];
 
         if ($includeTranslations) {
