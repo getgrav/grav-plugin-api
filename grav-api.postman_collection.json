@@ -4502,6 +4502,100 @@
           "response": []
         }
       ]
+    },
+    {
+      "name": "Translations",
+      "item": [
+        {
+          "name": "Get All Translations (English)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Has lang', () => pm.expect(pm.response.json().data.lang).to.equal('en'));",
+                  "pm.test('Has strings object', () => pm.expect(pm.response.json().data.strings).to.be.an('object'));",
+                  "pm.test('Has checksum', () => pm.expect(pm.response.json().data.checksum).to.be.a('string'));",
+                  "pm.test('Count matches', () => {",
+                  "    const data = pm.response.json().data;",
+                  "    pm.expect(data.count).to.equal(Object.keys(data.strings).length);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/translations/en",
+              "host": [
+                "{{base_url}}{{api_prefix}}/translations/en"
+              ]
+            },
+            "description": "Get all translation strings for English. No authentication required."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Translations with Prefix Filter",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('All keys have prefix', () => {",
+                  "    const strings = pm.response.json().data.strings;",
+                  "    Object.keys(strings).forEach(key => {",
+                  "        pm.expect(key.toUpperCase()).to.match(/^PLUGIN_ADMIN\\./);",
+                  "    });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/translations/en?prefix=PLUGIN_ADMIN",
+              "host": [
+                "{{base_url}}{{api_prefix}}/translations/en?prefix=PLUGIN_ADMIN"
+              ]
+            },
+            "description": "Get translation strings filtered by PLUGIN_ADMIN prefix. Useful for partial/incremental loading."
+          },
+          "response": []
+        }
+      ]
     }
   ]
 }

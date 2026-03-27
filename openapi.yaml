@@ -3406,6 +3406,64 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  # ---------------------------------------------------------------------------
+  # Translations
+  # ---------------------------------------------------------------------------
+  /translations/{lang}:
+    get:
+      operationId: getTranslations
+      tags: [System]
+      summary: Get translation strings for a language
+      description: |
+        Returns all translation strings for the specified language as a flat
+        key-value object. Supports optional prefix filtering for partial loads.
+        This endpoint does not require authentication.
+      security: []
+      parameters:
+        - name: lang
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Language code (e.g., `en`, `fr`, `de`)
+          example: en
+        - name: prefix
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter strings by key prefix (e.g., `PLUGIN_ADMIN`)
+          example: PLUGIN_ADMIN
+      responses:
+        "200":
+          description: Translation strings.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      lang:
+                        type: string
+                        example: en
+                      count:
+                        type: integer
+                        example: 1868
+                      checksum:
+                        type: string
+                        description: MD5 hash for cache invalidation.
+                        example: ca482ce9db905019b7f2be290f018553
+                      strings:
+                        type: object
+                        additionalProperties:
+                          type: string
+                        description: Flat key-value map of all translation strings.
+                        example:
+                          PLUGIN_ADMIN.TITLE: Title
+                          PLUGIN_ADMIN.CONTENT: Content
+
 # =============================================================================
 # Components
 # =============================================================================

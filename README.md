@@ -461,6 +461,45 @@ $valid = hash_equals($signature, $_SERVER['HTTP_X_GRAV_SIGNATURE']);
 
 These endpoints do **not** require authentication.
 
+### Translations
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/translations/{lang}` | Get all translation strings for a language |
+
+This endpoint does **not** require authentication (translation strings are not sensitive).
+
+**Get all English translations:**
+
+```bash
+curl -s "https://yoursite.com/api/v1/translations/en"
+```
+
+**Filter by prefix** (for faster partial loads):
+
+```bash
+curl -s "https://yoursite.com/api/v1/translations/en?prefix=PLUGIN_ADMIN"
+```
+
+```json
+{
+  "data": {
+    "lang": "en",
+    "count": 1248,
+    "checksum": "6101ee5fcfeabc085cea537e4583038f",
+    "strings": {
+      "PLUGIN_ADMIN.TITLE": "Title",
+      "PLUGIN_ADMIN.CONTENT": "Content",
+      "PLUGIN_ADMIN.OPTIONS": "Options",
+      "PLUGIN_ADMIN.PUBLISHING": "Publishing",
+      "..."
+    }
+  }
+}
+```
+
+The `checksum` can be used for cache invalidation — only re-fetch when the checksum changes. The `prefix` parameter enables a two-phase loading strategy: fetch a small subset for immediate use, then load the full set in the background.
+
 ### Blueprints
 
 Blueprints provide form schema definitions used to render configuration and content editing interfaces. The API resolves blueprint inheritance (`extends@`, `import@`) and returns a normalized JSON structure suitable for client-side form rendering.
