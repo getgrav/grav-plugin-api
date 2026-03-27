@@ -12,12 +12,13 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# Defaults
-BASE_URL="${BASE_URL:-https://localhost/grav-api}"
-API_PREFIX="/api/v1"
-GRAV_ENV="${GRAV_ENV:-localhost}"
+# Defaults (reads from env vars set in ~/.zshrc if available)
+BASE_URL="${GRAV_BASE_URL:-${BASE_URL:-https://localhost/grav-api}}"
+API_PREFIX="${GRAV_API_PREFIX:-/api/v1}"
+GRAV_ENV="${GRAV_ENVIRONMENT:-${GRAV_ENV:-localhost}}"
 USERNAME="${USERNAME:-admin}"
 PASSWORD="${PASSWORD:-Password1}"
+STATIC_API_KEY="${GRAV_API_KEY:-}"
 CURL_OPTS="-sk"
 
 # Parse args
@@ -57,23 +58,30 @@ if [ -z "$ACCESS_TOKEN" ]; then
 fi
 echo "  ✓ Got JWT token"
 
-# Step 2: Create a test API key
-echo "→ Creating test API key..."
-KEY_RESPONSE=$(curl ${CURL_OPTS} "${API_BASE}/users/${USERNAME}/api-keys" \
-  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-  -H "X-Grav-Environment: ${GRAV_ENV}" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Newman Test Key","expires_in_days":1}')
+# Step 2: Use static API key from env, or create a temporary one
+CLEANUP_KEY=false
+if [ -n "$STATIC_API_KEY" ]; then
+  API_KEY="$STATIC_API_KEY"
+  echo "→ Using API key from environment: ${API_KEY:0:20}..."
+else
+  echo "→ Creating test API key..."
+  KEY_RESPONSE=$(curl ${CURL_OPTS} "${API_BASE}/users/${USERNAME}/api-keys" \
+    -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+    -H "X-Grav-Environment: ${GRAV_ENV}" \
+    -H "Content-Type: application/json" \
+    -d '{"name":"Newman Test Key","expires_in_days":1}')
 
-API_KEY=$(echo "$KEY_RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['api_key'])" 2>/dev/null)
-KEY_ID=$(echo "$KEY_RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['id'])" 2>/dev/null)
+  API_KEY=$(echo "$KEY_RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['api_key'])" 2>/dev/null)
+  KEY_ID=$(echo "$KEY_RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['id'])" 2>/dev/null)
 
-if [ -z "$API_KEY" ]; then
-  echo "  ✗ Failed to create API key"
-  echo "  Response: $KEY_RESPONSE"
-  exit 1
+  if [ -z "$API_KEY" ]; then
+    echo "  ✗ Failed to create API key"
+    echo "  Response: $KEY_RESPONSE"
+    exit 1
+  fi
+  echo "  ✓ Created API key: ${API_KEY:0:20}..."
+  CLEANUP_KEY=true
 fi
-echo "  ✓ Created API key: ${API_KEY:0:20}..."
 
 # Step 3: Generate temporary environment file with real credentials
 TEMP_ENV=$(mktemp)
@@ -110,6 +118,16 @@ NEWMAN_BIN="${PROJECT_DIR}/node_modules/.bin/newman"
 
 ${NEWMAN_BIN} run "${PROJECT_DIR}/grav-api.postman_collection.json" \
   --environment "$TEMP_ENV" \
+  --env-var "api_key=${API_KEY}" \
+  --env-var "base_url=${BASE_URL}" \
+  --env-var "api_prefix=${API_PREFIX}" \
+  --env-var "grav_environment=${GRAV_ENV}" \
+  --env-var "username=${USERNAME}" \
+  --env-var "password=${PASSWORD}" \
+  --env-var "test_username=${GRAV_TEST_USERNAME:-test_username}" \
+  --env-var "page_route=${GRAV_PAGE_ROUTE:-typography}" \
+  --env-var "lang=${GRAV_LANG:-en}" \
+  --env-var "package_slug=${GRAV_PACKAGE_SLUG:-form}" \
   --insecure \
   --reporters cli \
   --color on \
@@ -118,13 +136,15 @@ ${NEWMAN_BIN} run "${PROJECT_DIR}/grav-api.postman_collection.json" \
 
 NEWMAN_EXIT=$?
 
-# Step 5: Cleanup — revoke the test API key
-echo ""
-echo "→ Cleaning up test API key..."
-curl ${CURL_OPTS} -X DELETE "${API_BASE}/users/${USERNAME}/api-keys/${KEY_ID}" \
-  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-  -H "X-Grav-Environment: ${GRAV_ENV}" \
-  -o /dev/null -w "  ✓ Revoked test key (HTTP %{http_code})\n"
+# Step 5: Cleanup — revoke the test API key (only if we created one)
+if [ "$CLEANUP_KEY" = true ] && [ -n "$KEY_ID" ]; then
+  echo ""
+  echo "→ Cleaning up test API key..."
+  curl ${CURL_OPTS} -X DELETE "${API_BASE}/users/${USERNAME}/api-keys/${KEY_ID}" \
+    -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+    -H "X-Grav-Environment: ${GRAV_ENV}" \
+    -o /dev/null -w "  ✓ Revoked test key (HTTP %{http_code})\n"
+fi
 
 rm -f "$TEMP_ENV"
 
