@@ -208,6 +208,59 @@ class SystemController extends AbstractApiController
         return ApiResponse::create($data);
     }
 
+    /**
+     * GET /translations/{lang} - Get all translation strings for a language.
+     *
+     * Returns a flat key-value object of all translation strings for efficient
+     * client-side caching. Optionally filter by prefix (e.g., ?prefix=PLUGIN_ADMIN).
+     */
+    public function translations(ServerRequestInterface $request): ResponseInterface
+    {
+        // No auth required — translation strings are not sensitive
+
+        $lang = $this->getRouteParam($request, 'lang');
+        $prefix = $request->getQueryParams()['prefix'] ?? null;
+
+        /** @var \Grav\Common\Language\Language $language */
+        $language = $this->grav['language'];
+
+        // Validate language code
+        $available = $language->getLanguages();
+        if (!empty($available) && !in_array($lang, $available, true)) {
+            // Fall back to default language if requested one isn't available
+            $lang = $language->getDefault() ?: 'en';
+        }
+
+        /** @var \Grav\Common\Config\Languages $languages */
+        $languages = $this->grav['languages'];
+
+        try {
+            $translations = $languages->flattenByLang($lang);
+        } catch (\Throwable) {
+            $translations = [];
+        }
+
+        // Filter by prefix if requested
+        if ($prefix && is_array($translations)) {
+            $prefixLower = strtolower($prefix) . '.';
+            $translations = array_filter(
+                $translations,
+                fn($key) => str_starts_with(strtolower($key), $prefixLower),
+                ARRAY_FILTER_USE_KEY
+            );
+        }
+
+        // Include a checksum for cache invalidation
+        $checksum = md5(json_encode($translations));
+
+        return ApiResponse::create([
+            'lang' => $lang,
+            'count' => count($translations),
+            'checksum' => $checksum,
+            'strings' => $translations,
+        ]);
+    }
+
     private function getPluginsInfo(): array
     {
         $plugins = [];

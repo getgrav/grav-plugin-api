@@ -65,14 +65,26 @@ class ApiRouter extends ProcessorBase
             // Require and apply Grav environment
             $this->applyEnvironment($request);
 
-            // Authenticate (skip for /auth/* endpoints - use Grav route which is subdirectory-safe)
+            // Authenticate (skip for public endpoints - use Grav route which is subdirectory-safe)
             $route = $request->getAttribute('route');
             $routePath = $route ? $route->getRoute() : '';
             $base = $this->config->get('plugins.api.route', '/api');
             $prefix = $this->config->get('plugins.api.version_prefix', 'v1');
-            $authPrefix = '/' . trim($base, '/') . '/' . $prefix . '/auth/';
+            $apiBase = '/' . trim($base, '/') . '/' . $prefix;
+            $publicPrefixes = [
+                $apiBase . '/auth/',
+                $apiBase . '/translations/',
+            ];
 
-            if (!str_starts_with($routePath, $authPrefix)) {
+            $isPublic = false;
+            foreach ($publicPrefixes as $pp) {
+                if (str_starts_with($routePath, $pp)) {
+                    $isPublic = true;
+                    break;
+                }
+            }
+
+            if (!$isPublic) {
                 $request = (new AuthMiddleware($this->container, $this->config))->processRequest($request);
             }
 
@@ -268,6 +280,9 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('GET', '/system/logs', [SystemController::class, 'logs']);
         $r->addRoute('POST', '/system/backup', [SystemController::class, 'backup']);
         $r->addRoute('GET', '/system/backups', [SystemController::class, 'backups']);
+
+        // Translations
+        $r->addRoute('GET', '/translations/{lang}', [SystemController::class, 'translations']);
     }
 
     /**

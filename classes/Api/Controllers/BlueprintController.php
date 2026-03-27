@@ -129,6 +129,12 @@ class BlueprintController extends AbstractApiController
     private function loadPageBlueprint(string $template): ?Blueprint
     {
         $merged = $this->resolvePageBlueprintYaml($template, 0);
+
+        // Fallback to 'default' if no template-specific blueprint exists
+        if (!$merged && $template !== 'default') {
+            $merged = $this->resolvePageBlueprintYaml('default', 0);
+        }
+
         if (!$merged) {
             return null;
         }
