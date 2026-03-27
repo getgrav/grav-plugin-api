@@ -4,3 +4,4 @@ composer.lock
 .DS_Store
 *.cache
 aspen-export.json
+node_modules/

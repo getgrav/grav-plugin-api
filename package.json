@@ -1,0 +1,10 @@
+{
+  "private": true,
+  "scripts": {
+    "test:api": "./tests/newman/run.sh",
+    "test:api:verbose": "./tests/newman/run.sh --reporter-cli-no-summary false"
+  },
+  "devDependencies": {
+    "newman": "^6.2.2"
+  }
+}
