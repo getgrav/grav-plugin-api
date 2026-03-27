@@ -11,6 +11,7 @@ use Grav\Common\Grav;
 use Grav\Common\Processors\ProcessorBase;
 use Grav\Framework\Psr7\Response;
 use Grav\Plugin\Api\Controllers\AuthController;
+use Grav\Plugin\Api\Controllers\BlueprintController;
 use Grav\Plugin\Api\Controllers\ConfigController;
 use Grav\Plugin\Api\Controllers\DashboardController;
 use Grav\Plugin\Api\Controllers\GpmController;
@@ -252,6 +253,13 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('DELETE', '/webhooks/{id}', [WebhookController::class, 'delete']);
         $r->addRoute('GET', '/webhooks/{id}/deliveries', [WebhookController::class, 'deliveries']);
         $r->addRoute('POST', '/webhooks/{id}/test', [WebhookController::class, 'test']);
+
+        // Blueprints
+        $r->addRoute('GET', '/blueprints/pages', [BlueprintController::class, 'pageTypes']);
+        $r->addRoute('GET', '/blueprints/pages/{template}', [BlueprintController::class, 'pageBlueprint']);
+        $r->addRoute('GET', '/blueprints/plugins/{plugin}', [BlueprintController::class, 'pluginBlueprint']);
+        $r->addRoute('GET', '/blueprints/themes/{theme}', [BlueprintController::class, 'themeBlueprint']);
+        $r->addRoute('GET', '/blueprints/config/{scope}', [BlueprintController::class, 'configBlueprint']);
 
         // System
         $r->addRoute('GET', '/system/environments', [SystemController::class, 'environments']);

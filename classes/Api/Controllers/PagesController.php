@@ -522,7 +522,7 @@ class PagesController extends AbstractApiController
         // Re-init and fetch the translated page
         /** @var Language $language */
         $language = $this->grav['language'];
-        $previousLang = $language->getActive();
+        $previousLang = $language->getActive() ?? false;
         $language->setActive($lang);
 
         try {
@@ -922,7 +922,7 @@ class PagesController extends AbstractApiController
     {
         /** @var Language $language */
         $language = $this->grav['language'];
-        $previousLang = $language->getActive();
+        $previousLang = $language->getActive() ?? false;
 
         $lang = $explicitLang ?? ($request->getQueryParams()['lang'] ?? null);
 
