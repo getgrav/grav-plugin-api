@@ -461,6 +461,92 @@ $valid = hash_equals($signature, $_SERVER['HTTP_X_GRAV_SIGNATURE']);
 
 These endpoints do **not** require authentication.
 
+### Blueprints
+
+Blueprints provide form schema definitions used to render configuration and content editing interfaces. The API resolves blueprint inheritance (`extends@`, `import@`) and returns a normalized JSON structure suitable for client-side form rendering.
+
+| Method | Endpoint | Description | Permission |
+|--------|----------|-------------|------------|
+| `GET` | `/blueprints/pages` | List available page templates | `api.pages.read` |
+| `GET` | `/blueprints/pages/{template}` | Get resolved blueprint for a page template | `api.pages.read` |
+| `GET` | `/blueprints/plugins/{plugin}` | Get blueprint for a plugin's configuration | `api.config.read` |
+| `GET` | `/blueprints/themes/{theme}` | Get blueprint for a theme's configuration | `api.config.read` |
+| `GET` | `/blueprints/config/{scope}` | Get blueprint for system config (`system`, `site`, `media`) | `api.config.read` |
+
+**List page templates:**
+
+```bash
+curl -s "https://yoursite.com/api/v1/blueprints/pages" \
+  -H "X-API-Key: YOUR_KEY"
+```
+
+```json
+{
+  "data": [
+    { "type": "default", "label": "Default" },
+    { "type": "blog", "label": "Blog" },
+    { "type": "item", "label": "Item" }
+  ]
+}
+```
+
+**Get a page blueprint (resolved with inheritance):**
+
+```bash
+curl -s "https://yoursite.com/api/v1/blueprints/pages/blog" \
+  -H "X-API-Key: YOUR_KEY"
+```
+
+```json
+{
+  "data": {
+    "name": "blog",
+    "title": "blog",
+    "child_type": "item",
+    "validation": "loose",
+    "fields": [
+      {
+        "name": "tabs",
+        "type": "tabs",
+        "fields": [
+          {
+            "name": "content",
+            "type": "tab",
+            "title": "Content",
+            "fields": [
+              { "name": "header.title", "type": "text", "label": "Title" },
+              { "name": "content", "type": "markdown" },
+              { "name": "header.media_order", "type": "pagemedia", "label": "Page Media" }
+            ]
+          },
+          {
+            "name": "blog",
+            "type": "tab",
+            "title": "Blog Config",
+            "fields": [
+              { "name": "header.content.limit", "type": "text", "label": "Max Item Count", "validate": { "required": true, "type": "int" } },
+              { "name": "header.content.order.by", "type": "select", "label": "Order By", "options": { "folder": "Folder", "title": "Title", "date": "Date" } },
+              { "name": "header.content.pagination", "type": "toggle", "label": "Pagination" }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The resolved blueprint includes all inherited fields from parent blueprints (e.g., a theme's `blog.yaml` extending the system `default.yaml`), with `extends@` and `import@` directives fully resolved.
+
+**Supported field types** in the serialized output include: `text`, `textarea`, `select`, `toggle`, `checkbox`, `radio`, `markdown`, `editor`, `filepicker`, `pagemedia`, `taxonomy`, `list`, `array`, `tabs`, `tab`, `section`, `fieldset`, `columns`, `column`, `spacer`, `display`, `hidden`, and more. Unknown field types are passed through with their properties intact for client-side fallback rendering.
+
+**Get a plugin blueprint:**
+
+```bash
+curl -s "https://yoursite.com/api/v1/blueprints/plugins/email" \
+  -H "X-API-Key: YOUR_KEY"
+```
+
 ## Response Format
 
 ### Success

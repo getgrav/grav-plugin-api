@@ -120,6 +120,8 @@ tags:
     description: Notifications, news feed, and statistics.
   - name: Webhooks
     description: Outbound webhook configuration and delivery management.
+  - name: Blueprints
+    description: Form schema definitions for pages, plugins, themes, and system configuration. Blueprints define the fields, types, validation, and layout used to render editing interfaces.
 
 security:
   - bearerAuth: []
@@ -3264,6 +3266,146 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  # ---------------------------------------------------------------------------
+  # Blueprints
+  # ---------------------------------------------------------------------------
+  /blueprints/pages:
+    get:
+      operationId: listPageTypes
+      tags: [Blueprints]
+      summary: List available page templates
+      description: Returns all page template types available in the active theme.
+      responses:
+        "200":
+          description: List of page types.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        type:
+                          type: string
+                          example: blog
+                        label:
+                          type: string
+                          example: Blog
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /blueprints/pages/{template}:
+    get:
+      operationId: getPageBlueprint
+      tags: [Blueprints]
+      summary: Get resolved blueprint for a page template
+      description: |
+        Returns the fully resolved blueprint for the given page template.
+        Inheritance via `extends@` and `import@` directives is resolved
+        server-side, producing a complete field tree ready for client-side
+        form rendering.
+      parameters:
+        - name: template
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Page template name (e.g., `default`, `blog`, `item`)
+          example: blog
+      responses:
+        "200":
+          description: Resolved blueprint.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BlueprintResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /blueprints/plugins/{plugin}:
+    get:
+      operationId: getPluginBlueprint
+      tags: [Blueprints]
+      summary: Get blueprint for a plugin
+      description: Returns the configuration blueprint for the specified plugin.
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Plugin slug (directory name)
+          example: email
+      responses:
+        "200":
+          description: Plugin blueprint.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BlueprintResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /blueprints/themes/{theme}:
+    get:
+      operationId: getThemeBlueprint
+      tags: [Blueprints]
+      summary: Get blueprint for a theme
+      description: Returns the configuration blueprint for the specified theme.
+      parameters:
+        - name: theme
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Theme slug (directory name)
+          example: quark
+      responses:
+        "200":
+          description: Theme blueprint.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BlueprintResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /blueprints/config/{scope}:
+    get:
+      operationId: getConfigBlueprint
+      tags: [Blueprints]
+      summary: Get blueprint for system configuration
+      description: Returns the configuration blueprint for the specified scope.
+      parameters:
+        - name: scope
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [system, site, media]
+          description: Configuration scope
+          example: system
+      responses:
+        "200":
+          description: Config blueprint.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BlueprintResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
 # =============================================================================
 # Components
 # =============================================================================
@@ -3513,6 +3655,119 @@ components:
   # Schemas
   # ---------------------------------------------------------------------------
   schemas:
+    # -- Blueprint -------------------------------------------------------------
+    BlueprintResponse:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/Blueprint"
+
+    Blueprint:
+      type: object
+      description: A resolved blueprint schema defining form fields for content or configuration editing.
+      properties:
+        name:
+          type: string
+          description: Blueprint identifier (template name, plugin slug, etc.)
+          example: blog
+        title:
+          type: string
+          description: Human-readable title.
+          example: Blog
+        type:
+          type: string
+          nullable: true
+          description: Blueprint type (plugin, theme, etc.)
+        child_type:
+          type: string
+          nullable: true
+          description: Default child page type for this template.
+          example: item
+        validation:
+          type: string
+          description: Validation mode (`strict` or `loose`).
+          example: loose
+        fields:
+          type: array
+          description: Top-level field definitions (typically a `tabs` container).
+          items:
+            $ref: "#/components/schemas/BlueprintField"
+
+    BlueprintField:
+      type: object
+      description: A single form field definition.
+      required: [name, type]
+      properties:
+        name:
+          type: string
+          description: Dot-notation field path (e.g. `header.content.limit`).
+          example: header.title
+        type:
+          type: string
+          description: |
+            Field type. Standard types include: `text`, `textarea`, `select`, `toggle`,
+            `checkbox`, `radio`, `markdown`, `editor`, `filepicker`, `pagemedia`,
+            `taxonomy`, `list`, `array`, `tabs`, `tab`, `section`, `fieldset`,
+            `columns`, `column`, `spacer`, `display`, `hidden`.
+          example: text
+        label:
+          type: string
+          description: Display label (may contain translation keys like `PLUGIN_ADMIN.TITLE`).
+        help:
+          type: string
+          description: Help text shown below the field.
+        placeholder:
+          type: string
+        default:
+          description: Default value for the field.
+        description:
+          type: string
+          description: Extended description (may contain HTML if `markdown` is true).
+        title:
+          type: string
+          description: Section or spacer title.
+        options:
+          type: object
+          additionalProperties:
+            type: string
+          description: Key-value options for select, radio, toggle fields.
+          example: { "asc": "Ascending", "desc": "Descending" }
+        validate:
+          type: object
+          description: Validation rules.
+          properties:
+            type:
+              type: string
+              example: int
+            required:
+              type: boolean
+            pattern:
+              type: string
+            min:
+              type: number
+            max:
+              type: number
+        fields:
+          type: array
+          description: Nested child fields (for tabs, tab, section, fieldset, columns, list).
+          items:
+            $ref: "#/components/schemas/BlueprintField"
+        toggleable:
+          type: boolean
+        multiple:
+          type: boolean
+        markdown:
+          type: boolean
+          description: If true, the description contains HTML/markdown.
+        underline:
+          type: boolean
+        size:
+          type: string
+          enum: [small, medium, large]
+        rows:
+          type: integer
+          description: Number of rows for textarea fields.
+
     # -- Page -----------------------------------------------------------------
     Page:
       type: object
