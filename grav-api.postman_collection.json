@@ -760,6 +760,97 @@
               }
             ]
           }
+        },
+        {
+          "name": "List Root Children (Lazy Load)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns array', () => pm.expect(pm.response.json().data).to.be.an('array'));",
+                  "pm.test('Pages have has_children field', () => {",
+                  "    const pages = pm.response.json().data;",
+                  "    if (pages.length > 0) {",
+                  "        pm.expect(pages[0]).to.have.property('has_children');",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/pages?children_of=/&sort=order",
+              "host": [
+                "{{base_url}}{{api_prefix}}/pages?children_of=/&sort=order"
+              ]
+            },
+            "description": "Get only root-level pages (direct children of /). Returns has_children boolean for each page. Ideal for lazy-loading tree views and miller columns."
+          },
+          "response": []
+        },
+        {
+          "name": "List Children of /blog",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('All pages are direct children of /blog', () => {",
+                  "    const pages = pm.response.json().data;",
+                  "    pages.forEach(p => {",
+                  "        pm.expect(p.route).to.match(/^\\/blog\\/[^\\/]+$/);",
+                  "    });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/pages?children_of=/blog&sort=order",
+              "host": [
+                "{{base_url}}{{api_prefix}}/pages?children_of=/blog&sort=order"
+              ]
+            },
+            "description": "Get direct children of /blog only (one level deep). Unlike parent filter, children_of does not return deeper descendants."
+          },
+          "response": []
         }
       ]
     },

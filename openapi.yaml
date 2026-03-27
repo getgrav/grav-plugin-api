@@ -313,9 +313,24 @@ paths:
           in: query
           description: |
             Filter pages whose route starts with this parent path (e.g. `/blog`
-            returns `/blog/post-1`, `/blog/post-2`, etc.).
+            returns `/blog/post-1`, `/blog/post-2`, etc.). Returns all descendants.
           schema:
             type: string
+        - name: children_of
+          in: query
+          description: |
+            Return only **direct children** of the given route (one level deep).
+            Unlike `parent`, this does not return deeper descendants.
+            Use `children_of=/` for root-level pages. Ideal for lazy-loading
+            tree views and miller column interfaces.
+          schema:
+            type: string
+          example: /blog
+        - name: root
+          in: query
+          description: Filter to top-level (root) pages only.
+          schema:
+            type: boolean
           example: /blog
       responses:
         "200":
@@ -351,6 +366,7 @@ paths:
                     date: "2026-03-20T12:00:00+00:00"
                     modified: "2026-03-22T09:30:00+00:00"
                     order: 1
+                    has_children: true
                 meta:
                   pagination:
                     page: 1
@@ -3895,6 +3911,10 @@ components:
           nullable: true
           description: Numeric ordering prefix, or `null` for unordered pages.
           example: 1
+        has_children:
+          type: boolean
+          description: Whether this page has child pages. Useful for tree/column UIs to show expand indicators without loading children.
+          example: true
         content:
           type: string
           description: Raw Markdown content of the page body.

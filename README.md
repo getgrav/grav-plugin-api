@@ -186,6 +186,20 @@ All endpoints are prefixed with `/api/v1`. All responses use a standard JSON env
 GET /api/v1/pages?published=true&template=post&parent=blog
 ```
 
+**Lazy-loading children** (for tree/miller column views):
+```bash
+# Direct children only (one level deep) — ideal for lazy-loading
+GET /api/v1/pages?children_of=/blog
+
+# Top-level pages only
+GET /api/v1/pages?children_of=/
+
+# Alternative: root-level pages
+GET /api/v1/pages?root=true
+```
+
+Unlike `parent` (which returns all descendants), `children_of` returns only **direct children** — pages exactly one level below the given route. Combined with the `has_children` field in page responses, this enables efficient lazy-loading page trees and miller column interfaces.
+
 **Sorting:**
 ```
 GET /api/v1/pages?sort=date&order=desc
@@ -610,6 +624,8 @@ curl -s "https://yoursite.com/api/v1/blueprints/plugins/email" \
 ```
 
 Non-paginated responses omit `meta` and `links`.
+
+Page objects include a `has_children` boolean field indicating whether the page has child pages, enabling tree/column UIs to show expand indicators without loading children upfront.
 
 ### Errors (RFC 7807)
 
