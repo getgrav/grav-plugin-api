@@ -28,9 +28,11 @@ class MediaController extends AbstractApiController
         $this->requirePermission($request, 'api.media.read');
 
         $page = $this->findPageOrFail($request);
-        $media = $page->media()->all();
+        $pagePath = $page->path();
 
-        $serialized = $this->getSerializer()->serializeCollection($media);
+        // Create fresh Media object to avoid stale page cache
+        $media = new \Grav\Common\Page\Media($pagePath);
+        $serialized = $this->getSerializer()->serializeCollection($media->all());
 
         return ApiResponse::create($serialized);
     }
