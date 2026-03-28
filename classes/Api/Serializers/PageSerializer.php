@@ -10,6 +10,10 @@ use Grav\Common\Page\Interfaces\PageInterface;
 
 class PageSerializer implements SerializerInterface
 {
+    public function __construct(
+        private ?MediaSerializer $mediaSerializer = null,
+    ) {}
+
     public function serialize(object $resource, array $options = []): array
     {
         /** @var PageInterface $resource */
@@ -106,8 +110,12 @@ class PageSerializer implements SerializerInterface
     private function serializeMedia(PageInterface $page): array
     {
         $media = $page->media();
-        $result = [];
 
+        if ($this->mediaSerializer) {
+            return $this->mediaSerializer->serializeCollection($media->all());
+        }
+
+        $result = [];
         foreach ($media->all() as $filename => $medium) {
             $result[] = [
                 'filename' => $medium->filename,

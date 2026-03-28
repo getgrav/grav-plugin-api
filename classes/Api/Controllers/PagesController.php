@@ -13,7 +13,9 @@ use Grav\Common\Page\Page;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
+use Grav\Plugin\Api\Serializers\MediaSerializer;
 use Grav\Plugin\Api\Serializers\PageSerializer;
+use Grav\Plugin\Api\Services\ThumbnailService;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -30,7 +32,11 @@ class PagesController extends AbstractApiController
     public function __construct(Grav $grav, Config $config)
     {
         parent::__construct($grav, $config);
-        $this->serializer = new PageSerializer();
+        $cacheDir = $grav['locator']->findResource('cache://') . '/api/thumbnails';
+        $thumbnailService = new ThumbnailService($cacheDir);
+        $baseUrl = '/' . trim($config->get('plugins.api.route', '/api'), '/') . '/' . $config->get('plugins.api.version_prefix', 'v1');
+        $mediaSerializer = new MediaSerializer($thumbnailService, $baseUrl);
+        $this->serializer = new PageSerializer($mediaSerializer);
     }
 
     /**
