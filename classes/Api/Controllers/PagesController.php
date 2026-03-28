@@ -97,9 +97,12 @@ class PagesController extends AbstractApiController
             $page = $this->findPageOrFail('/' . $route);
 
             $query = $request->getQueryParams();
+            $summary = filter_var($query['summary'] ?? false, FILTER_VALIDATE_BOOLEAN);
             $options = [
-                'include_content' => true,
+                'include_content' => !$summary,
                 'render_content' => filter_var($query['render'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                'include_summary' => $summary,
+                'summary_size' => isset($query['summary_size']) ? (int) $query['summary_size'] : null,
                 'include_children' => filter_var($query['children'] ?? false, FILTER_VALIDATE_BOOLEAN),
                 'children_depth' => max(1, (int) ($query['children_depth'] ?? 1)),
                 'include_media' => true,

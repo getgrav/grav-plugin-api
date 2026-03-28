@@ -74,6 +74,7 @@ class ApiRouter extends ProcessorBase
             $publicPrefixes = [
                 $apiBase . '/auth/',
                 $apiBase . '/translations/',
+                $apiBase . '/thumbnails/',
             ];
 
             $isPublic = false;
@@ -204,6 +205,9 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('GET', '/pages/{route:.+}', [PagesController::class, 'show']);
         $r->addRoute('PATCH', '/pages/{route:.+}', [PagesController::class, 'update']);
         $r->addRoute('DELETE', '/pages/{route:.+}', [PagesController::class, 'delete']);
+
+        // Thumbnails
+        $r->addRoute('GET', '/thumbnails/{file:.+}', [MediaController::class, 'thumbnail']);
 
         // Site-level media
         $r->addRoute('GET', '/media', [MediaController::class, 'siteMedia']);

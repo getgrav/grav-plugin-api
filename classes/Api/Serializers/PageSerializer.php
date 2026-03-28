@@ -51,6 +51,14 @@ class PageSerializer implements SerializerInterface
             $data['content_html'] = $resource->content();
         }
 
+        $includeSummary = $options['include_summary'] ?? false;
+        if ($includeSummary) {
+            $summarySize = $options['summary_size'] ?? null;
+            $data['summary'] = $summarySize
+                ? $resource->summary($summarySize)
+                : $resource->summary();
+        }
+
         if ($includeMedia) {
             $data['media'] = $this->serializeMedia($resource);
         }

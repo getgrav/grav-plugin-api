@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace Grav\Plugin\Api\Controllers;
 
 use Grav\Common\Page\Interfaces\PageInterface;
+use Grav\Framework\Psr7\Response;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Grav\Plugin\Api\Serializers\MediaSerializer;
+use Grav\Plugin\Api\Services\ThumbnailService;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\UploadedFileInterface;
@@ -219,9 +221,51 @@ class MediaController extends AbstractApiController
     /**
      * Lazily instantiate the media serializer.
      */
+    /**
+     * GET /thumbnails/{hash}.{ext} - Serve a cached thumbnail image.
+     */
+    public function thumbnail(ServerRequestInterface $request): ResponseInterface
+    {
+        $file = $this->getRouteParam($request, 'file');
+        if (!$file) {
+            throw new NotFoundException('Thumbnail not found.');
+        }
+
+        $cacheDir = $this->grav['locator']->findResource('cache://') . '/api/thumbnails';
+        $cachePath = $cacheDir . '/' . basename($file);
+
+        if (!file_exists($cachePath)) {
+            throw new NotFoundException('Thumbnail not found.');
+        }
+
+        $mime = mime_content_type($cachePath) ?: 'application/octet-stream';
+        $content = file_get_contents($cachePath);
+
+        return new Response(
+            200,
+            [
+                'Content-Type' => $mime,
+                'Content-Length' => (string) strlen($content),
+                'Cache-Control' => 'public, max-age=31536000, immutable',
+            ],
+            $content
+        );
+    }
+
+    private function getThumbnailService(): ThumbnailService
+    {
+        $cacheDir = $this->grav['locator']->findResource('cache://') . '/api/thumbnails';
+        return new ThumbnailService($cacheDir);
+    }
+
     private function getSerializer(): MediaSerializer
     {
-        return $this->serializer ??= new MediaSerializer();
+        if (!$this->serializer) {
+            $thumbnailService = $this->getThumbnailService();
+            $baseUrl = $this->getApiBaseUrl();
+            $this->serializer = new MediaSerializer($thumbnailService, $baseUrl);
+        }
+        return $this->serializer;
     }
 
     /**

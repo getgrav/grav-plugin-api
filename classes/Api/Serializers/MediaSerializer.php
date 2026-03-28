@@ -4,8 +4,15 @@ declare(strict_types=1);
 
 namespace Grav\Plugin\Api\Serializers;
 
+use Grav\Plugin\Api\Services\ThumbnailService;
+
 class MediaSerializer implements SerializerInterface
 {
+    public function __construct(
+        private ?ThumbnailService $thumbnailService = null,
+        private string $thumbnailBaseUrl = '',
+    ) {}
+
     /**
      * Serialize a single Grav Medium object to an API response array.
      */
@@ -30,6 +37,19 @@ class MediaSerializer implements SerializerInterface
                     'height' => (int) $height,
                 ];
             }
+
+            // Generate thumbnail URL for images
+            if ($this->thumbnailService) {
+                $sourcePath = $this->resolveSourcePath($medium);
+                if ($sourcePath) {
+                    $thumbFilename = $this->thumbnailService->getThumbnailFilename($sourcePath);
+                    if ($thumbFilename) {
+                        // Trigger thumbnail generation
+                        $this->thumbnailService->getThumbnail($sourcePath);
+                        $data['thumbnail_url'] = $this->thumbnailBaseUrl . '/thumbnails/' . $thumbFilename;
+                    }
+                }
+            }
         }
 
         $data['modified'] = $this->resolveModifiedTime($medium);
@@ -52,18 +72,31 @@ class MediaSerializer implements SerializerInterface
     }
 
     /**
+     * Resolve the physical file path for a medium.
+     */
+    private function resolveSourcePath(object $medium): ?string
+    {
+        if (method_exists($medium, 'path')) {
+            $path = $medium->path();
+            if ($path && file_exists($path)) {
+                return $path;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Resolve the last-modified timestamp for a medium, returning an ISO 8601 string.
      */
     private function resolveModifiedTime(object $medium): string
     {
         $timestamp = null;
 
-        // Try the modified() method first
         if (method_exists($medium, 'modified')) {
             $timestamp = $medium->modified();
         }
 
-        // Fall back to filemtime on the physical path
         if (!$timestamp && method_exists($medium, 'path')) {
             $path = $medium->path();
             if ($path && file_exists($path)) {
