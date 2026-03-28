@@ -102,13 +102,20 @@ class BlueprintController extends AbstractApiController
         $this->requirePermission($request, 'api.config.read');
 
         $scope = $this->getRouteParam($request, 'scope');
-        $validScopes = ['system', 'site', 'media'];
+        $validScopes = ['system', 'site', 'media', 'security'];
 
         if (!in_array($scope, $validScopes, true)) {
             throw new NotFoundException("Config blueprint scope '{$scope}' not found. Valid: " . implode(', ', $validScopes));
         }
 
-        $realPath = $this->grav['locator']->findResource("system://blueprints/config/{$scope}.yaml");
+        // Use the blueprints:// stream to find config blueprints so that
+        // plugin overrides (e.g., admin's media.yaml) are resolved correctly.
+        $realPath = $this->grav['locator']->findResource("blueprints://config/{$scope}.yaml");
+
+        if (!$realPath) {
+            // Fallback to system blueprints directly
+            $realPath = $this->grav['locator']->findResource("system://blueprints/config/{$scope}.yaml");
+        }
 
         if (!$realPath) {
             throw new NotFoundException("Config blueprint for '{$scope}' not found.");
@@ -266,6 +273,36 @@ class BlueprintController extends AbstractApiController
     }
 
     /**
+     * Resolve a data-*@ directive by calling the referenced PHP callable.
+     * Supports format: '\Grav\Common\Utils::timezones' or ['method', 'args']
+     */
+    private function resolveDataDirective(mixed $directive): ?array
+    {
+        try {
+            $callable = is_array($directive) ? ($directive[0] ?? null) : $directive;
+            if (!is_string($callable)) {
+                return null;
+            }
+
+            $callable = ltrim($callable, '\\');
+
+            // Parse Class::method format
+            if (str_contains($callable, '::')) {
+                [$class, $method] = explode('::', $callable, 2);
+                $class = '\\' . $class;
+                if (class_exists($class) && method_exists($class, $method)) {
+                    $result = $class::$method();
+                    return is_array($result) ? $result : null;
+                }
+            }
+
+            return null;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
      * Serialize a Blueprint object into a JSON-friendly structure.
      */
     private function serializeBlueprint(Blueprint $blueprint, string $name): array
@@ -314,12 +351,36 @@ class BlueprintController extends AbstractApiController
                 'markdown', 'prepend', 'append', 'underline',
                 'options', 'selectize', 'value_only',
                 'destination', 'accept',
+                'use', 'key', 'controls', 'collapsed',
+                'show_all', 'show_modular', 'show_root', 'show_slug',
+                'placeholder_key', 'placeholder_value', 'value_type',
+                'btnLabel', 'placement', 'sortby', 'sortby_dir',
+                'sort', 'collapsible', 'min_height', 'selectunique',
             ];
 
             foreach ($props as $prop) {
                 if (isset($field[$prop])) {
                     $serialized[$prop] = $field[$prop];
                 }
+            }
+
+            // Resolve data-options@ directives (dynamic options from PHP callables)
+            if (isset($field['data-options@'])) {
+                $resolved = $this->resolveDataDirective($field['data-options@']);
+                if ($resolved !== null) {
+                    $existing = $serialized['options'] ?? [];
+                    $serialized['options'] = is_array($existing) ? $existing + $resolved : $resolved;
+                }
+            }
+
+            // Convert options from {key: label} object to [{value, label}] array
+            // to preserve insertion order (JS re-sorts numeric object keys)
+            if (isset($serialized['options']) && is_array($serialized['options'])) {
+                $ordered = [];
+                foreach ($serialized['options'] as $optKey => $optLabel) {
+                    $ordered[] = ['value' => (string) $optKey, 'label' => $optLabel];
+                }
+                $serialized['options'] = $ordered;
             }
 
             // Validation rules

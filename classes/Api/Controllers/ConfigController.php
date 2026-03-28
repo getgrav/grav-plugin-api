@@ -13,6 +13,36 @@ use Psr\Http\Message\ServerRequestInterface;
 
 class ConfigController extends AbstractApiController
 {
+    /**
+     * GET /config - List available configuration sections.
+     */
+    public function index(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.config.read');
+
+        /** @var \RocketTheme\Toolbox\ResourceLocator\UniformResourceIterator $iterator */
+        $iterator = $this->grav['locator']->getIterator('blueprints://config');
+
+        $configurations = [];
+        foreach ($iterator as $file) {
+            if ($file->isDir() || !preg_match('/^[^.].*.yaml$/', $file->getFilename())) {
+                continue;
+            }
+            $name = pathinfo($file->getFilename(), PATHINFO_FILENAME);
+            // Skip scheduler and backups (they belong to tools)
+            if (in_array($name, ['scheduler', 'backups', 'streams'], true)) {
+                continue;
+            }
+            $configurations[$name] = true;
+        }
+
+        // Sort and enforce canonical ordering: system, site first; info last
+        ksort($configurations);
+        $configurations = ['system' => true, 'site' => true] + $configurations + ['info' => true];
+
+        return ApiResponse::create(array_keys($configurations));
+    }
+
     public function show(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'api.config.read');
@@ -96,6 +126,8 @@ class ConfigController extends AbstractApiController
         return match (true) {
             $scope === 'system' => 'system',
             $scope === 'site' => 'site',
+            $scope === 'media' => 'media',
+            $scope === 'security' => 'security',
             str_starts_with($scope, 'plugins/') => 'plugins.' . substr($scope, 8),
             str_starts_with($scope, 'themes/') => 'themes.' . substr($scope, 7),
             default => throw new NotFoundException("Unknown configuration scope '{$scope}'."),
@@ -113,6 +145,8 @@ class ConfigController extends AbstractApiController
         $filePath = match (true) {
             $scope === 'system' => $configDir . '/system.yaml',
             $scope === 'site' => $configDir . '/site.yaml',
+            $scope === 'media' => $configDir . '/media.yaml',
+            $scope === 'security' => $configDir . '/security.yaml',
             str_starts_with($scope, 'plugins/') => $configDir . '/plugins/' . substr($scope, 8) . '.yaml',
             str_starts_with($scope, 'themes/') => $configDir . '/themes/' . substr($scope, 7) . '.yaml',
             default => throw new NotFoundException("Unknown configuration scope '{$scope}'."),

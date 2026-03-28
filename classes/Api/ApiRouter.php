@@ -218,6 +218,7 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('GET', '/taxonomy', [PagesController::class, 'taxonomy']);
 
         // Config
+        $r->addRoute('GET', '/config', [ConfigController::class, 'index']);
         $r->addRoute('GET', '/config/{scope:.+}', [ConfigController::class, 'show']);
         $r->addRoute('PATCH', '/config/{scope:.+}', [ConfigController::class, 'update']);
 
