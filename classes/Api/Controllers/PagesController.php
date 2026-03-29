@@ -246,8 +246,14 @@ class PagesController extends AbstractApiController
                 $page->header((object) $merged);
             }
 
-            if (array_key_exists('template', $body)) {
+            // Template change requires renaming the page file (e.g. default.md → post.md)
+            $templateChanged = false;
+            $oldFilePath = null;
+            if (array_key_exists('template', $body) && $body['template'] !== $page->template()) {
+                $oldFilePath = $page->path() . '/' . $page->template() . ($page->language() ? '.' . $page->language() : '') . '.md';
                 $page->template($body['template']);
+                $page->name($body['template'] . ($page->language() ? '.' . $page->language() : '') . '.md');
+                $templateChanged = true;
             }
 
             if (array_key_exists('published', $body)) {
@@ -263,6 +269,12 @@ class PagesController extends AbstractApiController
             }
 
             $page->save();
+
+            // Remove old template file after successful save
+            if ($templateChanged && $oldFilePath && file_exists($oldFilePath)) {
+                unlink($oldFilePath);
+            }
+
             $this->clearPagesCache();
 
             $this->fireEvent('onApiPageUpdated', ['page' => $page]);
