@@ -116,6 +116,35 @@ namespace Grav\Common\User\Interfaces {
     }
 }
 
+namespace Grav\Common\Page\Interfaces {
+    if (!interface_exists(\Grav\Common\Page\Interfaces\PageInterface::class, false)) {
+        interface PageInterface
+        {
+            public function route($var = null): ?string;
+            public function slug($var = null): string;
+            public function order($var = null): ?int;
+            public function path($var = null): ?string;
+            public function title($var = null): string;
+            public function isModule(): bool;
+            public function children(): \Traversable;
+        }
+    }
+}
+
+namespace Grav\Common\Filesystem {
+    if (!class_exists(\Grav\Common\Filesystem\Folder::class, false)) {
+        class Folder
+        {
+            public static function move(string $source, string $target): void
+            {
+                if (is_dir($source)) {
+                    rename($source, $target);
+                }
+            }
+        }
+    }
+}
+
 namespace Grav\Framework\Psr7 {
     if (!class_exists(\Grav\Framework\Psr7\Response::class, false)) {
         /**

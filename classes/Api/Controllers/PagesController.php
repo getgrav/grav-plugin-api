@@ -744,6 +744,205 @@ class PagesController extends AbstractApiController
     }
 
     /**
+     * POST /pages/reorganize - Reorganize multiple pages (move and/or reorder) atomically.
+     *
+     * Accepts an array of operations, each specifying a page route and optionally
+     * a new parent and/or position. All operations are validated before any
+     * filesystem changes are applied. Uses a two-phase temp-rename strategy
+     * to avoid conflicts.
+     */
+    public function reorganize(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, self::PERMISSION_WRITE);
+        $this->enablePages();
+
+        $body = $this->getRequestBody($request);
+        $this->requireFields($body, ['operations']);
+
+        $operations = $body['operations'];
+        if (!is_array($operations) || empty($operations)) {
+            throw new ValidationException("The 'operations' field must be a non-empty array.");
+        }
+
+        $maxBatch = $this->config->get('plugins.api.batch.max_items', 50);
+        if (count($operations) > $maxBatch) {
+            throw new ValidationException("Reorganize operations are limited to {$maxBatch} items.");
+        }
+
+        // --- Phase 1: Validate all operations ---
+        $resolved = [];
+        $seenRoutes = [];
+        $affectedParentRoutes = [];
+
+        foreach ($operations as $index => $op) {
+            if (!is_array($op) || !isset($op['route'])) {
+                throw new ValidationException("Operation at index {$index} must have a 'route' field.");
+            }
+
+            $route = '/' . trim($op['route'], '/');
+
+            if (isset($seenRoutes[$route])) {
+                throw new ValidationException("Duplicate route '{$route}' in operations.");
+            }
+            $seenRoutes[$route] = true;
+
+            $page = $this->grav['pages']->find($route);
+            if (!$page) {
+                throw new ValidationException("Page not found at route: {$route}");
+            }
+
+            $currentParentRoute = dirname($page->route()) ?: '/';
+            if ($currentParentRoute === '.') {
+                $currentParentRoute = '/';
+            }
+            $affectedParentRoutes[$currentParentRoute] = true;
+
+            // Resolve destination parent
+            $newParentRoute = null;
+            $newParentPath = null;
+            if (isset($op['parent'])) {
+                $newParentRoute = '/' . trim($op['parent'], '/');
+                if ($newParentRoute === '/') {
+                    $newParentPath = $this->grav['locator']->findResource('page://', true);
+                } else {
+                    $newParent = $this->grav['pages']->find($newParentRoute);
+                    if (!$newParent) {
+                        throw new ValidationException("Destination parent not found at route: {$newParentRoute} (operation index {$index}).");
+                    }
+                    $newParentPath = $newParent->path();
+                }
+                $affectedParentRoutes[$newParentRoute] = true;
+
+                // Prevent moving a page into its own subtree
+                if (str_starts_with($newParentRoute . '/', $route . '/')) {
+                    throw new ValidationException("Cannot move '{$route}' into its own subtree '{$newParentRoute}'.");
+                }
+            } else {
+                // Stays under current parent
+                $newParentRoute = $currentParentRoute;
+                if ($currentParentRoute === '/') {
+                    $newParentPath = $this->grav['locator']->findResource('page://', true);
+                } else {
+                    $currentParent = $this->grav['pages']->find($currentParentRoute);
+                    $newParentPath = $currentParent ? $currentParent->path() : null;
+                }
+            }
+
+            $position = isset($op['position']) ? (int) $op['position'] : null;
+
+            // Validate position conflicts: no two ops targeting same parent with same position
+            if ($position !== null) {
+                $posKey = $newParentRoute . ':' . $position;
+                foreach ($resolved as $prev) {
+                    if ($prev['newParentRoute'] === $newParentRoute && $prev['position'] === $position) {
+                        throw new ValidationException(
+                            "Position conflict: both '{$prev['route']}' and '{$route}' target position {$position} under '{$newParentRoute}'."
+                        );
+                    }
+                }
+            }
+
+            $resolved[] = [
+                'route' => $route,
+                'page' => $page,
+                'slug' => $page->slug(),
+                'oldPath' => $page->path(),
+                'currentParentRoute' => $currentParentRoute,
+                'newParentRoute' => $newParentRoute,
+                'newParentPath' => $newParentPath,
+                'position' => $position,
+            ];
+        }
+
+        $this->fireEvent('onApiBeforePagesReorganize', ['operations' => $resolved]);
+
+        // --- Phase 2: Move to temp names ---
+        $completedRenames = [];
+
+        try {
+            foreach ($resolved as $index => &$op) {
+                $slug = $op['slug'];
+                $destParentPath = $op['newParentPath'];
+                $tempName = '_reorg_temp_' . $index . '_' . $slug;
+                $tempPath = $destParentPath . '/' . $tempName;
+
+                if (is_dir($op['oldPath'])) {
+                    Folder::move($op['oldPath'], $tempPath);
+                    $completedRenames[] = ['from' => $op['oldPath'], 'to' => $tempPath];
+                    $op['tempPath'] = $tempPath;
+                } else {
+                    $op['tempPath'] = null;
+                }
+            }
+            unset($op);
+
+            // --- Phase 3: Rename from temp to final names ---
+            foreach ($resolved as &$op) {
+                if (!$op['tempPath']) {
+                    continue;
+                }
+
+                $slug = $op['slug'];
+                $position = $op['position'];
+                $destParentPath = $op['newParentPath'];
+
+                $dirName = $position !== null
+                    ? str_pad((string) $position, 2, '0', STR_PAD_LEFT) . '.' . $slug
+                    : $slug;
+
+                $finalPath = $destParentPath . '/' . $dirName;
+
+                rename($op['tempPath'], $finalPath);
+                $completedRenames[] = ['from' => $op['tempPath'], 'to' => $finalPath];
+                $op['finalPath'] = $finalPath;
+            }
+            unset($op);
+        } catch (\Throwable $e) {
+            // Best-effort rollback: reverse completed renames
+            foreach (array_reverse($completedRenames) as $rename) {
+                if (is_dir($rename['to'])) {
+                    try {
+                        Folder::move($rename['to'], $rename['from']);
+                    } catch (\Throwable) {
+                        // Can't recover further
+                    }
+                }
+            }
+
+            throw new ValidationException("Reorganize failed during filesystem operations: {$e->getMessage()}");
+        }
+
+        $this->clearPagesCache();
+        $this->enablePages(true);
+
+        $this->fireEvent('onApiPagesReorganized', ['operations' => $resolved]);
+
+        // --- Phase 4: Build response with all affected pages ---
+        $affectedData = [];
+        foreach (array_keys($affectedParentRoutes) as $parentRoute) {
+            $parent = $parentRoute === '/'
+                ? $this->grav['pages']->find('/')
+                : $this->grav['pages']->find($parentRoute);
+
+            if (!$parent) {
+                continue;
+            }
+
+            foreach ($parent->children() as $child) {
+                $affectedData[] = [
+                    'route' => $child->route(),
+                    'slug' => $child->slug(),
+                    'title' => $child->title(),
+                    'order' => $child->order(),
+                    'parent' => $parentRoute,
+                ];
+            }
+        }
+
+        return ApiResponse::create($affectedData);
+    }
+
+    /**
      * GET /taxonomy - List all taxonomy types and their values.
      */
     public function taxonomy(ServerRequestInterface $request): ResponseInterface

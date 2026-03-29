@@ -194,6 +194,7 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('GET', '/pages', [PagesController::class, 'index']);
         $r->addRoute('POST', '/pages', [PagesController::class, 'create']);
         $r->addRoute('POST', '/pages/batch', [PagesController::class, 'batch']);
+        $r->addRoute('POST', '/pages/reorganize', [PagesController::class, 'reorganize']);
         $r->addRoute('GET', '/pages/{route:.+}/languages', [PagesController::class, 'languages']);
         $r->addRoute('POST', '/pages/{route:.+}/translate', [PagesController::class, 'translate']);
         $r->addRoute('POST', '/pages/{route:.+}/reorder', [PagesController::class, 'reorder']);
@@ -270,6 +271,9 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('DELETE', '/webhooks/{id}', [WebhookController::class, 'delete']);
         $r->addRoute('GET', '/webhooks/{id}/deliveries', [WebhookController::class, 'deliveries']);
         $r->addRoute('POST', '/webhooks/{id}/test', [WebhookController::class, 'test']);
+
+        // Data resolver — generic endpoint for data-options@ directives
+        $r->addRoute('GET', '/data/resolve', [BlueprintController::class, 'resolveData']);
 
         // Blueprints
         $r->addRoute('GET', '/blueprints/pages', [BlueprintController::class, 'pageTypes']);

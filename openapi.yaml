@@ -874,6 +874,112 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  /pages/reorganize:
+    post:
+      operationId: reorganizePages
+      tags: [Pages]
+      summary: Reorganize multiple pages (move and reorder atomically)
+      description: |
+        Move and/or reorder multiple pages in a single atomic operation. Each
+        operation specifies a page route and optionally a new parent and/or
+        position. All operations are validated before any changes are applied.
+
+        Use this endpoint for drag-and-drop tree reorganization where pages may
+        be moved across parents and reordered within the same request.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [operations]
+              properties:
+                operations:
+                  type: array
+                  items:
+                    type: object
+                    required: [route]
+                    properties:
+                      route:
+                        type: string
+                        description: Current route of the page to reorganize.
+                        example: /blog/post-a
+                      parent:
+                        type: string
+                        description: |
+                          New parent route. Use `/` for root. Omit to keep the
+                          page under its current parent.
+                        example: /tutorials
+                      position:
+                        type: integer
+                        minimum: 1
+                        description: |
+                          1-based ordering position under the target parent. Omit
+                          to keep the current order value.
+                        example: 1
+                  description: |
+                    Array of reorganize operations to apply atomically. All are
+                    validated before any filesystem changes are made.
+            example:
+              operations:
+                - route: /blog/post-a
+                  parent: /tutorials
+                  position: 1
+                - route: /blog/post-b
+                  position: 2
+                - route: /tutorials/old-guide
+                  parent: /blog
+                  position: 3
+      responses:
+        "200":
+          description: Pages reorganized successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        route:
+                          type: string
+                          example: /tutorials/post-a
+                        slug:
+                          type: string
+                          example: post-a
+                        title:
+                          type: string
+                          example: Post A
+                        order:
+                          type: integer
+                          nullable: true
+                          example: 1
+                        parent:
+                          type: string
+                          example: /tutorials
+              example:
+                data:
+                  - route: /tutorials/post-a
+                    slug: post-a
+                    title: Post A
+                    order: 1
+                    parent: /tutorials
+                  - route: /blog/post-b
+                    slug: post-b
+                    title: Post B
+                    order: 2
+                    parent: /blog
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   /pages/{route}/reorder:
     post:
       operationId: reorderPages

@@ -2636,6 +2636,63 @@
             },
             "description": "Batch delete multiple pages at once."
           }
+        },
+        {
+          "name": "Reorganize Pages",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Has data array', () => pm.expect(res.data).to.be.an('array'));",
+                  "pm.test('Each result has route and slug', () => {",
+                  "    res.data.forEach(item => {",
+                  "        pm.expect(item).to.have.property('route');",
+                  "        pm.expect(item).to.have.property('slug');",
+                  "        pm.expect(item).to.have.property('parent');",
+                  "    });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "API Key authentication"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"operations\": [\n        { \"route\": \"/blog/sunshine-in-the-hills\", \"position\": 2 },\n        { \"route\": \"/blog/london-at-night\", \"position\": 1 }\n    ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/pages/reorganize",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "pages",
+                "reorganize"
+              ]
+            },
+            "description": "Reorganize multiple pages atomically \u2014 move across parents and/or reorder within the same request. Each operation specifies a page route and optionally a new parent and/or position. All operations are validated before any changes are applied."
+          }
         }
       ]
     },

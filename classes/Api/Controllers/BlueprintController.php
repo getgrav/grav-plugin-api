@@ -9,6 +9,7 @@ use Grav\Common\Data\Blueprints;
 use Grav\Common\Page\Pages;
 use Grav\Common\Yaml;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
+use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -16,11 +17,93 @@ use Psr\Http\Message\ServerRequestInterface;
 class BlueprintController extends AbstractApiController
 {
     /**
+     * Whitelist of callable patterns allowed by the resolve endpoint.
+     * Only static methods from known Grav namespaces are permitted.
+     */
+    private const RESOLVE_ALLOWED_NAMESPACES = [
+        'Grav\\Common\\',
+        'Grav\\Plugin\\',
+    ];
+
+    /**
+     * GET /data/resolve?callable=\Grav\Common\Page\Pages::pageTypes
+     *
+     * Generic endpoint for resolving data-options@ directives used in blueprints.
+     * Returns the array result of calling a whitelisted static PHP method.
+     * Client should cache responses — these are effectively static data.
+     */
+    public function resolveData(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.pages.read');
+
+        $query = $request->getQueryParams();
+        $callable = $query['callable'] ?? null;
+
+        if (!$callable || !is_string($callable)) {
+            throw new ValidationException(['callable' => ['The callable query parameter is required.']]);
+        }
+
+        $callable = ltrim($callable, '\\');
+
+        // Validate against whitelist
+        $allowed = false;
+        foreach (self::RESOLVE_ALLOWED_NAMESPACES as $ns) {
+            if (str_starts_with($callable, $ns)) {
+                $allowed = true;
+                break;
+            }
+        }
+        if (!$allowed) {
+            throw new ValidationException(['callable' => ['Callable is not in the allowed namespace list.']]);
+        }
+
+        // Ensure Pages subsystem for Page-related callables
+        if (str_contains($callable, 'Page')) {
+            $this->ensurePagesEnabled();
+        }
+
+        if (!str_contains($callable, '::')) {
+            throw new ValidationException(['callable' => ['Callable must be in Class::method format.']]);
+        }
+
+        [$class, $method] = explode('::', $callable, 2);
+        $class = '\\' . $class;
+
+        if (!class_exists($class) || !method_exists($class, $method)) {
+            throw new NotFoundException("Callable '{$callable}' not found.");
+        }
+
+        // For pageTypes(), pass the type arg so it returns standard or modular
+        if ($method === 'pageTypes') {
+            $type = $query['type'] ?? 'standard';
+            $result = $class::$method($type);
+        } else {
+            $result = $class::$method();
+        }
+
+        if (!is_array($result)) {
+            return ApiResponse::create([]);
+        }
+
+        // Normalize to [{value, label}] format for select options
+        $normalized = [];
+        foreach ($result as $key => $label) {
+            $normalized[] = [
+                'value' => (string) $key,
+                'label' => is_string($label) ? $label : (string) $key,
+            ];
+        }
+
+        return ApiResponse::create($normalized);
+    }
+
+    /**
      * GET /blueprints/pages - List available page blueprints (templates).
      */
     public function pageTypes(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'api.pages.read');
+        $this->ensurePagesEnabled();
 
         $types = Pages::types();
         $result = [];
@@ -273,6 +356,24 @@ class BlueprintController extends AbstractApiController
     }
 
     /**
+     * Ensure the Pages subsystem is initialized.
+     * Many data-options@ directives reference Pages:: methods that need this.
+     */
+    private function ensurePagesEnabled(): void
+    {
+        if ($this->pagesEnabled) {
+            return;
+        }
+        $pages = $this->grav['pages'];
+        if (method_exists($pages, 'enablePages')) {
+            $pages->enablePages();
+        }
+        $this->pagesEnabled = true;
+    }
+
+    private bool $pagesEnabled = false;
+
+    /**
      * Resolve a data-*@ directive by calling the referenced PHP callable.
      * Supports format: '\Grav\Common\Utils::timezones' or ['method', 'args']
      */
@@ -290,8 +391,19 @@ class BlueprintController extends AbstractApiController
             if (str_contains($callable, '::')) {
                 [$class, $method] = explode('::', $callable, 2);
                 $class = '\\' . $class;
+
+                // Ensure Pages subsystem is available for Page-related callables
+                if (str_contains($class, 'Page')) {
+                    $this->ensurePagesEnabled();
+                }
+
                 if (class_exists($class) && method_exists($class, $method)) {
-                    $result = $class::$method();
+                    // pageTypes() needs a type arg; default to standard for blueprint serialization
+                    if ($method === 'pageTypes') {
+                        $result = $class::$method('standard');
+                    } else {
+                        $result = $class::$method();
+                    }
                     return is_array($result) ? $result : null;
                 }
             }
@@ -366,10 +478,14 @@ class BlueprintController extends AbstractApiController
 
             // Resolve data-options@ directives (dynamic options from PHP callables)
             if (isset($field['data-options@'])) {
-                $resolved = $this->resolveDataDirective($field['data-options@']);
-                if ($resolved !== null) {
+                $directive = $field['data-options@'];
+                $resolved = $this->resolveDataDirective($directive);
+                if ($resolved !== null && count($resolved) > 0) {
                     $existing = $serialized['options'] ?? [];
                     $serialized['options'] = is_array($existing) ? $existing + $resolved : $resolved;
+                } else {
+                    // Include the directive reference so client can resolve via /data/resolve
+                    $serialized['data_options'] = is_string($directive) ? $directive : ($directive[0] ?? null);
                 }
             }
 
