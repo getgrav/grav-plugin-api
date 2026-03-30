@@ -87,6 +87,13 @@ class ApiRouter extends ProcessorBase
 
             if (!$isPublic) {
                 $request = (new AuthMiddleware($this->container, $this->config))->processRequest($request);
+
+                // Register admin proxy so Grav core treats API requests as
+                // admin-scoped (page visibility, Flex auth scope, events, etc.)
+                $user = $request->getAttribute('api_user');
+                if ($user && !isset($this->container['admin'])) {
+                    (new AdminProxy($this->container, $user))->register();
+                }
             }
 
             // Rate limit (after auth so we can rate limit per-user)
