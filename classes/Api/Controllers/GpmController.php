@@ -717,4 +717,65 @@ class GpmController extends AbstractApiController
 
         return false;
     }
+
+    /**
+     * GET /gpm/plugins/{slug}/readme - Get plugin README.md content.
+     * GET /gpm/themes/{slug}/readme
+     */
+    public function readme(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, self::PERMISSION_READ);
+
+        $slug = $this->getRouteParam($request, 'slug');
+        $type = str_contains($request->getUri()->getPath(), '/themes/') ? 'themes' : 'plugins';
+
+        $path = $this->resolvePackagePath($slug, $type);
+        $file = $path . '/README.md';
+
+        if (!file_exists($file)) {
+            throw new NotFoundException("No README found for '{$slug}'.");
+        }
+
+        return ApiResponse::create([
+            'content' => file_get_contents($file),
+        ]);
+    }
+
+    /**
+     * GET /gpm/plugins/{slug}/changelog - Get plugin CHANGELOG.md content.
+     * GET /gpm/themes/{slug}/changelog
+     */
+    public function changelog(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, self::PERMISSION_READ);
+
+        $slug = $this->getRouteParam($request, 'slug');
+        $type = str_contains($request->getUri()->getPath(), '/themes/') ? 'themes' : 'plugins';
+
+        $path = $this->resolvePackagePath($slug, $type);
+        $file = $path . '/CHANGELOG.md';
+
+        if (!file_exists($file)) {
+            throw new NotFoundException("No changelog found for '{$slug}'.");
+        }
+
+        return ApiResponse::create([
+            'content' => file_get_contents($file),
+        ]);
+    }
+
+    /**
+     * Resolve the filesystem path for an installed package.
+     */
+    private function resolvePackagePath(string $slug, string $type): string
+    {
+        $base = $type === 'themes' ? 'themes' : 'plugins';
+        $path = $this->grav['locator']->findResource("user://{$base}/{$slug}", true);
+
+        if (!$path || !is_dir($path)) {
+            throw new NotFoundException("Package '{$slug}' not found.");
+        }
+
+        return $path;
+    }
 }

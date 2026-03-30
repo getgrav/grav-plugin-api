@@ -243,8 +243,12 @@ class ApiRouter extends ProcessorBase
         // GPM (Package Manager)
         $r->addRoute('GET', '/gpm/plugins', [GpmController::class, 'plugins']);
         $r->addRoute('GET', '/gpm/plugins/{slug}', [GpmController::class, 'plugin']);
+        $r->addRoute('GET', '/gpm/plugins/{slug}/readme', [GpmController::class, 'readme']);
+        $r->addRoute('GET', '/gpm/plugins/{slug}/changelog', [GpmController::class, 'changelog']);
         $r->addRoute('GET', '/gpm/themes', [GpmController::class, 'themes']);
         $r->addRoute('GET', '/gpm/themes/{slug}', [GpmController::class, 'theme']);
+        $r->addRoute('GET', '/gpm/themes/{slug}/readme', [GpmController::class, 'readme']);
+        $r->addRoute('GET', '/gpm/themes/{slug}/changelog', [GpmController::class, 'changelog']);
         $r->addRoute('GET', '/gpm/updates', [GpmController::class, 'updates']);
         $r->addRoute('POST', '/gpm/install', [GpmController::class, 'install']);
         $r->addRoute('POST', '/gpm/remove', [GpmController::class, 'remove']);
