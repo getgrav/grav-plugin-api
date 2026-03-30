@@ -99,8 +99,12 @@ class UsersController extends AbstractApiController
             $user->set('access', $body['access']);
         }
 
+        // Allow plugins to modify the user before save
+        $this->fireAdminEvent('onAdminSave', ['object' => &$user]);
+
         $user->save();
 
+        $this->fireAdminEvent('onAdminAfterSave', ['object' => $user]);
         $this->fireEvent('onApiUserCreated', ['user' => $user]);
 
         return ApiResponse::created(
@@ -148,8 +152,13 @@ class UsersController extends AbstractApiController
         }
 
         $user->set('modified', time());
+
+        // Allow plugins to modify the user before save
+        $this->fireAdminEvent('onAdminSave', ['object' => &$user]);
+
         $user->save();
 
+        $this->fireAdminEvent('onAdminAfterSave', ['object' => $user]);
         $this->fireEvent('onApiUserUpdated', ['user' => $user]);
 
         return $this->respondWithEtag($this->serializeUser($user));

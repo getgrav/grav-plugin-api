@@ -181,6 +181,12 @@ class PagesController extends AbstractApiController
                 'lang' => $lang,
             ]);
 
+            // Allow plugins to inject frontmatter fields (e.g. auto-date plugin)
+            $this->fireAdminEvent('onAdminCreatePageFrontmatter', [
+                'header' => &$header,
+                'data' => $body,
+            ]);
+
             // Build filename with language extension if applicable
             $filename = $this->buildPageFilename($template, $lang);
 
@@ -188,6 +194,10 @@ class PagesController extends AbstractApiController
             $page->filePath($pagePath . '/' . $filename);
             $page->header((object) $header);
             $page->rawMarkdown($content);
+
+            // Allow plugins to modify the page before save (e.g. SEO Magic, mega-frontmatter)
+            $this->fireAdminEvent('onAdminSave', ['object' => &$page, 'page' => &$page]);
+
             $page->save();
 
             $this->clearPagesCache();
@@ -196,6 +206,7 @@ class PagesController extends AbstractApiController
             $this->enablePages(true);
             $newPage = $this->grav['pages']->find($route);
 
+            $this->fireAdminEvent('onAdminAfterSave', ['object' => $newPage ?? $page, 'page' => $newPage ?? $page]);
             $this->fireEvent('onApiPageCreated', ['page' => $newPage ?? $page, 'route' => $route, 'lang' => $lang]);
 
             $data = $this->serializer->serialize($newPage ?? $page);
@@ -268,6 +279,9 @@ class PagesController extends AbstractApiController
                 $page->header((object) $header);
             }
 
+            // Allow plugins to modify the page before save
+            $this->fireAdminEvent('onAdminSave', ['object' => &$page, 'page' => &$page]);
+
             $page->save();
 
             // Remove old template file after successful save
@@ -277,6 +291,7 @@ class PagesController extends AbstractApiController
 
             $this->clearPagesCache();
 
+            $this->fireAdminEvent('onAdminAfterSave', ['object' => $page, 'page' => $page]);
             $this->fireEvent('onApiPageUpdated', ['page' => $page]);
 
             $data = $this->serializer->serialize($page);
@@ -312,6 +327,7 @@ class PagesController extends AbstractApiController
                 $this->deleteLanguageFile($page, $lang);
                 $this->clearPagesCache();
 
+                $this->fireAdminEvent('onAdminAfterDelete', ['object' => $page, 'page' => $page]);
                 $this->fireEvent('onApiPageDeleted', ['route' => '/' . $route, 'lang' => $lang]);
 
                 return ApiResponse::noContent();
@@ -330,6 +346,7 @@ class PagesController extends AbstractApiController
 
             $this->clearPagesCache();
 
+            $this->fireAdminEvent('onAdminAfterDelete', ['object' => $page, 'page' => $page]);
             $this->fireEvent('onApiPageDeleted', ['route' => '/' . $route]);
 
             return ApiResponse::noContent();
@@ -385,6 +402,8 @@ class PagesController extends AbstractApiController
 
         Folder::move($oldPath, $newPath);
         $this->clearPagesCache();
+
+        $this->fireAdminEvent('onAdminAfterSaveAs', ['path' => $newPath]);
 
         // Re-init and find the moved page
         $this->enablePages(true);
@@ -536,6 +555,10 @@ class PagesController extends AbstractApiController
         $translatedPage->filePath($filePath);
         $translatedPage->header((object) $header);
         $translatedPage->rawMarkdown($content);
+
+        // Allow plugins to modify the page before save
+        $this->fireAdminEvent('onAdminSave', ['object' => &$translatedPage, 'page' => &$translatedPage]);
+
         $translatedPage->save();
 
         $this->clearPagesCache();
@@ -550,6 +573,7 @@ class PagesController extends AbstractApiController
             $this->enablePages(true);
             $newPage = $this->grav['pages']->find('/' . $route);
 
+            $this->fireAdminEvent('onAdminAfterSave', ['object' => $newPage ?? $translatedPage, 'page' => $newPage ?? $translatedPage]);
             $this->fireEvent('onApiPageTranslated', [
                 'page' => $newPage ?? $translatedPage,
                 'route' => '/' . $route,

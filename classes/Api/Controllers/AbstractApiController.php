@@ -240,4 +240,20 @@ abstract class AbstractApiController
         $this->grav->fireEvent($name, $event);
         return $event;
     }
+
+    /**
+     * Fire an admin-compatible event alongside the API's own events.
+     *
+     * Third-party plugins subscribe to onAdmin* events for critical operations
+     * (SEO indexing, frontmatter injection, cache busting, etc.). These events
+     * are normally only fired by the admin plugin's controllers, so API-driven
+     * changes would silently bypass them. This method ensures compatibility by
+     * firing the same events with the same data signatures the admin uses.
+     */
+    protected function fireAdminEvent(string $name, array $data = []): Event
+    {
+        $event = new Event($data);
+        $this->grav->fireEvent($name, $event);
+        return $event;
+    }
 }

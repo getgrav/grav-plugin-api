@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Grav\Plugin\Api\Controllers;
 
+use Grav\Common\Data\Data;
 use Grav\Common\Yaml;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
@@ -92,6 +93,15 @@ class ConfigController extends AbstractApiController
             ? array_replace_recursive($existing, $body)
             : $body;
 
+        // Wrap in a Data object for admin event compatibility
+        $obj = new Data($merged);
+
+        // Allow plugins to modify config before save
+        $this->fireAdminEvent('onAdminSave', ['object' => &$obj]);
+
+        // Extract (potentially modified) data back from the Data object
+        $merged = $obj->toArray();
+
         // Update in-memory config
         $this->config->set($configKey, $merged);
 
@@ -101,6 +111,7 @@ class ConfigController extends AbstractApiController
         // Clear config cache
         $this->grav['cache']->clearCache('standard');
 
+        $this->fireAdminEvent('onAdminAfterSave', ['object' => $obj]);
         $this->fireEvent('onApiConfigUpdated', ['scope' => $scope, 'data' => $merged]);
 
         $data = is_array($merged) ? $merged : ['value' => $merged];

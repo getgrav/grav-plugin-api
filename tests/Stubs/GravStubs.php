@@ -60,6 +60,9 @@ namespace Grav\Common {
             private static ?self $instance = null;
             private array $services = [];
 
+            /** @var array<int, array{name: string, event: object}> Recorded event firings for test assertions. */
+            private array $firedEvents = [];
+
             public static function instance(): static
             {
                 if (self::$instance === null) {
@@ -72,6 +75,32 @@ namespace Grav\Common {
             public static function resetInstance(): void
             {
                 self::$instance = null;
+            }
+
+            /**
+             * Fire a Grav event (stub implementation).
+             * Records the event for later assertion in tests.
+             */
+            public function fireEvent(string $name, ?object $event = null): object
+            {
+                $event = $event ?? new \stdClass();
+                $this->firedEvents[] = ['name' => $name, 'event' => $event];
+                return $event;
+            }
+
+            /**
+             * Get all recorded fired events (for test assertions).
+             * @return array<int, array{name: string, event: object}>
+             */
+            public function getFiredEvents(): array
+            {
+                return $this->firedEvents;
+            }
+
+            /** Clear the recorded events list. */
+            public function clearFiredEvents(): void
+            {
+                $this->firedEvents = [];
             }
 
             public function offsetExists(mixed $offset): bool
@@ -273,6 +302,233 @@ namespace Grav\Framework\Psr7 {
                 $clone = clone $this;
                 $clone->body = (string) $body;
                 return $clone;
+            }
+        }
+    }
+}
+
+namespace RocketTheme\Toolbox\Event {
+    if (!class_exists(\RocketTheme\Toolbox\Event\Event::class, false)) {
+        /**
+         * Minimal Event stub that supports array access for event data.
+         */
+        class Event implements \ArrayAccess
+        {
+            private array $data;
+
+            public function __construct(array $data = [])
+            {
+                $this->data = $data;
+            }
+
+            public function offsetExists(mixed $offset): bool
+            {
+                return array_key_exists($offset, $this->data);
+            }
+
+            public function &offsetGet(mixed $offset): mixed
+            {
+                return $this->data[$offset];
+            }
+
+            public function offsetSet(mixed $offset, mixed $value): void
+            {
+                $this->data[$offset] = $value;
+            }
+
+            public function offsetUnset(mixed $offset): void
+            {
+                unset($this->data[$offset]);
+            }
+
+            public function toArray(): array
+            {
+                return $this->data;
+            }
+        }
+    }
+}
+
+namespace Grav\Common\Page {
+    if (!class_exists(\Grav\Common\Page\Page::class, false)) {
+        /**
+         * Minimal Page stub for testing controllers that instantiate Page directly.
+         */
+        class Page
+        {
+            private ?string $filePath = null;
+            private object $header;
+            private string $rawMarkdown = '';
+            private string $template = 'default';
+            private string $name = 'default.md';
+            private ?string $path = null;
+            private ?string $route = null;
+            private ?string $slug = null;
+            private ?int $order = null;
+            private ?string $lang = null;
+
+            public function __construct()
+            {
+                $this->header = new \stdClass();
+            }
+
+            public function filePath(?string $path = null): ?string
+            {
+                if ($path !== null) {
+                    $this->filePath = $path;
+                    // Derive path (directory) from filePath
+                    $this->path = dirname($path);
+                }
+                return $this->filePath;
+            }
+
+            public function header($var = null)
+            {
+                if ($var !== null) {
+                    $this->header = is_array($var) ? (object) $var : $var;
+                }
+                return $this->header;
+            }
+
+            public function rawMarkdown(?string $var = null): string
+            {
+                if ($var !== null) {
+                    $this->rawMarkdown = $var;
+                }
+                return $this->rawMarkdown;
+            }
+
+            public function template(?string $var = null): string
+            {
+                if ($var !== null) {
+                    $this->template = $var;
+                }
+                return $this->template;
+            }
+
+            public function name(?string $var = null): string
+            {
+                if ($var !== null) {
+                    $this->name = $var;
+                }
+                return $this->name;
+            }
+
+            public function path(?string $var = null): ?string
+            {
+                if ($var !== null) {
+                    $this->path = $var;
+                }
+                return $this->path;
+            }
+
+            public function route($var = null): ?string
+            {
+                if ($var !== null) {
+                    $this->route = $var;
+                }
+                return $this->route;
+            }
+
+            public function slug($var = null): ?string
+            {
+                if ($var !== null) {
+                    $this->slug = $var;
+                }
+                return $this->slug;
+            }
+
+            public function order($var = null): ?int
+            {
+                if ($var !== null) {
+                    $this->order = $var;
+                }
+                return $this->order;
+            }
+
+            public function language(?string $var = null): ?string
+            {
+                if ($var !== null) {
+                    $this->lang = $var;
+                }
+                return $this->lang;
+            }
+
+            public function title($var = null): string
+            {
+                return $this->header->title ?? '';
+            }
+
+            public function save($reorder = true): void
+            {
+                // No-op in tests — the actual file writing is not needed
+            }
+
+            public function isModule(): bool
+            {
+                return false;
+            }
+
+            public function children(): \Traversable
+            {
+                return new \ArrayIterator([]);
+            }
+
+            public function translatedLanguages(): array
+            {
+                return [];
+            }
+
+            public function file(): ?object
+            {
+                return null;
+            }
+
+            public function content($var = null): string
+            {
+                return $this->rawMarkdown;
+            }
+        }
+    }
+
+    if (!class_exists(\Grav\Common\Page\Media::class, false)) {
+        /**
+         * Minimal Media stub.
+         */
+        class Media
+        {
+            public function __construct(private readonly ?string $path = null) {}
+
+            public function all(): array
+            {
+                return [];
+            }
+        }
+    }
+}
+
+namespace Grav\Common\Data {
+    if (!class_exists(\Grav\Common\Data\Data::class, false)) {
+        /**
+         * Minimal Data stub for config wrapping.
+         */
+        class Data
+        {
+            public function __construct(private array $items = []) {}
+
+            public function toArray(): array
+            {
+                return $this->items;
+            }
+
+            public function get(string $key, mixed $default = null): mixed
+            {
+                return $this->items[$key] ?? $default;
+            }
+
+            public function set(string $key, mixed $value): void
+            {
+                $this->items[$key] = $value;
             }
         }
     }

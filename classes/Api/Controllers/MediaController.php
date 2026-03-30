@@ -77,6 +77,7 @@ class MediaController extends AbstractApiController
         $media = new \Grav\Common\Page\Media($pagePath);
         $serialized = $this->getSerializer()->serializeCollection($media->all());
 
+        $this->fireAdminEvent('onAdminAfterAddMedia', ['object' => $page, 'page' => $page]);
         $this->fireEvent('onApiMediaUploaded', [
             'page' => $page,
             'filenames' => $uploadedNames,
@@ -120,6 +121,12 @@ class MediaController extends AbstractApiController
             unlink($metaPath);
         }
 
+        // Build fresh media object for admin event compatibility
+        $media = new \Grav\Common\Page\Media($pagePath);
+        $this->fireAdminEvent('onAdminAfterDelMedia', [
+            'object' => $page, 'page' => $page,
+            'media' => $media, 'filename' => $filename,
+        ]);
         $this->fireEvent('onApiMediaDeleted', ['page' => $page, 'filename' => $filename]);
 
         return ApiResponse::noContent();

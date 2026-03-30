@@ -896,6 +896,53 @@ public function onApiBeforeMediaUpload(Event $event): void
 }
 ```
 
+### Admin-Compatible Events
+
+In addition to the `onApi*` events above, the API plugin fires the same `onAdmin*` events that Grav's admin plugin fires. This ensures third-party plugins that subscribe to admin events (SEO Magic, Auto Date, Mega Frontmatter, etc.) work correctly regardless of whether changes come from the admin UI or the API.
+
+Both event families fire for every operation — `onAdmin*` events first, then `onApi*` events.
+
+#### Events Fired
+
+| Event | Controller | Methods | Event Data (matches admin plugin signatures) |
+|-------|-----------|---------|----------------------------------------------|
+| `onAdminCreatePageFrontmatter` | Pages | `create` | `header` (array, modifiable), `data` (request body) |
+| `onAdminSave` | Pages | `create`, `update`, `translate` | `object` (Page, by reference), `page` (Page, by reference) |
+| `onAdminAfterSave` | Pages | `create`, `update`, `translate` | `object` (Page), `page` (Page) |
+| `onAdminAfterDelete` | Pages | `delete` | `object` (Page), `page` (Page) |
+| `onAdminAfterSaveAs` | Pages | `move` | `path` (new filesystem path) |
+| `onAdminAfterAddMedia` | Media | `uploadPageMedia` | `object` (Page), `page` (Page) |
+| `onAdminAfterDelMedia` | Media | `deletePageMedia` | `object` (Page), `page` (Page), `media` (Media), `filename` (string) |
+| `onAdminSave` | Users | `create`, `update` | `object` (User, by reference) |
+| `onAdminAfterSave` | Users | `create`, `update` | `object` (User) |
+| `onAdminSave` | Config | `update` | `object` (Data, by reference) |
+| `onAdminAfterSave` | Config | `update` | `object` (Data) |
+
+#### Event Ordering
+
+For a page create operation, events fire in this order:
+
+1. `onApiBeforePageCreate` — API before event
+2. `onAdminCreatePageFrontmatter` — admin frontmatter injection
+3. `onAdminSave` — admin pre-save (plugins can modify the page)
+4. `onAdminAfterSave` — admin post-save (indexing, notifications)
+5. `onApiPageCreated` — API after event (triggers webhooks)
+
+#### Example: Existing Plugin Compatibility
+
+Plugins that already listen for admin events will automatically work with the API — no code changes needed:
+
+```php
+// This SEO Magic listener fires for both admin UI saves and API saves
+public static function getSubscribedEvents(): array
+{
+    return [
+        'onAdminAfterSave'   => ['onObjectSave', 0],
+        'onAdminAfterDelete' => ['onObjectDelete', 0],
+    ];
+}
+```
+
 ## Configuration Reference
 
 Full configuration in `user/config/plugins/api.yaml`:
