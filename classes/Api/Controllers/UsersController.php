@@ -233,13 +233,18 @@ class UsersController extends AbstractApiController
         $filepath = $avatarDir . '/' . $filename;
         $file->moveTo($filepath);
 
+        // Build path relative to Grav root (e.g. user/accounts/avatars/filename.jpg)
+        // to match the format used by the old admin plugin.
+        $relativeBase = $locator->findResource('account://', false);
+        $relativePath = $relativeBase . '/avatars/' . $filename;
+
         // Update user's avatar reference
         $user->set('avatar', [
-            $filename => [
+            $relativePath => [
                 'name' => $filename,
                 'type' => $mime,
                 'size' => filesize($filepath),
-                'path' => 'avatars/' . $filename,
+                'path' => $relativePath,
             ],
         ]);
         $user->save();
@@ -263,11 +268,10 @@ class UsersController extends AbstractApiController
         // Delete avatar file(s)
         $avatar = $user->get('avatar');
         if (is_array($avatar)) {
-            $locator = $this->grav['locator'];
-            $basePath = $locator->findResource('account://');
             foreach ($avatar as $entry) {
                 if (is_array($entry) && isset($entry['path'])) {
-                    $filePath = $basePath . '/' . $entry['path'];
+                    // path is relative to Grav root (e.g. user/accounts/avatars/file.jpg)
+                    $filePath = GRAV_ROOT . '/' . $entry['path'];
                     if (file_exists($filePath)) {
                         @unlink($filePath);
                     }

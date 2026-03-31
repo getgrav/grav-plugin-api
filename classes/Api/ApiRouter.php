@@ -118,6 +118,11 @@ class ApiRouter extends ProcessorBase
                 $response = $this->addRateLimitHeaders($response, $rateLimitResult);
             }
         } catch (Throwable $e) {
+            $this->container['log']->error('API unhandled exception: ' . $e->getMessage(), [
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString(),
+            ]);
             $response = ErrorResponse::create(
                 500,
                 'Internal Server Error',

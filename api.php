@@ -273,14 +273,15 @@ class ApiPlugin extends Plugin
      */
     public function onBeforeCacheClear(\RocketTheme\Toolbox\Event\Event $event): void
     {
-        $paths = &$event['paths'];
         $locator = $this->grav['locator'];
         $cacheDir = $locator->findResource('cache://', true);
 
         if ($cacheDir) {
             $apiCachePath = $cacheDir . '/api';
             if (is_dir($apiCachePath)) {
+                $paths = $event['paths'] ?? [];
                 $paths[] = $apiCachePath;
+                $event['paths'] = $paths;
             }
         }
     }

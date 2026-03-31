@@ -40,13 +40,12 @@ class UserSerializer implements SerializerInterface
         if (is_array($avatar) && !empty($avatar)) {
             $first = reset($avatar);
             if (is_array($first) && isset($first['path'])) {
-                // Path relative to account://
-                $locator = \Grav\Common\Grav::instance()['locator'];
-                $basePath = $locator->findResource('account://');
-                $filePath = $basePath . '/' . $first['path'];
+                // path is relative to Grav root (e.g. user/accounts/avatars/file.jpg)
+                $filePath = GRAV_ROOT . '/' . $first['path'];
 
                 if (file_exists($filePath)) {
                     // Generate a thumbnail URL via the thumbnail service
+                    $locator = \Grav\Common\Grav::instance()['locator'];
                     $cacheDir = $locator->findResource('cache://', true, true) . '/api/thumbnails';
                     $thumbService = new \Grav\Plugin\Api\Services\ThumbnailService($cacheDir, 200);
                     $filename = $thumbService->getThumbnailFilename($filePath);
