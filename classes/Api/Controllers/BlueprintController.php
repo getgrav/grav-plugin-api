@@ -375,6 +375,14 @@ class BlueprintController extends AbstractApiController
             }
         }
 
+        // Try blueprints:// stream which includes plugin paths registered via $features['blueprints']
+        if (!$data && !$systemOnly) {
+            $blueprintsPath = $this->grav['locator']->findResource("blueprints://pages/{$template}.yaml");
+            if ($blueprintsPath && file_exists($blueprintsPath)) {
+                $data = Yaml::parse(file_get_contents($blueprintsPath));
+            }
+        }
+
         if (!$data || !is_array($data)) {
             return null;
         }
