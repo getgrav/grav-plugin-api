@@ -345,9 +345,10 @@ class UsersController extends AbstractApiController
         $body = $this->getRequestBody($request);
         $name = $body['name'] ?? '';
         $scopes = $body['scopes'] ?? [];
+        $expiryDays = isset($body['expiry_days']) ? (int) $body['expiry_days'] : null;
 
         $manager = new ApiKeyManager();
-        $result = $manager->generateKey($user, $name, $scopes);
+        $result = $manager->generateKey($user, $name, $scopes, $expiryDays);
 
         // Return the raw key (shown ONCE only) along with key metadata
         $keys = $manager->listKeys($user);
