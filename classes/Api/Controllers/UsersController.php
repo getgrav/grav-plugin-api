@@ -139,7 +139,7 @@ class UsersController extends AbstractApiController
         }
 
         // Partial update - only update provided fields
-        $allowedFields = ['email', 'fullname', 'title', 'state', 'access'];
+        $allowedFields = ['email', 'fullname', 'title', 'state', 'access', 'twofa_enabled'];
         foreach ($allowedFields as $field) {
             if (array_key_exists($field, $body)) {
                 $user->set($field, $body[$field]);
@@ -188,6 +188,47 @@ class UsersController extends AbstractApiController
         $this->fireEvent('onApiUserDeleted', ['username' => $username]);
 
         return ApiResponse::noContent();
+    }
+
+    /**
+     * POST /users/{username}/2fa - Generate or regenerate 2FA secret and return QR code.
+     */
+    public function generate2fa(ServerRequestInterface $request): ResponseInterface
+    {
+        $username = $this->getRouteParam($request, 'username');
+        $user = $this->loadUserOrFail($username);
+
+        // Self or admin
+        $currentUser = $this->getUser($request);
+        if ($currentUser->username !== $username) {
+            $this->requirePermission($request, 'api.users.write');
+        }
+
+        if (!class_exists(\Grav\Plugin\Login\TwoFactorAuth\TwoFactorAuth::class)) {
+            throw new \Grav\Plugin\Api\Exceptions\ApiException(
+                500,
+                '2FA Not Available',
+                'The Login plugin with 2FA support must be installed.'
+            );
+        }
+
+        $twoFa = new \Grav\Plugin\Login\TwoFactorAuth\TwoFactorAuth();
+        $secret = $twoFa->createSecret();
+
+        // Format secret with spaces for readability
+        $formattedSecret = trim(chunk_split($secret, 4, ' '));
+
+        // Save to user
+        $user->set('twofa_secret', $formattedSecret);
+        $user->save();
+
+        // Generate QR code data URI
+        $qrImage = $twoFa->getQrImageData($username, $secret);
+
+        return ApiResponse::create([
+            'secret' => $formattedSecret,
+            'qr_code' => $qrImage,
+        ]);
     }
 
     public function apiKeys(ServerRequestInterface $request): ResponseInterface

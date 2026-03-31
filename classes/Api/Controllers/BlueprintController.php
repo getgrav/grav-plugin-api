@@ -223,16 +223,20 @@ class BlueprintController extends AbstractApiController
      */
     private function serializePermissionAction(object $action, string $name): array
     {
+        $rawLabel = $action->label ?? $name;
+        $label = $this->translateLabel($rawLabel);
+
         $data = [
             'name' => $name,
-            'label' => $action->label ?? $name,
+            'label' => $label,
         ];
 
         // Check for child actions
         $children = [];
         if ($action instanceof \IteratorAggregate || $action instanceof \Traversable) {
-            foreach ($action as $childName => $child) {
-                $children[] = $this->serializePermissionAction($child, $childName);
+            foreach ($action as $child) {
+                // Use $child->name which has the full dotted path (e.g. "admin.login")
+                $children[] = $this->serializePermissionAction($child, $child->name ?? $name);
             }
         }
 
@@ -241,6 +245,44 @@ class BlueprintController extends AbstractApiController
         }
 
         return $data;
+    }
+
+    /**
+     * Translate a permission label string.
+     *
+     * Tries PLUGIN_ADMIN.KEY first (admin plugin), then PLUGIN_API.KEY (API plugin fallback),
+     * then falls back to a human-readable version derived from the permission name.
+     */
+    private function translateLabel(string $label): string
+    {
+        $lang = $this->grav['language'];
+
+        // If it looks like a language key (e.g. PLUGIN_ADMIN.ACCESS_SITE), try to translate
+        if (str_contains($label, '.') && strtoupper($label) === $label) {
+            $translated = $lang->translate($label);
+            if ($translated !== $label) {
+                return $translated;
+            }
+
+            // Try API plugin namespace as fallback
+            $key = substr($label, strrpos($label, '.') + 1);
+            $apiTranslated = $lang->translate('PLUGIN_API.' . $key);
+            if ($apiTranslated !== 'PLUGIN_API.' . $key) {
+                return $apiTranslated;
+            }
+        }
+
+        // If the label is still a raw key, derive a human-readable name from the permission name
+        if (strtoupper($label) === $label && str_contains($label, '_')) {
+            // PLUGIN_ADMIN.ACCESS_ADMIN_CONFIGURATION -> Configuration
+            $parts = explode('.', $label);
+            $last = end($parts);
+            // Remove ACCESS_ prefix
+            $last = preg_replace('/^ACCESS_(?:ADMIN_|SITE_)?/', '', $last);
+            return ucwords(strtolower(str_replace('_', ' ', $last)));
+        }
+
+        return $label;
     }
 
     /**
@@ -534,11 +576,28 @@ class BlueprintController extends AbstractApiController
                 'placeholder_key', 'placeholder_value', 'value_type',
                 'btnLabel', 'placement', 'sortby', 'sortby_dir',
                 'sort', 'collapsible', 'min_height', 'selectunique',
+                'condition',
             ];
 
             foreach ($props as $prop) {
                 if (isset($field[$prop])) {
                     $serialized[$prop] = $field[$prop];
+                }
+            }
+
+            // Translate string properties that may contain language keys
+            foreach (['label', 'title', 'description', 'help', 'placeholder', 'text'] as $textProp) {
+                if (isset($serialized[$textProp]) && is_string($serialized[$textProp])) {
+                    $serialized[$textProp] = $this->translateLabel($serialized[$textProp]);
+                }
+            }
+
+            // Translate option labels
+            if (isset($serialized['options']) && is_array($serialized['options'])) {
+                foreach ($serialized['options'] as $optKey => $optLabel) {
+                    if (is_string($optLabel)) {
+                        $serialized['options'][$optKey] = $this->translateLabel($optLabel);
+                    }
                 }
             }
 

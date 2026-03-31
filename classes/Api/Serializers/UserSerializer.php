@@ -20,6 +20,8 @@ class UserSerializer implements SerializerInterface
             'title' => $resource->get('title'),
             'state' => $resource->get('state', 'enabled'),
             'access' => $resource->get('access', []),
+            'twofa_enabled' => (bool) $resource->get('twofa_enabled', false),
+            'twofa_secret' => $resource->get('twofa_secret') ? true : false,
             'created' => $this->formatTimestamp($resource->get('created')),
             'modified' => $this->formatTimestamp($resource->get('modified')),
         ];

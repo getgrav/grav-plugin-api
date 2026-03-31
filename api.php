@@ -35,6 +35,7 @@ class ApiPlugin extends Plugin
             'onRequestHandlerInit' => [
                 ['onRequestHandlerInit', 99000],
             ],
+            'onBeforeCacheClear' => ['onBeforeCacheClear', 0],
             PermissionsRegisterEvent::class => ['onRegisterPermissions', 1000],
         ];
     }
@@ -267,6 +268,23 @@ class ApiPlugin extends Plugin
     /**
      * Register API-specific permissions.
      */
+    /**
+     * Clear the API route cache when Grav cache is cleared.
+     */
+    public function onBeforeCacheClear(\RocketTheme\Toolbox\Event\Event $event): void
+    {
+        $paths = &$event['paths'];
+        $locator = $this->grav['locator'];
+        $cacheDir = $locator->findResource('cache://', true);
+
+        if ($cacheDir) {
+            $apiCachePath = $cacheDir . '/api';
+            if (is_dir($apiCachePath)) {
+                $paths[] = $apiCachePath;
+            }
+        }
+    }
+
     public function onRegisterPermissions(PermissionsRegisterEvent $event): void
     {
         $actions = PermissionsReader::fromYaml("plugin://{$this->name}/permissions.yaml");
