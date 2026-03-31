@@ -178,6 +178,72 @@ class BlueprintController extends AbstractApiController
     }
 
     /**
+     * GET /blueprints/users - Get the user account blueprint.
+     */
+    public function userBlueprint(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.users.read');
+
+        $blueprintPath = $this->grav['locator']->findResource('blueprints://user/account.yaml');
+
+        if (!$blueprintPath) {
+            $blueprintPath = $this->grav['locator']->findResource('system://blueprints/user/account.yaml');
+        }
+
+        if (!$blueprintPath) {
+            throw new NotFoundException('User account blueprint not found.');
+        }
+
+        $blueprint = new Blueprint($blueprintPath);
+        $blueprint->load();
+
+        return ApiResponse::create($this->serializeBlueprint($blueprint, 'account'));
+    }
+
+    /**
+     * GET /blueprints/users/permissions - Get all registered permission actions.
+     */
+    public function permissionsBlueprint(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.users.read');
+
+        /** @var \Grav\Framework\Acl\Permissions $permissions */
+        $permissions = $this->grav['permissions'];
+
+        $sections = [];
+        foreach ($permissions as $name => $action) {
+            $sections[] = $this->serializePermissionAction($action, $name);
+        }
+
+        return ApiResponse::create($sections);
+    }
+
+    /**
+     * Recursively serialize a permission action and its children.
+     */
+    private function serializePermissionAction(object $action, string $name): array
+    {
+        $data = [
+            'name' => $name,
+            'label' => $action->label ?? $name,
+        ];
+
+        // Check for child actions
+        $children = [];
+        if ($action instanceof \IteratorAggregate || $action instanceof \Traversable) {
+            foreach ($action as $childName => $child) {
+                $children[] = $this->serializePermissionAction($child, $childName);
+            }
+        }
+
+        if ($children) {
+            $data['children'] = $children;
+        }
+
+        return $data;
+    }
+
+    /**
      * GET /blueprints/config/{scope} - Get blueprint for system/site config.
      */
     public function configBlueprint(ServerRequestInterface $request): ResponseInterface

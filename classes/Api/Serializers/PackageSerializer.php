@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Grav\Plugin\Api\Serializers;
 
+use Grav\Common\GPM\Licenses;
+
 class PackageSerializer implements SerializerInterface
 {
     public function serialize(object $resource, array $options = []): array
@@ -29,9 +31,18 @@ class PackageSerializer implements SerializerInterface
             $data['updatable'] = !empty($resource->available);
         }
 
-        // Include premium status
-        if (isset($resource->premium)) {
-            $data['premium'] = !empty($resource->premium);
+        // Include premium status and purchase info
+        if (!empty($resource->premium)) {
+            $slug = $resource->slug ?? $options['slug_key'] ?? '';
+            $premium = $resource->premium;
+            $permalink = is_object($premium) ? ($premium->permalink ?? null) : ($premium['permalink'] ?? null);
+
+            $data['premium'] = true;
+            $data['licensed'] = !empty(Licenses::get($slug));
+
+            if ($permalink) {
+                $data['purchase_url'] = 'https://licensing.getgrav.org/buy/' . $permalink;
+            }
         }
 
         // Include dependencies
@@ -47,6 +58,16 @@ class PackageSerializer implements SerializerInterface
         // Include icon
         if (!empty($resource->icon)) {
             $data['icon'] = $resource->icon;
+        }
+
+        // Include screenshot URL for themes (from GPM repository data)
+        if (!empty($resource->screenshot)) {
+            $screenshot = $resource->screenshot;
+            // GPM returns just a filename — resolve to full URL
+            if (!str_starts_with($screenshot, 'http')) {
+                $screenshot = 'https://getgrav.org/images/' . $screenshot;
+            }
+            $data['screenshot'] = $screenshot;
         }
 
         return $data;

@@ -73,6 +73,17 @@ class SystemController extends AbstractApiController
         return ApiResponse::create($data);
     }
 
+    /**
+     * GET /ping - Lightweight keep-alive endpoint.
+     * Validates auth token and returns minimal response.
+     */
+    public function ping(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.access');
+
+        return ApiResponse::create(['pong' => true]);
+    }
+
     public function clearCache(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'api.system.write');

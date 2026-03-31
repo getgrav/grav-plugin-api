@@ -13,6 +13,7 @@ use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Grav\Plugin\Api\Serializers\PackageSerializer;
+use Grav\Plugin\Api\Services\ThumbnailService;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -22,11 +23,16 @@ class GpmController extends AbstractApiController
     private const PERMISSION_WRITE = 'api.gpm.write';
 
     private readonly PackageSerializer $serializer;
+    private readonly ThumbnailService $thumbSmall;
+    private readonly ThumbnailService $thumbLarge;
 
     public function __construct(\Grav\Common\Grav $grav, \Grav\Common\Config\Config $config)
     {
         parent::__construct($grav, $config);
         $this->serializer = new PackageSerializer();
+        $cacheDir = $grav['locator']->findResource('cache://', true, true) . '/api/thumbnails';
+        $this->thumbSmall = new ThumbnailService($cacheDir, 500);
+        $this->thumbLarge = new ThumbnailService($cacheDir, 2000);
     }
 
     /**
@@ -80,6 +86,12 @@ class GpmController extends AbstractApiController
             $data['updatable'] = false;
         }
 
+        // Discover custom admin-next field components
+        $customFields = $this->discoverCustomFields($slug, 'plugins');
+        if ($customFields) {
+            $data['custom_fields'] = $customFields;
+        }
+
         return $this->respondWithEtag($data);
     }
 
@@ -103,6 +115,9 @@ class GpmController extends AbstractApiController
             } else {
                 $data['updatable'] = false;
             }
+            $images = $this->getThemeImages($slug);
+            $data['thumbnail'] = $images['thumbnail'];
+            $data['screenshot'] = $images['screenshot'];
             $themes[] = $data;
         }
 
@@ -133,6 +148,10 @@ class GpmController extends AbstractApiController
         } else {
             $data['updatable'] = false;
         }
+
+        $images = $this->getThemeImages($slug);
+        $data['thumbnail'] = $images['thumbnail'];
+        $data['screenshot'] = $images['screenshot'];
 
         return $this->respondWithEtag($data);
     }
@@ -659,6 +678,58 @@ class GpmController extends AbstractApiController
     }
 
     /**
+     * Resolve thumbnail and screenshot URLs for an installed theme.
+     * Returns ['thumbnail' => url|null, 'screenshot' => url|null].
+     */
+    private function getThemeImages(string $slug): array
+    {
+        $result = ['thumbnail' => null, 'screenshot' => null];
+
+        try {
+            $path = $this->resolvePackagePath($slug, 'themes');
+        } catch (NotFoundException) {
+            return $result;
+        }
+
+        // Thumbnail (small, capped at 500px for list views)
+        foreach (['thumbnail.jpg', 'thumbnail.png'] as $file) {
+            $source = $path . '/' . $file;
+            if (file_exists($source)) {
+                $filename = $this->thumbSmall->getThumbnailFilename($source);
+                if ($filename) {
+                    $this->thumbSmall->getThumbnail($source);
+                    $result['thumbnail'] = $this->getApiBaseUrl() . '/thumbnails/' . $filename;
+                    break;
+                }
+            }
+        }
+
+        // Screenshot (large, capped at 2000px for detail/preview)
+        foreach (['screenshot.jpg', 'screenshot.png'] as $file) {
+            $source = $path . '/' . $file;
+            if (file_exists($source)) {
+                $filename = $this->thumbLarge->getThumbnailFilename($source);
+                if ($filename) {
+                    $this->thumbLarge->getThumbnail($source);
+                    $result['screenshot'] = $this->getApiBaseUrl() . '/thumbnails/' . $filename;
+                    break;
+                }
+            }
+        }
+
+        // Fall back: if no thumbnail but screenshot exists, use screenshot for both
+        if (!$result['thumbnail'] && $result['screenshot']) {
+            $result['thumbnail'] = $result['screenshot'];
+        }
+        // Vice versa
+        if (!$result['screenshot'] && $result['thumbnail']) {
+            $result['screenshot'] = $result['thumbnail'];
+        }
+
+        return $result;
+    }
+
+    /**
      * Ensure the admin Gpm class is available (requires admin plugin).
      */
     private function requireAdminGpm(): void
@@ -777,5 +848,75 @@ class GpmController extends AbstractApiController
         }
 
         return $path;
+    }
+
+    /**
+     * Discover custom admin-next field web components shipped by a package.
+     *
+     * Convention: plugins place field components at admin-next/fields/{type}.js
+     * Each JS file should define a Custom Element that admin-next will load
+     * on demand when encountering an unknown field type.
+     *
+     * @return array<string, string>|null Map of field type → relative script path, or null if none
+     */
+    private function discoverCustomFields(string $slug, string $type): ?array
+    {
+        try {
+            $path = $this->resolvePackagePath($slug, $type);
+        } catch (NotFoundException) {
+            return null;
+        }
+
+        $fieldsDir = $path . '/admin-next/fields';
+        if (!is_dir($fieldsDir)) {
+            return null;
+        }
+
+        $fields = [];
+        foreach (new \DirectoryIterator($fieldsDir) as $file) {
+            if ($file->isDot() || !$file->isFile()) {
+                continue;
+            }
+            if ($file->getExtension() === 'js') {
+                $fieldType = $file->getBasename('.js');
+                $fields[$fieldType] = $fieldType;
+            }
+        }
+
+        return $fields ?: null;
+    }
+
+    /**
+     * GET /gpm/{plugins|themes}/{slug}/field/{type} - Serve a custom field web component JS.
+     *
+     * Returns the JavaScript file for a custom admin-next field component.
+     * The response is cached aggressively (1 year) since the content only
+     * changes when the plugin is updated.
+     */
+    public function customFieldScript(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, self::PERMISSION_READ);
+
+        $slug = $this->getRouteParam($request, 'slug');
+        $fieldType = $this->getRouteParam($request, 'type');
+        $pkgType = str_contains($request->getUri()->getPath(), '/themes/') ? 'themes' : 'plugins';
+
+        $path = $this->resolvePackagePath($slug, $pkgType);
+        $file = $path . '/admin-next/fields/' . basename($fieldType) . '.js';
+
+        if (!file_exists($file)) {
+            throw new NotFoundException("Custom field '{$fieldType}' not found for '{$slug}'.");
+        }
+
+        $content = file_get_contents($file);
+
+        return new \Grav\Framework\Psr7\Response(
+            200,
+            [
+                'Content-Type' => 'application/javascript; charset=utf-8',
+                'Cache-Control' => 'public, max-age=31536000, immutable',
+            ],
+            $content,
+        );
     }
 }

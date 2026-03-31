@@ -245,10 +245,12 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('GET', '/gpm/plugins/{slug}', [GpmController::class, 'plugin']);
         $r->addRoute('GET', '/gpm/plugins/{slug}/readme', [GpmController::class, 'readme']);
         $r->addRoute('GET', '/gpm/plugins/{slug}/changelog', [GpmController::class, 'changelog']);
+        $r->addRoute('GET', '/gpm/plugins/{slug}/field/{type}', [GpmController::class, 'customFieldScript']);
         $r->addRoute('GET', '/gpm/themes', [GpmController::class, 'themes']);
         $r->addRoute('GET', '/gpm/themes/{slug}', [GpmController::class, 'theme']);
         $r->addRoute('GET', '/gpm/themes/{slug}/readme', [GpmController::class, 'readme']);
         $r->addRoute('GET', '/gpm/themes/{slug}/changelog', [GpmController::class, 'changelog']);
+$r->addRoute('GET', '/gpm/themes/{slug}/field/{type}', [GpmController::class, 'customFieldScript']);
         $r->addRoute('GET', '/gpm/updates', [GpmController::class, 'updates']);
         $r->addRoute('POST', '/gpm/install', [GpmController::class, 'install']);
         $r->addRoute('POST', '/gpm/remove', [GpmController::class, 'remove']);
@@ -291,9 +293,12 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('GET', '/blueprints/pages/{template}', [BlueprintController::class, 'pageBlueprint']);
         $r->addRoute('GET', '/blueprints/plugins/{plugin}', [BlueprintController::class, 'pluginBlueprint']);
         $r->addRoute('GET', '/blueprints/themes/{theme}', [BlueprintController::class, 'themeBlueprint']);
+        $r->addRoute('GET', '/blueprints/users', [BlueprintController::class, 'userBlueprint']);
+        $r->addRoute('GET', '/blueprints/users/permissions', [BlueprintController::class, 'permissionsBlueprint']);
         $r->addRoute('GET', '/blueprints/config/{scope}', [BlueprintController::class, 'configBlueprint']);
 
         // System
+        $r->addRoute('GET', '/ping', [SystemController::class, 'ping']);
         $r->addRoute('GET', '/system/environments', [SystemController::class, 'environments']);
         $r->addRoute('GET', '/system/info', [SystemController::class, 'info']);
         $r->addRoute('DELETE', '/cache', [SystemController::class, 'clearCache']);
