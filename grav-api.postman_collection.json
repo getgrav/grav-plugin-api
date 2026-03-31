@@ -1884,6 +1884,108 @@
           }
         },
         {
+          "name": "Upload Avatar",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/users/{{test_username}}/avatar",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "users",
+                "{{test_username}}",
+                "avatar"
+              ]
+            },
+            "description": "Upload a custom avatar image for a user.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "avatar",
+                  "type": "file",
+                  "src": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete Avatar",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/users/{{test_username}}/avatar",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "users",
+                "{{test_username}}",
+                "avatar"
+              ]
+            },
+            "description": "Remove the user's custom avatar."
+          }
+        },
+        {
+          "name": "Generate 2FA Secret",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/users/{{test_username}}/2fa",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "users",
+                "{{test_username}}",
+                "2fa"
+              ]
+            },
+            "description": "Generate a new TOTP 2FA secret and return the QR code as a data URI."
+          }
+        },
+        {
           "name": "Delete User",
           "event": [
             {
@@ -1929,6 +2031,36 @@
       "name": "System",
       "description": "System administration \u2014 info, cache, logs, and backups.",
       "item": [
+        {
+          "name": "Ping / Keep-Alive",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/ping",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "ping"
+              ]
+            },
+            "description": "Lightweight health check endpoint. Returns {pong: true}. Useful for session keep-alive."
+          }
+        },
         {
           "name": "System Info",
           "event": [
@@ -2872,6 +3004,138 @@
                     "description": "Grav environment"
                   }
                 ]
+              }
+            },
+            {
+              "name": "Plugin README",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  },
+                  {
+                    "key": "X-Grav-Environment",
+                    "value": "{{grav_environment}}"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}{{api_prefix}}/gpm/plugins/{{package_slug}}/readme",
+                  "host": [
+                    "{{base_url}}{{api_prefix}}"
+                  ],
+                  "path": [
+                    "gpm",
+                    "plugins",
+                    "{{package_slug}}",
+                    "readme"
+                  ]
+                },
+                "description": "Get the README.md content for an installed plugin."
+              }
+            },
+            {
+              "name": "Plugin Changelog",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  },
+                  {
+                    "key": "X-Grav-Environment",
+                    "value": "{{grav_environment}}"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}{{api_prefix}}/gpm/plugins/{{package_slug}}/changelog",
+                  "host": [
+                    "{{base_url}}{{api_prefix}}"
+                  ],
+                  "path": [
+                    "gpm",
+                    "plugins",
+                    "{{package_slug}}",
+                    "changelog"
+                  ]
+                },
+                "description": "Get the CHANGELOG.md content for an installed plugin."
+              }
+            },
+            {
+              "name": "Theme README",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  },
+                  {
+                    "key": "X-Grav-Environment",
+                    "value": "{{grav_environment}}"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}{{api_prefix}}/gpm/themes/{{package_slug}}/readme",
+                  "host": [
+                    "{{base_url}}{{api_prefix}}"
+                  ],
+                  "path": [
+                    "gpm",
+                    "themes",
+                    "{{package_slug}}",
+                    "readme"
+                  ]
+                },
+                "description": "Get the README.md content for an installed theme."
+              }
+            },
+            {
+              "name": "Theme Changelog",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}"
+                  },
+                  {
+                    "key": "X-Grav-Environment",
+                    "value": "{{grav_environment}}"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}{{api_prefix}}/gpm/themes/{{package_slug}}/changelog",
+                  "host": [
+                    "{{base_url}}{{api_prefix}}"
+                  ],
+                  "path": [
+                    "gpm",
+                    "themes",
+                    "{{package_slug}}",
+                    "changelog"
+                  ]
+                },
+                "description": "Get the CHANGELOG.md content for an installed theme."
               }
             }
           ]
@@ -4827,6 +5091,100 @@
             "description": "Get the blueprint for system configuration."
           },
           "response": []
+        },
+        {
+          "name": "Get User Blueprint",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/blueprints/users",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "blueprints",
+                "users"
+              ]
+            },
+            "description": "Get the user account form blueprint."
+          }
+        },
+        {
+          "name": "Get Permissions Tree",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/blueprints/users/permissions",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "blueprints",
+                "users",
+                "permissions"
+              ]
+            },
+            "description": "Get all registered permission actions as a nested tree."
+          }
+        },
+        {
+          "name": "Resolve Data Options",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/data/resolve",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "data",
+                "resolve"
+              ]
+            },
+            "description": "Resolve a blueprint data-options@ directive. Pass ?callable=\\\\Grav\\\\Common\\\\Page\\\\Pages::pageTypes"
+          }
         }
       ]
     },

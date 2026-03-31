@@ -122,6 +122,10 @@ tags:
     description: Outbound webhook configuration and delivery management.
   - name: Blueprints
     description: Form schema definitions for pages, plugins, themes, and system configuration. Blueprints define the fields, types, validation, and layout used to render editing interfaces.
+  - name: Data
+    description: Resolve blueprint data-options@ directives and other dynamic data lookups.
+  - name: Thumbnails
+    description: Serve cached image thumbnails.
 
 security:
   - bearerAuth: []
@@ -252,6 +256,41 @@ paths:
           description: Token revoked successfully. No content returned.
         "422":
           $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  # ---------------------------------------------------------------------------
+  # Ping
+  # ---------------------------------------------------------------------------
+  /ping:
+    get:
+      operationId: ping
+      tags: [System]
+      summary: Health check / keep-alive
+      description: |
+        Simple health check endpoint. Returns a static response to confirm the
+        API is reachable and the caller is authenticated.
+      responses:
+        "200":
+          description: API is reachable.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      pong:
+                        type: boolean
+                        example: true
+              example:
+                data:
+                  pong: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
@@ -1614,6 +1653,130 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
 
   # ---------------------------------------------------------------------------
+  # User Avatar
+  # ---------------------------------------------------------------------------
+  /users/{username}/avatar:
+    post:
+      operationId: uploadUserAvatar
+      tags: [Users]
+      summary: Upload user avatar
+      description: |
+        Upload or replace the avatar image for the specified user. The image is
+        sent as `multipart/form-data` with a single `avatar` field. Users can
+        update their own avatar with `api.access`; updating another user's
+        avatar requires `api.users.write`.
+      parameters:
+        - $ref: "#/components/parameters/username"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [avatar]
+              properties:
+                avatar:
+                  type: string
+                  format: binary
+                  description: Avatar image file to upload.
+      responses:
+        "200":
+          description: Avatar uploaded successfully. Returns the full user object.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+    delete:
+      operationId: deleteUserAvatar
+      tags: [Users]
+      summary: Remove user avatar
+      description: |
+        Remove the avatar image for the specified user. Users can remove their
+        own avatar with `api.access`; removing another user's avatar requires
+        `api.users.write`.
+      parameters:
+        - $ref: "#/components/parameters/username"
+      responses:
+        "200":
+          description: Avatar removed successfully. Returns the full user object.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  # ---------------------------------------------------------------------------
+  # User 2FA
+  # ---------------------------------------------------------------------------
+  /users/{username}/2fa:
+    post:
+      operationId: generateUser2FA
+      tags: [Users]
+      summary: Generate 2FA secret and QR code
+      description: |
+        Generate a new two-factor authentication secret and QR code data URI
+        for the specified user. The client should display the QR code for the
+        user to scan with their authenticator app, then confirm activation
+        via a PATCH to the user resource.
+      parameters:
+        - $ref: "#/components/parameters/username"
+      responses:
+        "200":
+          description: 2FA secret and QR code generated.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      secret:
+                        type: string
+                        description: The TOTP secret key.
+                        example: JBSWY3DPEHPK3PXP
+                      qr_code:
+                        type: string
+                        description: QR code as a data URI (PNG image encoded as base64).
+                        example: "data:image/png;base64,iVBORw0KGgo..."
+              example:
+                data:
+                  secret: JBSWY3DPEHPK3PXP
+                  qr_code: "data:image/png;base64,iVBORw0KGgo..."
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  # ---------------------------------------------------------------------------
   # API Keys
   # ---------------------------------------------------------------------------
   /users/{username}/api-keys:
@@ -2126,6 +2289,178 @@ paths:
                 properties:
                   data:
                     $ref: "#/components/schemas/Package"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /gpm/plugins/{slug}/readme:
+    get:
+      operationId: getPluginReadme
+      tags: [GPM]
+      summary: Get plugin README content
+      description: |
+        Return the raw Markdown content of the specified plugin's README.md
+        file.
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          description: Plugin slug (e.g. `admin`, `api`).
+          schema:
+            type: string
+          example: api
+      responses:
+        "200":
+          description: Plugin README content returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      content:
+                        type: string
+                        description: Raw Markdown content of the README file.
+                        example: "# API Plugin\n\nRESTful API for Grav CMS."
+              example:
+                data:
+                  content: "# API Plugin\n\nRESTful API for Grav CMS."
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /gpm/plugins/{slug}/changelog:
+    get:
+      operationId: getPluginChangelog
+      tags: [GPM]
+      summary: Get plugin changelog content
+      description: |
+        Return the raw Markdown content of the specified plugin's CHANGELOG.md
+        file.
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          description: Plugin slug (e.g. `admin`, `api`).
+          schema:
+            type: string
+          example: api
+      responses:
+        "200":
+          description: Plugin changelog content returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      content:
+                        type: string
+                        description: Raw Markdown content of the CHANGELOG file.
+                        example: "# v1.0.0\n\n- Initial release"
+              example:
+                data:
+                  content: "# v1.0.0\n\n- Initial release"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /gpm/themes/{slug}/readme:
+    get:
+      operationId: getThemeReadme
+      tags: [GPM]
+      summary: Get theme README content
+      description: |
+        Return the raw Markdown content of the specified theme's README.md
+        file.
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          description: Theme slug (e.g. `quark`).
+          schema:
+            type: string
+          example: quark
+      responses:
+        "200":
+          description: Theme README content returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      content:
+                        type: string
+                        description: Raw Markdown content of the README file.
+                        example: "# Quark Theme\n\nDefault theme for Grav CMS."
+              example:
+                data:
+                  content: "# Quark Theme\n\nDefault theme for Grav CMS."
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /gpm/themes/{slug}/changelog:
+    get:
+      operationId: getThemeChangelog
+      tags: [GPM]
+      summary: Get theme changelog content
+      description: |
+        Return the raw Markdown content of the specified theme's CHANGELOG.md
+        file.
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          description: Theme slug (e.g. `quark`).
+          schema:
+            type: string
+          example: quark
+      responses:
+        "200":
+          description: Theme changelog content returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      content:
+                        type: string
+                        description: Raw Markdown content of the CHANGELOG file.
+                        example: "# v2.0.4\n\n- Bug fixes"
+              example:
+                data:
+                  content: "# v2.0.4\n\n- Bug fixes"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -3528,6 +3863,178 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /blueprints/users:
+    get:
+      operationId: getUserBlueprint
+      tags: [Blueprints]
+      summary: Get user account blueprint
+      description: |
+        Returns the blueprint defining the form fields for user account
+        editing. Requires `api.users.read` permission.
+      responses:
+        "200":
+          description: User account blueprint.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BlueprintResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /blueprints/users/permissions:
+    get:
+      operationId: getUserPermissions
+      tags: [Blueprints]
+      summary: Get all registered permission actions
+      description: |
+        Returns all registered permission actions as a nested tree structure.
+        This is used to render the permissions editor in the admin panel.
+        Requires `api.users.read` permission.
+      responses:
+        "200":
+          description: Permission actions tree.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: true
+                    description: |
+                      Nested tree of permission actions. Keys are permission
+                      group names and values are objects with further nesting
+                      or boolean leaf values.
+                    example:
+                      admin:
+                        login: true
+                        super: true
+                      api:
+                        access: true
+                        pages:
+                          read: true
+                          write: true
+                        media:
+                          read: true
+                          write: true
+                        users:
+                          read: true
+                          write: true
+              example:
+                data:
+                  admin:
+                    login: true
+                    super: true
+                  api:
+                    access: true
+                    pages:
+                      read: true
+                      write: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  # ---------------------------------------------------------------------------
+  # Data
+  # ---------------------------------------------------------------------------
+  /data/resolve:
+    get:
+      operationId: resolveData
+      tags: [Data]
+      summary: Resolve blueprint data-options@ directives
+      description: |
+        Resolve a `data-options@` directive from a blueprint field definition.
+        The `callable` parameter specifies the PHP callable or data path to
+        evaluate. Results are suitable for populating select fields and other
+        option-based inputs. Requires `api.pages.read` permission.
+      parameters:
+        - name: callable
+          in: query
+          required: true
+          description: |
+            The callable string from a blueprint `data-options@` directive
+            (e.g. `\Grav\Common\Page\Pages::types`).
+          schema:
+            type: string
+          example: '\Grav\Common\Page\Pages::types'
+      responses:
+        "200":
+          description: Resolved data returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    description: |
+                      The resolved data. Shape depends on the callable -- typically
+                      a key-value object or array suitable for option lists.
+                    oneOf:
+                      - type: object
+                        additionalProperties: true
+                      - type: array
+                        items: {}
+              example:
+                data:
+                  default: Default
+                  blog: Blog
+                  item: Item
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  # ---------------------------------------------------------------------------
+  # Thumbnails
+  # ---------------------------------------------------------------------------
+  /thumbnails/{file}:
+    get:
+      operationId: getThumbnail
+      tags: [Thumbnails]
+      summary: Serve cached thumbnail
+      description: |
+        Serve a cached thumbnail image. This endpoint is public and does not
+        require authentication. The `file` parameter is the hashed filename
+        generated by the thumbnail cache system.
+      security: []
+      parameters:
+        - name: file
+          in: path
+          required: true
+          description: Cached thumbnail filename (e.g. a hashed filename with extension).
+          schema:
+            type: string
+          example: a1b2c3d4e5f6.jpg
+      responses:
+        "200":
+          description: Thumbnail image binary.
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/gif:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   # ---------------------------------------------------------------------------
   # Translations
   # ---------------------------------------------------------------------------
@@ -4232,6 +4739,19 @@ components:
           enum: [enabled, disabled]
           description: Whether the account is active.
           example: enabled
+        avatar_url:
+          type: string
+          nullable: true
+          description: URL to the user's avatar image, or `null` if no avatar is set.
+          example: /user/accounts/admin/avatar.png
+        twofa_enabled:
+          type: boolean
+          description: Whether two-factor authentication is currently enabled for this user.
+          example: false
+        twofa_secret:
+          type: boolean
+          description: Whether a 2FA secret exists for this user (does not expose the actual secret).
+          example: false
         access:
           type: object
           additionalProperties: true

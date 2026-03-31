@@ -307,11 +307,14 @@ curl -X PATCH https://yoursite.com/api/v1/config/plugins/markdown \
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/users` | List users |
+| `GET` | `/users` | List users (paginated) |
 | `POST` | `/users` | Create a user |
 | `GET` | `/users/{username}` | Get user details |
 | `PATCH` | `/users/{username}` | Update a user |
 | `DELETE` | `/users/{username}` | Delete a user |
+| `POST` | `/users/{username}/avatar` | Upload user avatar |
+| `DELETE` | `/users/{username}/avatar` | Remove user avatar |
+| `POST` | `/users/{username}/2fa` | Generate 2FA secret + QR code |
 | `GET` | `/users/{username}/api-keys` | List API keys |
 | `POST` | `/users/{username}/api-keys` | Generate an API key |
 | `DELETE` | `/users/{username}/api-keys/{keyId}` | Revoke an API key |
@@ -320,6 +323,7 @@ curl -X PATCH https://yoursite.com/api/v1/config/plugins/markdown \
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
+| `GET` | `/ping` | Keep-alive / health check |
 | `GET` | `/system/environments` | List available environments |
 | `GET` | `/system/info` | System information |
 | `DELETE` | `/cache` | Clear cache |
@@ -333,8 +337,12 @@ curl -X PATCH https://yoursite.com/api/v1/config/plugins/markdown \
 |--------|----------|-------------|
 | `GET` | `/gpm/plugins` | List installed plugins (with update status) |
 | `GET` | `/gpm/plugins/{slug}` | Get installed plugin details |
-| `GET` | `/gpm/themes` | List installed themes (with update status) |
+| `GET` | `/gpm/plugins/{slug}/readme` | Get plugin README |
+| `GET` | `/gpm/plugins/{slug}/changelog` | Get plugin changelog |
+| `GET` | `/gpm/themes` | List installed themes (with thumbnails/screenshots) |
 | `GET` | `/gpm/themes/{slug}` | Get installed theme details |
+| `GET` | `/gpm/themes/{slug}/readme` | Get theme README |
+| `GET` | `/gpm/themes/{slug}/changelog` | Get theme changelog |
 | `GET` | `/gpm/updates` | Check for available updates |
 | `POST` | `/gpm/install` | Install a plugin or theme |
 | `POST` | `/gpm/remove` | Remove a plugin or theme |
@@ -480,8 +488,9 @@ These endpoints do **not** require authentication.
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/translations/{lang}` | Get all translation strings for a language |
+| `GET` | `/thumbnails/{file}` | Serve a cached thumbnail image (public) |
 
-This endpoint does **not** require authentication (translation strings are not sensitive).
+Translation and thumbnail endpoints do **not** require authentication.
 
 **Get all English translations:**
 
@@ -524,7 +533,10 @@ Blueprints provide form schema definitions used to render configuration and cont
 | `GET` | `/blueprints/pages/{template}` | Get resolved blueprint for a page template | `api.pages.read` |
 | `GET` | `/blueprints/plugins/{plugin}` | Get blueprint for a plugin's configuration | `api.config.read` |
 | `GET` | `/blueprints/themes/{theme}` | Get blueprint for a theme's configuration | `api.config.read` |
+| `GET` | `/blueprints/users` | Get user account blueprint | `api.users.read` |
+| `GET` | `/blueprints/users/permissions` | Get all registered permission actions | `api.users.read` |
 | `GET` | `/blueprints/config/{scope}` | Get blueprint for system config (`system`, `site`, `media`) | `api.config.read` |
+| `GET` | `/data/resolve` | Resolve blueprint data-options@ directives | `api.pages.read` |
 
 **List page templates:**
 
@@ -1013,6 +1025,7 @@ grav-plugin-api/
 ├── blueprints.yaml                  # Admin UI configuration
 ├── permissions.yaml                 # ACL permission definitions
 ├── openapi.yaml                     # OpenAPI 3.0 specification
+├── languages/en.yaml                # Translation strings
 ├── composer.json
 ├── classes/Api/
 │   ├── ApiRouter.php                # FastRoute dispatcher + middleware chain
