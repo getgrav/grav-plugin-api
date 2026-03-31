@@ -1825,7 +1825,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n    \"name\": \"Test CLI Key\",\n    \"scopes\": [\"api.pages.read\", \"api.pages.write\"]\n}"
+              "raw": "{\n    \"name\": \"Test CLI Key\",\n    \"scopes\": [\"api.pages.read\", \"api.pages.write\"],\n    \"expiry_days\": 90\n}"
             },
             "url": {
               "raw": "{{base_url}}{{api_prefix}}/users/{{test_username}}/api-keys",

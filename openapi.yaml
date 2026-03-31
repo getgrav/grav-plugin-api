@@ -1843,9 +1843,15 @@ paths:
                     type: string
                   description: Optional list of permission scopes to restrict this key.
                   example: [api.pages.read, api.media.read]
+                expiry_days:
+                  type: integer
+                  nullable: true
+                  description: Number of days until the key expires. Omit or set to null for no expiry.
+                  example: 90
             example:
               name: CI/CD Pipeline
               scopes: [api.pages.read, api.media.read]
+              expiry_days: 90
       responses:
         "201":
           description: API key created. The raw key is returned only in this response.
