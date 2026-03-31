@@ -236,6 +236,8 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('GET', '/users/{username}', [UsersController::class, 'show']);
         $r->addRoute('PATCH', '/users/{username}', [UsersController::class, 'update']);
         $r->addRoute('DELETE', '/users/{username}', [UsersController::class, 'delete']);
+        $r->addRoute('POST', '/users/{username}/avatar', [UsersController::class, 'uploadAvatar']);
+        $r->addRoute('DELETE', '/users/{username}/avatar', [UsersController::class, 'deleteAvatar']);
         $r->addRoute('POST', '/users/{username}/2fa', [UsersController::class, 'generate2fa']);
         $r->addRoute('GET', '/users/{username}/api-keys', [UsersController::class, 'apiKeys']);
         $r->addRoute('POST', '/users/{username}/api-keys', [UsersController::class, 'createApiKey']);

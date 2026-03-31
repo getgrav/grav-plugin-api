@@ -191,6 +191,97 @@ class UsersController extends AbstractApiController
     }
 
     /**
+     * POST /users/{username}/avatar - Upload a custom avatar image.
+     */
+    public function uploadAvatar(ServerRequestInterface $request): ResponseInterface
+    {
+        $username = $this->getRouteParam($request, 'username');
+        $user = $this->loadUserOrFail($username);
+
+        $currentUser = $this->getUser($request);
+        if ($currentUser->username !== $username) {
+            $this->requirePermission($request, 'api.users.write');
+        }
+
+        $uploadedFiles = $request->getUploadedFiles();
+        $file = $uploadedFiles['avatar'] ?? $uploadedFiles['file'] ?? null;
+
+        if (!$file || $file->getError() !== UPLOAD_ERR_OK) {
+            throw new ValidationException('No avatar file uploaded.');
+        }
+
+        $mime = $file->getClientMediaType() ?? '';
+        if (!str_starts_with($mime, 'image/')) {
+            throw new ValidationException('Avatar must be an image file.');
+        }
+
+        // Save to account://avatars/
+        $locator = $this->grav['locator'];
+        $avatarDir = $locator->findResource('account://', true) . '/avatars';
+        if (!is_dir($avatarDir)) {
+            mkdir($avatarDir, 0755, true);
+        }
+
+        $ext = match ($mime) {
+            'image/png' => 'png',
+            'image/gif' => 'gif',
+            'image/webp' => 'webp',
+            default => 'jpg',
+        };
+
+        $filename = $username . '-' . substr(md5((string) time()), 0, 8) . '.' . $ext;
+        $filepath = $avatarDir . '/' . $filename;
+        $file->moveTo($filepath);
+
+        // Update user's avatar reference
+        $user->set('avatar', [
+            $filename => [
+                'name' => $filename,
+                'type' => $mime,
+                'size' => filesize($filepath),
+                'path' => 'avatars/' . $filename,
+            ],
+        ]);
+        $user->save();
+
+        return ApiResponse::create($this->serializeUser($user), 201);
+    }
+
+    /**
+     * DELETE /users/{username}/avatar - Remove the custom avatar.
+     */
+    public function deleteAvatar(ServerRequestInterface $request): ResponseInterface
+    {
+        $username = $this->getRouteParam($request, 'username');
+        $user = $this->loadUserOrFail($username);
+
+        $currentUser = $this->getUser($request);
+        if ($currentUser->username !== $username) {
+            $this->requirePermission($request, 'api.users.write');
+        }
+
+        // Delete avatar file(s)
+        $avatar = $user->get('avatar');
+        if (is_array($avatar)) {
+            $locator = $this->grav['locator'];
+            $basePath = $locator->findResource('account://');
+            foreach ($avatar as $entry) {
+                if (is_array($entry) && isset($entry['path'])) {
+                    $filePath = $basePath . '/' . $entry['path'];
+                    if (file_exists($filePath)) {
+                        @unlink($filePath);
+                    }
+                }
+            }
+        }
+
+        $user->set('avatar', []);
+        $user->save();
+
+        return ApiResponse::create($this->serializeUser($user));
+    }
+
+    /**
      * POST /users/{username}/2fa - Generate or regenerate 2FA secret and return QR code.
      */
     public function generate2fa(ServerRequestInterface $request): ResponseInterface
