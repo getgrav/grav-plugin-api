@@ -227,6 +227,10 @@ class ApiRouter extends ProcessorBase
         // Site-level media
         $r->addRoute('GET', '/media', [MediaController::class, 'siteMedia']);
         $r->addRoute('POST', '/media', [MediaController::class, 'uploadSiteMedia']);
+        $r->addRoute('POST', '/media/folders', [MediaController::class, 'createFolder']);
+        $r->addRoute('POST', '/media/rename', [MediaController::class, 'renameFile']);
+        $r->addRoute('POST', '/media/folders/rename', [MediaController::class, 'renameFolder']);
+        $r->addRoute('DELETE', '/media/folders/{path:.+}', [MediaController::class, 'deleteFolder']);
         $r->addRoute('DELETE', '/media/{filename:.+}', [MediaController::class, 'deleteSiteMedia']);
 
         // Taxonomy

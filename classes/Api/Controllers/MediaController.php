@@ -133,24 +133,62 @@ class MediaController extends AbstractApiController
     }
 
     /**
-     * GET /media - List site-level media.
+     * GET /media - List site-level media with folder browsing, search, and type filter.
      */
     public function siteMedia(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'api.media.read');
 
         $mediaPath = $this->getSiteMediaPath();
+        $queryParams = $request->getQueryParams();
+
+        // Validate optional path parameter
+        $relativePath = '';
+        if (!empty($queryParams['path'])) {
+            $relativePath = $this->validateRelativePath($queryParams['path'], $mediaPath);
+        }
+
+        $currentPath = $relativePath !== '' ? $mediaPath . '/' . $relativePath : $mediaPath;
+
+        // Handle search mode
+        if (!empty($queryParams['search'])) {
+            return $this->handleMediaSearch($request, $mediaPath, $queryParams);
+        }
+
+        // Verify directory exists
+        if (!is_dir($currentPath)) {
+            // Return empty result for non-existent paths
+            $baseUrl = $this->getApiBaseUrl() . '/media';
+            return ApiResponse::paginated([], 0, 1, 20, $baseUrl, 200, [], [
+                'path' => $relativePath,
+                'folders' => [],
+            ]);
+        }
+
+        $result = $this->scanMediaDirectoryWithFolders($currentPath, $relativePath);
         $pagination = $this->getPagination($request);
 
-        $files = $this->scanMediaDirectory($mediaPath);
-        $total = count($files);
+        // Apply type filter
+        $typeFilter = $queryParams['type'] ?? null;
+        $files = $result['files'];
+        if ($typeFilter) {
+            $files = array_values(array_filter($files, function (string $file) use ($currentPath, $typeFilter) {
+                $mime = mime_content_type($currentPath . '/' . $file) ?: '';
+                return match ($typeFilter) {
+                    'image' => str_starts_with($mime, 'image/'),
+                    'video' => str_starts_with($mime, 'video/'),
+                    'audio' => str_starts_with($mime, 'audio/'),
+                    'document' => !str_starts_with($mime, 'image/') && !str_starts_with($mime, 'video/') && !str_starts_with($mime, 'audio/'),
+                    default => true,
+                };
+            }));
+        }
 
-        // Apply pagination
+        $total = count($files);
         $pagedFiles = array_slice($files, $pagination['offset'], $pagination['limit']);
 
-        // Build serialized output for raw files (no Grav Medium objects for site-level)
         $serialized = array_map(
-            fn(string $file) => $this->serializeSiteFile($mediaPath, $file),
+            fn(string $file) => $this->serializeSiteFile($currentPath, $file, $relativePath),
             $pagedFiles,
         );
 
@@ -162,20 +200,35 @@ class MediaController extends AbstractApiController
             $pagination['page'],
             $pagination['per_page'],
             $baseUrl,
+            200,
+            [],
+            [
+                'path' => $relativePath,
+                'folders' => $result['folders'],
+            ],
         );
     }
 
     /**
-     * POST /media - Upload file(s) to the site media folder.
+     * POST /media - Upload file(s) to the site media folder (with optional subfolder path).
      */
     public function uploadSiteMedia(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'api.media.write');
 
         $mediaPath = $this->getSiteMediaPath();
+        $queryParams = $request->getQueryParams();
 
-        if (!is_dir($mediaPath) && !mkdir($mediaPath, 0775, true)) {
-            throw new ValidationException('Unable to create site media directory.');
+        // Validate optional subfolder path
+        $relativePath = '';
+        if (!empty($queryParams['path'])) {
+            $relativePath = $this->validateRelativePath($queryParams['path'], $mediaPath);
+        }
+
+        $targetDir = $relativePath !== '' ? $mediaPath . '/' . $relativePath : $mediaPath;
+
+        if (!is_dir($targetDir) && !mkdir($targetDir, 0775, true)) {
+            throw new ValidationException('Unable to create upload directory.');
         }
 
         $uploadedFiles = $this->flattenUploadedFiles($request->getUploadedFiles());
@@ -186,8 +239,8 @@ class MediaController extends AbstractApiController
 
         $created = [];
         foreach ($uploadedFiles as $file) {
-            $filename = $this->processUploadedFile($file, $mediaPath);
-            $created[] = $this->serializeSiteFile($mediaPath, $filename);
+            $filename = $this->processUploadedFile($file, $targetDir);
+            $created[] = $this->serializeSiteFile($targetDir, $filename, $relativePath);
         }
 
         $location = $this->getApiBaseUrl() . '/media';
@@ -196,23 +249,23 @@ class MediaController extends AbstractApiController
     }
 
     /**
-     * DELETE /media/{filename} - Delete a site media file.
+     * DELETE /media/{filename} - Delete a site media file (supports subfolder paths).
      */
     public function deleteSiteMedia(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'api.media.write');
 
-        $filename = $this->getSafeFilename($request);
         $mediaPath = $this->getSiteMediaPath();
-        $filePath = $mediaPath . '/' . $filename;
+        $relativePath = $this->getSafeRelativeFilePath($request, $mediaPath);
+        $filePath = $mediaPath . '/' . $relativePath;
 
         if (!file_exists($filePath)) {
-            throw new NotFoundException("Media file '{$filename}' not found.");
+            throw new NotFoundException("Media file not found.");
         }
 
         unlink($filePath);
 
-        // Also remove any metadata file if it exists
+        // Also remove any metadata file
         $metaPath = $filePath . '.meta.yaml';
         if (file_exists($metaPath)) {
             unlink($metaPath);
@@ -221,13 +274,183 @@ class MediaController extends AbstractApiController
         return ApiResponse::noContent();
     }
 
+    /**
+     * POST /media/folders - Create a new folder.
+     */
+    public function createFolder(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.media.write');
+
+        $mediaPath = $this->getSiteMediaPath();
+        $body = json_decode((string) $request->getBody(), true) ?? [];
+
+        if (empty($body['path'])) {
+            throw new ValidationException('Folder path is required.');
+        }
+
+        $relativePath = $this->validateRelativePath($body['path'], $mediaPath);
+        $absolutePath = $mediaPath . '/' . $relativePath;
+
+        if (is_dir($absolutePath)) {
+            throw new ValidationException('Folder already exists.');
+        }
+
+        if (!mkdir($absolutePath, 0775, true)) {
+            throw new ValidationException('Unable to create folder.');
+        }
+
+        $name = basename($relativePath);
+        $data = [
+            'name' => $name,
+            'path' => $relativePath,
+            'children_count' => 0,
+            'file_count' => 0,
+        ];
+
+        return ApiResponse::created($data, $this->getApiBaseUrl() . '/media?path=' . urlencode($relativePath));
+    }
+
+    /**
+     * DELETE /media/folders/{path} - Delete an empty folder.
+     */
+    public function deleteFolder(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.media.write');
+
+        $mediaPath = $this->getSiteMediaPath();
+        $path = $this->getRouteParam($request, 'path');
+
+        if ($path === null || $path === '') {
+            throw new ValidationException('Folder path is required.');
+        }
+
+        $relativePath = $this->validateRelativePath($path, $mediaPath);
+        $absolutePath = $mediaPath . '/' . $relativePath;
+
+        if (!is_dir($absolutePath)) {
+            throw new NotFoundException('Folder not found.');
+        }
+
+        // Check if folder is empty (only . and ..)
+        $isEmpty = true;
+        foreach (new \DirectoryIterator($absolutePath) as $item) {
+            if (!$item->isDot()) {
+                $isEmpty = false;
+                break;
+            }
+        }
+
+        if (!$isEmpty) {
+            throw new ValidationException('Folder is not empty. Delete all files first.');
+        }
+
+        if (!rmdir($absolutePath)) {
+            throw new ValidationException('Unable to delete folder.');
+        }
+
+        return ApiResponse::noContent();
+    }
+
+    /**
+     * POST /media/rename - Rename or move a media file.
+     */
+    public function renameFile(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.media.write');
+
+        $mediaPath = $this->getSiteMediaPath();
+        $body = json_decode((string) $request->getBody(), true) ?? [];
+
+        if (empty($body['from']) || empty($body['to'])) {
+            throw new ValidationException("Both 'from' and 'to' paths are required.");
+        }
+
+        $from = $this->validateRelativePath($body['from'], $mediaPath);
+        $to = $this->validateRelativePath($body['to'], $mediaPath);
+
+        $fromAbsolute = $mediaPath . '/' . $from;
+        $toAbsolute = $mediaPath . '/' . $to;
+
+        if (!file_exists($fromAbsolute)) {
+            throw new NotFoundException("Source file not found.");
+        }
+
+        if (file_exists($toAbsolute)) {
+            throw new ValidationException("A file already exists at the destination.");
+        }
+
+        // Ensure target directory exists
+        $targetDir = dirname($toAbsolute);
+        if (!is_dir($targetDir) && !mkdir($targetDir, 0775, true)) {
+            throw new ValidationException('Unable to create destination directory.');
+        }
+
+        if (!rename($fromAbsolute, $toAbsolute)) {
+            throw new ValidationException('Unable to rename file.');
+        }
+
+        // Also rename metadata sidecar if it exists
+        $fromMeta = $fromAbsolute . '.meta.yaml';
+        $toMeta = $toAbsolute . '.meta.yaml';
+        if (file_exists($fromMeta)) {
+            rename($fromMeta, $toMeta);
+        }
+
+        $toDir = ltrim(dirname($to) === '.' ? '' : dirname($to), '/');
+        $toFilename = basename($to);
+
+        $targetPath = $toDir !== '' ? $mediaPath . '/' . $toDir : $mediaPath;
+
+        return ApiResponse::ok($this->serializeSiteFile($targetPath, $toFilename, $toDir));
+    }
+
+    /**
+     * POST /media/folders/rename - Rename a folder.
+     */
+    public function renameFolder(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.media.write');
+
+        $mediaPath = $this->getSiteMediaPath();
+        $body = json_decode((string) $request->getBody(), true) ?? [];
+
+        if (empty($body['from']) || empty($body['to'])) {
+            throw new ValidationException("Both 'from' and 'to' paths are required.");
+        }
+
+        $from = $this->validateRelativePath($body['from'], $mediaPath);
+        $to = $this->validateRelativePath($body['to'], $mediaPath);
+
+        $fromAbsolute = $mediaPath . '/' . $from;
+        $toAbsolute = $mediaPath . '/' . $to;
+
+        if (!is_dir($fromAbsolute)) {
+            throw new NotFoundException("Source folder not found.");
+        }
+
+        if (file_exists($toAbsolute)) {
+            throw new ValidationException("A folder already exists at the destination.");
+        }
+
+        if (!rename($fromAbsolute, $toAbsolute)) {
+            throw new ValidationException('Unable to rename folder.');
+        }
+
+        $name = basename($to);
+        $data = [
+            'name' => $name,
+            'path' => $to,
+            'children_count' => 0,
+            'file_count' => 0,
+        ];
+
+        return ApiResponse::ok($data);
+    }
+
     // -------------------------------------------------------------------------
     // Private helpers
     // -------------------------------------------------------------------------
 
-    /**
-     * Lazily instantiate the media serializer.
-     */
     /**
      * GET /thumbnails/{hash}.{ext} - Serve a cached thumbnail image.
      */
@@ -327,6 +550,91 @@ class MediaController extends AbstractApiController
     }
 
     /**
+     * Validate a relative path is safe and within the media directory.
+     * Returns the sanitized relative path.
+     */
+    private function validateRelativePath(string $path, string $basePath): string
+    {
+        // Normalize separators
+        $path = str_replace('\\', '/', $path);
+        $path = trim($path, '/');
+
+        if ($path === '') {
+            return '';
+        }
+
+        // Check each segment
+        foreach (explode('/', $path) as $segment) {
+            if (
+                $segment === '' ||
+                $segment === '.' ||
+                $segment === '..' ||
+                str_contains($segment, "\0") ||
+                str_starts_with($segment, '.')
+            ) {
+                throw new ValidationException("Invalid path: '{$path}'.");
+            }
+        }
+
+        // Verify resolved path is within base
+        $absolute = $basePath . '/' . $path;
+
+        // For existing paths, use realpath
+        if (file_exists($absolute)) {
+            $real = realpath($absolute);
+            $realBase = realpath($basePath);
+            if ($real === false || $realBase === false || !str_starts_with($real, $realBase . '/')) {
+                throw new ValidationException("Invalid path: '{$path}'.");
+            }
+        }
+
+        return $path;
+    }
+
+    /**
+     * Extract and validate a relative file path from route parameters.
+     * Unlike getSafeFilename() which strips directories with basename(),
+     * this preserves path components for subfolder support.
+     */
+    private function getSafeRelativeFilePath(ServerRequestInterface $request, string $basePath): string
+    {
+        $filename = $this->getRouteParam($request, 'filename');
+
+        if ($filename === null || $filename === '') {
+            throw new ValidationException('Filename is required.');
+        }
+
+        // Normalize
+        $filename = str_replace('\\', '/', $filename);
+        $filename = trim($filename, '/');
+
+        // Validate each path segment
+        foreach (explode('/', $filename) as $segment) {
+            if (
+                $segment === '' ||
+                $segment === '.' ||
+                $segment === '..' ||
+                str_contains($segment, "\0") ||
+                str_starts_with($segment, '.')
+            ) {
+                throw new ValidationException('Invalid filename.');
+            }
+        }
+
+        // Verify resolved path is within base
+        $absolute = $basePath . '/' . $filename;
+        if (file_exists($absolute)) {
+            $real = realpath($absolute);
+            $realBase = realpath($basePath);
+            if ($real === false || $realBase === false || !str_starts_with($real, $realBase . '/')) {
+                throw new ValidationException('Invalid filename.');
+            }
+        }
+
+        return $filename;
+    }
+
+    /**
      * Resolve the absolute path to the site-level media directory.
      */
     private function getSiteMediaPath(): string
@@ -334,7 +642,7 @@ class MediaController extends AbstractApiController
         /** @var \Grav\Common\Locator $locator */
         $locator = $this->grav['locator'];
 
-        $path = $locator->findResource('user://images', true, true);
+        $path = $locator->findResource('user://media', true, true);
 
         if (!$path) {
             throw new NotFoundException('Site media directory could not be resolved.');
@@ -439,6 +747,94 @@ class MediaController extends AbstractApiController
     }
 
     /**
+     * Handle recursive media search across all subfolders.
+     */
+    private function handleMediaSearch(
+        ServerRequestInterface $request,
+        string $mediaPath,
+        array $queryParams
+    ): ResponseInterface {
+        $search = strtolower($queryParams['search']);
+        $typeFilter = $queryParams['type'] ?? null;
+        $pagination = $this->getPagination($request);
+
+        $matches = [];
+
+        if (is_dir($mediaPath)) {
+            $iterator = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($mediaPath, \FilesystemIterator::SKIP_DOTS),
+                \RecursiveIteratorIterator::SELF_FIRST
+            );
+
+            foreach ($iterator as $item) {
+                if ($item->isDir()) {
+                    continue;
+                }
+
+                $name = $item->getFilename();
+
+                // Skip hidden and metadata files
+                if (str_starts_with($name, '.') || str_ends_with($name, '.meta.yaml')) {
+                    continue;
+                }
+
+                // Match filename
+                if (!str_contains(strtolower($name), $search)) {
+                    continue;
+                }
+
+                // Apply type filter
+                if ($typeFilter) {
+                    $mime = mime_content_type($item->getPathname()) ?: '';
+                    $passesFilter = match ($typeFilter) {
+                        'image' => str_starts_with($mime, 'image/'),
+                        'video' => str_starts_with($mime, 'video/'),
+                        'audio' => str_starts_with($mime, 'audio/'),
+                        'document' => !str_starts_with($mime, 'image/') && !str_starts_with($mime, 'video/') && !str_starts_with($mime, 'audio/'),
+                        default => true,
+                    };
+                    if (!$passesFilter) {
+                        continue;
+                    }
+                }
+
+                // Calculate relative path
+                $fullPath = $item->getPathname();
+                $relDir = ltrim(str_replace($mediaPath, '', dirname($fullPath)), '/');
+
+                $matches[] = ['filename' => $name, 'dir' => $relDir, 'fullPath' => $fullPath];
+            }
+        }
+
+        // Sort matches
+        usort($matches, fn($a, $b) => strnatcasecmp($a['filename'], $b['filename']));
+
+        $total = count($matches);
+        $paged = array_slice($matches, $pagination['offset'], $pagination['limit']);
+
+        $serialized = array_map(function (array $match) {
+            return $this->serializeSiteFile(dirname($match['fullPath']), $match['filename'], $match['dir']);
+        }, $paged);
+
+        $baseUrl = $this->getApiBaseUrl() . '/media';
+
+        return ApiResponse::paginated(
+            $serialized,
+            $total,
+            $pagination['page'],
+            $pagination['per_page'],
+            $baseUrl,
+            200,
+            [],
+            [
+                'path' => '',
+                'folders' => [],
+                'search' => $queryParams['search'],
+            ],
+        );
+    }
+
+    /**
      * Scan a directory for media files, returning just the filenames sorted alphabetically.
      *
      * @return string[]
@@ -472,26 +868,109 @@ class MediaController extends AbstractApiController
     }
 
     /**
+     * Scan a directory for media files and subdirectories.
+     *
+     * @return array{files: string[], folders: array<array{name: string, path: string, children_count: int, file_count: int}>}
+     */
+    private function scanMediaDirectoryWithFolders(string $absolutePath, string $relativePath = ''): array
+    {
+        $files = [];
+        $folders = [];
+
+        if (!is_dir($absolutePath)) {
+            return ['files' => $files, 'folders' => $folders];
+        }
+
+        foreach (new \DirectoryIterator($absolutePath) as $item) {
+            if ($item->isDot()) {
+                continue;
+            }
+
+            $name = $item->getFilename();
+
+            // Skip hidden files/dirs
+            if (str_starts_with($name, '.')) {
+                continue;
+            }
+
+            if ($item->isDir()) {
+                $folderPath = $relativePath !== '' ? $relativePath . '/' . $name : $name;
+                $childPath = $absolutePath . '/' . $name;
+
+                // Count immediate children
+                $childrenCount = 0;
+                $fileCount = 0;
+                if (is_dir($childPath)) {
+                    foreach (new \DirectoryIterator($childPath) as $child) {
+                        if ($child->isDot() || str_starts_with($child->getFilename(), '.')) {
+                            continue;
+                        }
+                        if ($child->isDir()) {
+                            $childrenCount++;
+                        } elseif (!str_ends_with($child->getFilename(), '.meta.yaml')) {
+                            $fileCount++;
+                        }
+                    }
+                }
+
+                $folders[] = [
+                    'name' => $name,
+                    'path' => $folderPath,
+                    'children_count' => $childrenCount,
+                    'file_count' => $fileCount,
+                ];
+            } else {
+                // Skip metadata files
+                if (str_ends_with($name, '.meta.yaml')) {
+                    continue;
+                }
+                $files[] = $name;
+            }
+        }
+
+        sort($files, SORT_NATURAL | SORT_FLAG_CASE);
+        usort($folders, fn(array $a, array $b) => strnatcasecmp($a['name'], $b['name']));
+
+        return ['files' => $files, 'folders' => $folders];
+    }
+
+    /**
      * Build a serialized array for a raw file in the site media directory.
      * Used when we don't have Grav Medium objects available.
      */
-    private function serializeSiteFile(string $basePath, string $filename): array
+    private function serializeSiteFile(string $basePath, string $filename, string $relativePath = ''): array
     {
         $filePath = $basePath . '/' . $filename;
         $mime = mime_content_type($filePath) ?: 'application/octet-stream';
 
+        $fullRelativePath = $relativePath !== '' ? $relativePath . '/' . $filename : $filename;
+
         $data = [
             'filename' => $filename,
-            'url' => '/user/images/' . $filename,
+            'path' => $relativePath,
+            'url' => '/user/media/' . $fullRelativePath,
             'type' => $mime,
             'size' => (int) filesize($filePath),
         ];
 
-        if (str_starts_with($mime, 'image/') && ($imageSize = @getimagesize($filePath))) {
-            $data['dimensions'] = [
-                'width' => $imageSize[0],
-                'height' => $imageSize[1],
-            ];
+        if (str_starts_with($mime, 'image/') && $mime !== 'image/svg+xml') {
+            if ($imageSize = @getimagesize($filePath)) {
+                $data['dimensions'] = [
+                    'width' => $imageSize[0],
+                    'height' => $imageSize[1],
+                ];
+            }
+
+            // Generate thumbnail
+            try {
+                $thumbnailService = $this->getThumbnailService();
+                $hash = $thumbnailService->getOrCreate($filePath);
+                if ($hash) {
+                    $data['thumbnail_url'] = $this->getApiBaseUrl() . '/thumbnails/' . $hash;
+                }
+            } catch (\Throwable) {
+                // Thumbnail generation failed — skip it
+            }
         }
 
         $mtime = filemtime($filePath);

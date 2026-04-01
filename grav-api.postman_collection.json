@@ -1207,10 +1207,28 @@
                 {
                   "key": "per_page",
                   "value": "20"
+                },
+                {
+                  "key": "path",
+                  "value": "",
+                  "description": "Subfolder path relative to user/media",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "",
+                  "description": "Recursive filename search across all subfolders",
+                  "disabled": true
+                },
+                {
+                  "key": "type",
+                  "value": "image",
+                  "description": "Filter by type: image, video, audio, document",
+                  "disabled": true
                 }
               ]
             },
-            "description": "List site-level media files (from user/images).",
+            "description": "List site-level media files and folders from user/media. Supports subfolder browsing via path, recursive search, and type filtering. Response includes folders array in meta.",
             "header": [
               {
                 "key": "X-API-Key",
@@ -1258,9 +1276,17 @@
               ],
               "path": [
                 "media"
+              ],
+              "query": [
+                {
+                  "key": "path",
+                  "value": "",
+                  "description": "Subfolder path to upload into (created automatically)",
+                  "disabled": true
+                }
               ]
             },
-            "description": "Upload media files to the site-level media folder.",
+            "description": "Upload media files to the site-level media folder (user/media). Optionally specify a subfolder path.",
             "header": [
               {
                 "key": "X-API-Key",
@@ -1300,7 +1326,197 @@
                 "logo.png"
               ]
             },
-            "description": "Delete a site-level media file.",
+            "description": "Delete a site-level media file. Filename may include a subfolder path (e.g. blog/hero.jpg).",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "API Key authentication"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Create Media Folder",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 201', () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"path\": \"blog/2026\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/media/folders",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "media",
+                "folders"
+              ]
+            },
+            "description": "Create a new folder in the site-level media directory.",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "API Key authentication"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Delete Media Folder",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/media/folders/blog/2026",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "media",
+                "folders",
+                "blog",
+                "2026"
+              ]
+            },
+            "description": "Delete an empty folder from the site-level media directory.",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "API Key authentication"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Rename Site Media",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"from\": \"blog/hero.jpg\",\n  \"to\": \"blog/banner.jpg\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/media/rename",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "media",
+                "rename"
+              ]
+            },
+            "description": "Rename or move a media file within the site-level media directory.",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "API Key authentication"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Rename Media Folder",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"from\": \"blog/old-name\",\n  \"to\": \"blog/new-name\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/media/folders/rename",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "media",
+                "folders",
+                "rename"
+              ]
+            },
+            "description": "Rename a folder within the site-level media directory.",
             "header": [
               {
                 "key": "X-API-Key",

@@ -1218,11 +1218,30 @@ paths:
       tags: [Media]
       summary: List site-level media
       description: |
-        Return a paginated list of files in the site-level images directory
-        (`user/images`).
+        Return a paginated list of files in the site-level media directory
+        (`user/media`).
       parameters:
         - $ref: "#/components/parameters/page"
         - $ref: "#/components/parameters/per_page"
+        - name: path
+          in: query
+          description: Subfolder path relative to the media root directory.
+          schema:
+            type: string
+          example: blog/2026
+        - name: search
+          in: query
+          description: Search term for recursive filename matching across all subfolders.
+          schema:
+            type: string
+          example: hero
+        - name: type
+          in: query
+          description: Filter by media type category.
+          schema:
+            type: string
+            enum: [image, video, audio, document]
+          example: image
       responses:
         "200":
           description: Paginated list of site media files.
@@ -1249,8 +1268,15 @@ paths:
       tags: [Media]
       summary: Upload site-level media
       description: |
-        Upload one or more files to the site-level images directory
-        (`user/images`). The maximum upload size per file is 64 MB.
+        Upload one or more files to the site-level media directory
+        (`user/media`). The maximum upload size per file is 64 MB.
+      parameters:
+        - name: path
+          in: query
+          description: Subfolder path to upload into. Created automatically if it does not exist.
+          schema:
+            type: string
+          example: blog/2026
       requestBody:
         required: true
         content:
@@ -1301,7 +1327,7 @@ paths:
       summary: Delete a site-level media file
       description: |
         Remove a file (and its `.meta.yaml` sidecar, if present) from the
-        site-level images directory.
+        site-level media directory.
       parameters:
         - name: filename
           in: path
@@ -1319,6 +1345,166 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /media/folders:
+    post:
+      operationId: createMediaFolder
+      tags: [Media]
+      summary: Create a media folder
+      description: |
+        Create a new folder in the site-level media directory (`user/media`).
+        Parent directories are created automatically if they do not exist.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path:
+                  type: string
+                  description: Folder path to create, relative to the media root.
+                  example: blog/2026/april
+      responses:
+        "201":
+          description: Folder created successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/FolderInfo"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /media/folders/{path}:
+    delete:
+      operationId: deleteMediaFolder
+      tags: [Media]
+      summary: Delete an empty media folder
+      description: |
+        Remove an empty folder from the site-level media directory. The folder
+        must be empty (contain no files or subdirectories).
+      parameters:
+        - name: path
+          in: path
+          required: true
+          description: Folder path relative to the media root.
+          schema:
+            type: string
+          example: blog/2026
+      responses:
+        "204":
+          description: Folder deleted successfully. No content returned.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /media/rename:
+    post:
+      operationId: renameSiteMedia
+      tags: [Media]
+      summary: Rename or move a media file
+      description: |
+        Rename a file or move it to a different folder within the site-level
+        media directory. The destination directory is created automatically
+        if it does not exist. Any `.meta.yaml` sidecar is also moved.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from, to]
+              properties:
+                from:
+                  type: string
+                  description: Current file path relative to the media root.
+                  example: blog/hero.jpg
+                to:
+                  type: string
+                  description: New file path relative to the media root.
+                  example: blog/banner.jpg
+      responses:
+        "200":
+          description: File renamed successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/MediaItem"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /media/folders/rename:
+    post:
+      operationId: renameMediaFolder
+      tags: [Media]
+      summary: Rename a media folder
+      description: |
+        Rename a folder within the site-level media directory. All contents
+        of the folder are preserved.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from, to]
+              properties:
+                from:
+                  type: string
+                  description: Current folder path relative to the media root.
+                  example: blog/old-name
+                to:
+                  type: string
+                  description: New folder path relative to the media root.
+                  example: blog/new-name
+      responses:
+        "200":
+          description: Folder renamed successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/FolderInfo"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
@@ -4952,12 +5138,16 @@ components:
     # -- Media ----------------------------------------------------------------
     MediaItem:
       type: object
-      description: A media file, either from a page or the site-level images folder.
+      description: A media file, either from a page or the site-level media folder.
       properties:
         filename:
           type: string
           description: The file name.
           example: hero-image.jpg
+        path:
+          type: string
+          description: Relative path from the media root, including the filename.
+          example: blog/2026/hero-image.jpg
         url:
           type: string
           description: Relative URL path to the file.
@@ -4992,6 +5182,26 @@ components:
         - type
         - size
         - modified
+
+    FolderInfo:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Folder name.
+          example: 2026
+        path:
+          type: string
+          description: Full relative path from the media root.
+          example: blog/2026
+        children_count:
+          type: integer
+          description: Number of immediate subdirectories.
+          example: 1
+        file_count:
+          type: integer
+          description: Number of files in this folder (excluding metadata files).
+          example: 5
 
     # -- User -----------------------------------------------------------------
     User:
