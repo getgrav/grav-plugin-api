@@ -116,6 +116,8 @@ tags:
     description: Package management -- install, remove, update plugins, themes, and Grav core.
   - name: Scheduler
     description: Job scheduling, status, and execution history.
+  - name: Sidebar
+    description: Admin sidebar navigation items contributed by plugins.
   - name: Dashboard
     description: Notifications, news feed, and statistics.
   - name: Webhooks
@@ -3012,6 +3014,107 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  /gpm/plugins/{slug}/page:
+    get:
+      operationId: getPluginPage
+      tags: [GPM]
+      summary: Get plugin admin page definition
+      description: |
+        Returns the admin page definition for a plugin that registers a custom
+        page in the admin sidebar. The response includes the page metadata,
+        blueprint reference, data and save endpoints, available actions, and
+        whether the plugin provides a custom web component.
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          description: Plugin slug (e.g. `admin-next`, `api`).
+          schema:
+            type: string
+          example: api
+      responses:
+        "200":
+          description: Plugin page definition returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/PluginPageDefinition"
+              example:
+                data:
+                  id: api-settings
+                  plugin: api
+                  title: API Settings
+                  icon: plug
+                  page_type: blueprint-form
+                  blueprint: /blueprints/plugins/api/pages/settings
+                  data_endpoint: /config/plugins/api
+                  save_endpoint: /config/plugins/api
+                  actions:
+                    - save
+                  has_custom_component: false
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: No admin page found for this plugin.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                status: 404
+                title: Not Found
+                detail: "No admin page registered for plugin: api"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /gpm/plugins/{slug}/page-script:
+    get:
+      operationId: getPluginPageScript
+      tags: [GPM]
+      summary: Get plugin page web component script
+      description: |
+        Serves the JavaScript file containing the plugin's page-level web
+        component. This is used by the admin panel to dynamically load
+        plugin-provided custom page UIs. Returns `application/javascript`
+        content type.
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          description: Plugin slug (e.g. `admin-next`).
+          schema:
+            type: string
+          example: admin-next
+      responses:
+        "200":
+          description: JavaScript file returned.
+          content:
+            application/javascript:
+              schema:
+                type: string
+                description: Raw JavaScript source for the plugin's web component.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: No page script found for this plugin.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                status: 404
+                title: Not Found
+                detail: "No page script found for plugin: admin-next"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   # ---------------------------------------------------------------------------
   # Scheduler
   # ---------------------------------------------------------------------------
@@ -3261,6 +3364,53 @@ paths:
                         type: object
                         description: Cache driver and status.
                         additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  # ---------------------------------------------------------------------------
+  # Sidebar
+  # ---------------------------------------------------------------------------
+  /sidebar/items:
+    get:
+      operationId: getSidebarItems
+      tags: [Sidebar]
+      summary: Get admin sidebar navigation items
+      description: |
+        Returns an array of sidebar navigation items contributed by installed
+        plugins. Each item defines a route, label, icon, and optional badge
+        for rendering in the admin sidebar.
+      responses:
+        "200":
+          description: Sidebar items returned successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SidebarItem"
+              example:
+                data:
+                  - id: dashboard
+                    plugin: admin-next
+                    label: Dashboard
+                    icon: gauge
+                    route: /dashboard
+                    priority: 100
+                    badge: null
+                  - id: pages
+                    plugin: admin-next
+                    label: Pages
+                    icon: file-text
+                    route: /pages
+                    priority: 90
+                    badge: null
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -3943,6 +4093,43 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
+  /blueprints/plugins/{plugin}/pages/{pageId}:
+    get:
+      operationId: getPluginPageBlueprint
+      tags: [Blueprints]
+      summary: Get blueprint for a plugin's custom page
+      description: |
+        Returns the fully resolved blueprint for a plugin's custom admin page.
+        This is used to render blueprint-form type pages that plugins register
+        in the admin sidebar. Inheritance via `extends@` and `import@`
+        directives is resolved server-side.
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Plugin slug (directory name)
+          example: api
+        - name: pageId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Page identifier registered by the plugin
+          example: settings
+      responses:
+        "200":
+          description: Plugin page blueprint returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BlueprintResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   # ---------------------------------------------------------------------------
   # Data
   # ---------------------------------------------------------------------------
@@ -4460,6 +4647,94 @@ components:
         rows:
           type: integer
           description: Number of rows for textarea fields.
+
+    # -- Sidebar --------------------------------------------------------------
+    SidebarItem:
+      type: object
+      description: A sidebar navigation item contributed by a plugin.
+      properties:
+        id:
+          type: string
+          description: Unique identifier for the sidebar item.
+          example: dashboard
+        plugin:
+          type: string
+          description: Plugin slug that registered this item.
+          example: admin-next
+        label:
+          type: string
+          description: Display label for the sidebar item.
+          example: Dashboard
+        icon:
+          type: string
+          description: Icon identifier (e.g. Lucide icon name).
+          example: gauge
+        route:
+          type: string
+          description: Admin route this item navigates to.
+          example: /dashboard
+        priority:
+          type: integer
+          description: Sort priority (higher values appear first).
+          example: 100
+        badge:
+          type: string
+          nullable: true
+          description: Optional badge text (e.g. a count or status indicator).
+          example: null
+
+    # -- Plugin Page Definition ------------------------------------------------
+    PluginPageDefinition:
+      type: object
+      description: Admin page definition registered by a plugin.
+      properties:
+        id:
+          type: string
+          description: Unique page identifier.
+          example: api-settings
+        plugin:
+          type: string
+          description: Plugin slug that registered this page.
+          example: api
+        title:
+          type: string
+          description: Page title.
+          example: API Settings
+        icon:
+          type: string
+          description: Icon identifier for the page.
+          example: plug
+        page_type:
+          type: string
+          description: |
+            Page rendering type. `blueprint-form` renders a standard blueprint
+            form; `custom` uses a plugin-provided web component.
+          example: blueprint-form
+        blueprint:
+          type: string
+          nullable: true
+          description: API path to the blueprint for this page (if page_type is blueprint-form).
+          example: /blueprints/plugins/api/pages/settings
+        data_endpoint:
+          type: string
+          nullable: true
+          description: API path to fetch current data for the form.
+          example: /config/plugins/api
+        save_endpoint:
+          type: string
+          nullable: true
+          description: API path to save form data.
+          example: /config/plugins/api
+        actions:
+          type: array
+          items:
+            type: string
+          description: Available actions for the page toolbar.
+          example: [save]
+        has_custom_component:
+          type: boolean
+          description: Whether the plugin provides a custom web component for this page.
+          example: false
 
     # -- Page -----------------------------------------------------------------
     Page:

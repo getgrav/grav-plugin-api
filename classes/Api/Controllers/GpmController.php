@@ -16,6 +16,7 @@ use Grav\Plugin\Api\Serializers\PackageSerializer;
 use Grav\Plugin\Api\Services\ThumbnailService;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use RocketTheme\Toolbox\Event\Event;
 
 class GpmController extends AbstractApiController
 {
@@ -511,6 +512,13 @@ class GpmController extends AbstractApiController
         $this->requirePermission($request, self::PERMISSION_READ);
 
         $pagination = $this->getPagination($request);
+        // Allow fetching all repository packages (the install modal needs the full list)
+        $query = $request->getQueryParams();
+        if (isset($query['per_page']) && (int) $query['per_page'] > $pagination['per_page']) {
+            $requested = min(2000, (int) $query['per_page']);
+            $pagination['per_page'] = $requested;
+            $pagination['limit'] = $requested;
+        }
         $gpm = $this->getGpm();
 
         $repoPlugins = $gpm->getRepositoryPlugins();
@@ -552,6 +560,12 @@ class GpmController extends AbstractApiController
         $this->requirePermission($request, self::PERMISSION_READ);
 
         $pagination = $this->getPagination($request);
+        $query = $request->getQueryParams();
+        if (isset($query['per_page']) && (int) $query['per_page'] > $pagination['per_page']) {
+            $requested = min(2000, (int) $query['per_page']);
+            $pagination['per_page'] = $requested;
+            $pagination['limit'] = $requested;
+        }
         $gpm = $this->getGpm();
 
         $repoThemes = $gpm->getRepositoryThemes();
@@ -918,5 +932,124 @@ class GpmController extends AbstractApiController
             ],
             $content,
         );
+    }
+
+    /**
+     * GET /gpm/plugins/{slug}/page — Get plugin page definition.
+     *
+     * Resolution order:
+     * 1. Fire onApiPluginPageInfo event (plugin provides definition)
+     * 2. Filesystem: admin-next/pages/{slug}.yaml definition file
+     * 3. Filesystem: admin-next/pages/{slug}.js → infer component mode
+     * 4. 404
+     */
+    public function pluginPage(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, self::PERMISSION_READ);
+
+        $slug = $this->getRouteParam($request, 'slug');
+
+        // 1. Try event-based definition
+        $event = new Event([
+            'plugin' => $slug,
+            'definition' => null,
+            'user' => $this->getUser($request),
+        ]);
+        $this->grav->fireEvent('onApiPluginPageInfo', $event);
+
+        if ($event['definition']) {
+            $definition = $event['definition'];
+            // Check if a page web component exists
+            $definition['has_custom_component'] = $this->hasPluginPageScript($slug);
+            return ApiResponse::create($definition);
+        }
+
+        // 2. Try filesystem discovery
+        $definition = $this->discoverPluginPage($slug);
+        if ($definition) {
+            return ApiResponse::create($definition);
+        }
+
+        throw new NotFoundException("No admin page found for plugin '{$slug}'.");
+    }
+
+    /**
+     * GET /gpm/plugins/{slug}/page-script — Serve a plugin page web component JS.
+     */
+    public function customPageScript(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, self::PERMISSION_READ);
+
+        $slug = $this->getRouteParam($request, 'slug');
+        $path = $this->resolvePackagePath($slug, 'plugins');
+        $file = $path . '/admin-next/pages/' . basename($slug) . '.js';
+
+        if (!file_exists($file)) {
+            throw new NotFoundException("Page component not found for plugin '{$slug}'.");
+        }
+
+        $content = file_get_contents($file);
+
+        return new \Grav\Framework\Psr7\Response(
+            200,
+            [
+                'Content-Type' => 'application/javascript; charset=utf-8',
+                'Cache-Control' => 'public, max-age=31536000, immutable',
+            ],
+            $content,
+        );
+    }
+
+    /**
+     * Discover a plugin page definition from filesystem conventions.
+     *
+     * Checks for admin-next/pages/{slug}.yaml and admin-next/pages/{slug}.js
+     */
+    private function discoverPluginPage(string $slug): ?array
+    {
+        try {
+            $path = $this->resolvePackagePath($slug, 'plugins');
+        } catch (NotFoundException) {
+            return null;
+        }
+
+        $pagesDir = $path . '/admin-next/pages';
+        $yamlFile = $pagesDir . '/' . $slug . '.yaml';
+        $jsFile = $pagesDir . '/' . $slug . '.js';
+
+        // Try YAML definition
+        if (file_exists($yamlFile)) {
+            $data = \Grav\Common\Yaml::parse(file_get_contents($yamlFile));
+            if (is_array($data)) {
+                $data['has_custom_component'] = file_exists($jsFile);
+                return $data;
+            }
+        }
+
+        // Try JS component only (infer component mode)
+        if (file_exists($jsFile)) {
+            return [
+                'id' => $slug,
+                'plugin' => $slug,
+                'title' => ucwords(str_replace('-', ' ', $slug)),
+                'page_type' => 'component',
+                'has_custom_component' => true,
+            ];
+        }
+
+        return null;
+    }
+
+    /**
+     * Check if a plugin ships a page-level web component.
+     */
+    private function hasPluginPageScript(string $slug): bool
+    {
+        try {
+            $path = $this->resolvePackagePath($slug, 'plugins');
+            return file_exists($path . '/admin-next/pages/' . basename($slug) . '.js');
+        } catch (NotFoundException) {
+            return false;
+        }
     }
 }

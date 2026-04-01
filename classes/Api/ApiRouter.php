@@ -19,6 +19,7 @@ use Grav\Plugin\Api\Controllers\MediaController;
 use Grav\Plugin\Api\Controllers\SchedulerController;
 use Grav\Plugin\Api\Controllers\PagesController;
 use Grav\Plugin\Api\Controllers\MenubarController;
+use Grav\Plugin\Api\Controllers\SidebarController;
 use Grav\Plugin\Api\Controllers\SystemController;
 use Grav\Plugin\Api\Controllers\UsersController;
 use Grav\Plugin\Api\Controllers\WebhookController;
@@ -255,6 +256,8 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('GET', '/gpm/plugins/{slug}/readme', [GpmController::class, 'readme']);
         $r->addRoute('GET', '/gpm/plugins/{slug}/changelog', [GpmController::class, 'changelog']);
         $r->addRoute('GET', '/gpm/plugins/{slug}/field/{type}', [GpmController::class, 'customFieldScript']);
+        $r->addRoute('GET', '/gpm/plugins/{slug}/page', [GpmController::class, 'pluginPage']);
+        $r->addRoute('GET', '/gpm/plugins/{slug}/page-script', [GpmController::class, 'customPageScript']);
         $r->addRoute('GET', '/gpm/themes', [GpmController::class, 'themes']);
         $r->addRoute('GET', '/gpm/themes/{slug}', [GpmController::class, 'theme']);
         $r->addRoute('GET', '/gpm/themes/{slug}/readme', [GpmController::class, 'readme']);
@@ -301,6 +304,7 @@ $r->addRoute('GET', '/gpm/themes/{slug}/field/{type}', [GpmController::class, 'c
         $r->addRoute('GET', '/blueprints/pages', [BlueprintController::class, 'pageTypes']);
         $r->addRoute('GET', '/blueprints/pages/{template}', [BlueprintController::class, 'pageBlueprint']);
         $r->addRoute('GET', '/blueprints/plugins/{plugin}', [BlueprintController::class, 'pluginBlueprint']);
+        $r->addRoute('GET', '/blueprints/plugins/{plugin}/pages/{pageId}', [BlueprintController::class, 'pluginPageBlueprint']);
         $r->addRoute('GET', '/blueprints/themes/{theme}', [BlueprintController::class, 'themeBlueprint']);
         $r->addRoute('GET', '/blueprints/users', [BlueprintController::class, 'userBlueprint']);
         $r->addRoute('GET', '/blueprints/users/permissions', [BlueprintController::class, 'permissionsBlueprint']);
@@ -321,6 +325,9 @@ $r->addRoute('GET', '/gpm/themes/{slug}/field/{type}', [GpmController::class, 'c
         // Menubar
         $r->addRoute('GET', '/menubar/items', [MenubarController::class, 'items']);
         $r->addRoute('POST', '/menubar/actions/{plugin}/{action}', [MenubarController::class, 'executeAction']);
+
+        // Sidebar
+        $r->addRoute('GET', '/sidebar/items', [SidebarController::class, 'items']);
     }
 
     /**

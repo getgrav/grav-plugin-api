@@ -784,6 +784,113 @@ public function onApiRegisterRoutes(Event $event): void
 
 Your controller should extend `AbstractApiController` to get access to all the standard helpers (auth, pagination, response building, etc).
 
+### Admin-Next Integration
+
+Plugins can integrate with the admin-next UI by registering sidebar navigation items and providing page definitions. The API plugin provides dedicated events and endpoints that the admin-next frontend consumes to dynamically build plugin pages.
+
+**Endpoints:**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/sidebar/items` | Collect sidebar navigation items from all plugins |
+| `GET` | `/gpm/plugins/{slug}/page` | Get a plugin's page definition for admin-next |
+| `GET` | `/gpm/plugins/{slug}/page-script` | Serve a plugin's page web component JS |
+| `GET` | `/blueprints/plugins/{plugin}/pages/{pageId}` | Get a custom page blueprint for a plugin |
+
+**Register a sidebar item** via `onApiSidebarItems`:
+
+```php
+public static function getSubscribedEvents(): array
+{
+    return [
+        'onApiSidebarItems'  => ['onApiSidebarItems', 0],
+        'onApiPluginPageInfo' => ['onApiPluginPageInfo', 0],
+    ];
+}
+
+public function onApiSidebarItems(Event $event): void
+{
+    $items = $event['items'];
+
+    $items[] = [
+        'id'       => 'license-manager',
+        'plugin'   => 'license-manager',
+        'label'    => 'Licenses',
+        'icon'     => 'fa-key',
+        'route'    => '/plugin/license-manager',
+        'priority' => 10,
+        'badge'    => null,
+    ];
+
+    $event['items'] = $items;
+}
+```
+
+The sidebar item structure:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Unique identifier for the sidebar item |
+| `plugin` | string | Plugin slug that owns this item |
+| `label` | string | Display text in the sidebar |
+| `icon` | string | FontAwesome icon class (e.g., `fa-key`) |
+| `route` | string | Frontend route the item navigates to |
+| `priority` | int | Sort order (lower values appear first) |
+| `badge` | string\|null | Optional badge text (e.g., count or status) |
+
+**Provide a page definition** via `onApiPluginPageInfo`:
+
+```php
+public function onApiPluginPageInfo(Event $event): void
+{
+    if ($event['plugin'] !== 'license-manager') {
+        return;
+    }
+
+    $event['definition'] = [
+        'id'            => 'license-manager',
+        'plugin'        => 'license-manager',
+        'title'         => 'License Manager',
+        'icon'          => 'fa-key',
+        'page_type'     => 'blueprint',  // or 'component'
+        'blueprint'     => 'licenses',
+        'data_endpoint' => '/licenses/form-data',
+        'save_endpoint' => '/licenses',
+        'actions'       => [
+            ['id' => 'import', 'label' => 'Import', 'icon' => 'fa-upload', 'upload' => true, 'endpoint' => '/licenses/import'],
+            ['id' => 'export', 'label' => 'Export', 'icon' => 'fa-download', 'download' => true, 'endpoint' => '/licenses/export'],
+            ['id' => 'save', 'label' => 'Save', 'icon' => 'fa-check', 'primary' => true],
+        ],
+    ];
+}
+```
+
+The page definition structure:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Unique page identifier |
+| `plugin` | string | Plugin slug that owns this page |
+| `title` | string | Page title displayed in the header |
+| `icon` | string | FontAwesome icon class |
+| `page_type` | string | Rendering mode: `blueprint` (form from YAML) or `component` (custom web component) |
+| `blueprint` | string | Blueprint name to load (when `page_type` is `blueprint`) |
+| `data_endpoint` | string | API path to fetch form data |
+| `save_endpoint` | string | API path to save form data |
+| `actions` | array | Toolbar action buttons (see below) |
+
+Each action in the `actions` array:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Action identifier |
+| `label` | string | Button text |
+| `icon` | string | FontAwesome icon class |
+| `primary` | bool | Whether this is the primary action (styled prominently) |
+| `upload` | bool | Whether this action opens a file upload dialog |
+| `download` | bool | Whether this action triggers a file download |
+| `endpoint` | string | API path for the action (required for upload/download actions) |
+
 ## Events
 
 The API fires events before and after all write operations, allowing plugins to react, validate, modify data, or cancel operations.
@@ -844,6 +951,13 @@ The API fires events before and after all write operations, allowing plugins to 
 | Event | When | Event Data |
 |-------|------|------------|
 | `onApiRegisterRoutes` | During router initialization | `routes` (ApiRouteCollector) |
+
+### Admin-Next Integration Events
+
+| Event | When | Event Data |
+|-------|------|------------|
+| `onApiSidebarItems` | Sidebar items are collected via `GET /sidebar/items` | `items` (array, modifiable), `user` (UserInterface) |
+| `onApiPluginPageInfo` | Plugin page definition requested via `GET /gpm/plugins/{slug}/page` | `plugin` (string), `definition` (array\|null, modifiable), `user` (UserInterface) |
 
 ### Using Events in Your Plugin
 

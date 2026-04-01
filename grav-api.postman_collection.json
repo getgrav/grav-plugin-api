@@ -3767,6 +3767,109 @@
               }
             }
           ]
+        },
+        {
+          "name": "GPM / Plugin Pages",
+          "description": "Plugin admin page definitions and custom web component scripts.",
+          "item": [
+            {
+              "name": "Plugin Page Definition",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const res = pm.response.json();",
+                      "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                      "pm.test('Has data', () => pm.expect(res).to.have.property('data'));",
+                      "pm.test('Has required fields', () => {",
+                      "    const d = res.data;",
+                      "    pm.expect(d).to.have.property('id');",
+                      "    pm.expect(d).to.have.property('plugin');",
+                      "    pm.expect(d).to.have.property('title');",
+                      "    pm.expect(d).to.have.property('page_type');",
+                      "    pm.expect(d).to.have.property('has_custom_component');",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{base_url}}{{api_prefix}}/gpm/plugins/{{package_slug}}/page",
+                  "host": [
+                    "{{base_url}}{{api_prefix}}"
+                  ],
+                  "path": [
+                    "gpm",
+                    "plugins",
+                    "{{package_slug}}",
+                    "page"
+                  ]
+                },
+                "description": "Get the admin page definition for a plugin. Returns page metadata, blueprint reference, data/save endpoints, and available actions.",
+                "header": [
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}",
+                    "description": "API Key authentication"
+                  },
+                  {
+                    "key": "X-Grav-Environment",
+                    "value": "{{grav_environment}}",
+                    "description": "Grav environment"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "Plugin Page Script",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                      "pm.test('Content-Type is JavaScript', () => {",
+                      "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/javascript');",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{base_url}}{{api_prefix}}/gpm/plugins/{{package_slug}}/page-script",
+                  "host": [
+                    "{{base_url}}{{api_prefix}}"
+                  ],
+                  "path": [
+                    "gpm",
+                    "plugins",
+                    "{{package_slug}}",
+                    "page-script"
+                  ]
+                },
+                "description": "Get the JavaScript web component script for a plugin's custom admin page. Returns application/javascript content.",
+                "header": [
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}",
+                    "description": "API Key authentication"
+                  },
+                  {
+                    "key": "X-Grav-Environment",
+                    "value": "{{grav_environment}}",
+                    "description": "Grav environment"
+                  }
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -3981,6 +4084,65 @@
               ]
             },
             "description": "Get system reports including environment checks and diagnostics.",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "API Key authentication"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Sidebar",
+      "description": "Admin sidebar navigation items contributed by plugins.",
+      "item": [
+        {
+          "name": "Get Sidebar Items",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Has data array', () => pm.expect(res.data).to.be.an('array'));",
+                  "pm.test('Items have required fields', () => {",
+                  "    if (res.data.length > 0) {",
+                  "        const item = res.data[0];",
+                  "        pm.expect(item).to.have.property('id');",
+                  "        pm.expect(item).to.have.property('plugin');",
+                  "        pm.expect(item).to.have.property('label');",
+                  "        pm.expect(item).to.have.property('icon');",
+                  "        pm.expect(item).to.have.property('route');",
+                  "        pm.expect(item).to.have.property('priority');",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/sidebar/items",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "sidebar",
+                "items"
+              ]
+            },
+            "description": "Get all admin sidebar navigation items contributed by installed plugins.",
             "header": [
               {
                 "key": "X-API-Key",
@@ -5154,6 +5316,54 @@
             },
             "description": "Get all registered permission actions as a nested tree."
           }
+        },
+        {
+          "name": "Get Plugin Page Blueprint",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Has fields', () => pm.expect(pm.response.json().data.fields).to.be.an('array'));",
+                  "pm.test('Has name', () => pm.expect(pm.response.json().data).to.have.property('name'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/blueprints/plugins/api/pages/settings",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "blueprints",
+                "plugins",
+                "api",
+                "pages",
+                "settings"
+              ]
+            },
+            "description": "Get the resolved blueprint for a plugin's custom admin page. Used to render blueprint-form type pages registered by plugins."
+          },
+          "response": []
         },
         {
           "name": "Resolve Data Options",

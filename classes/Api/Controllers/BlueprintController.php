@@ -286,6 +286,34 @@ class BlueprintController extends AbstractApiController
     }
 
     /**
+     * GET /blueprints/plugins/{plugin}/pages/{pageId} - Get custom page blueprint for a plugin.
+     */
+    public function pluginPageBlueprint(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.config.read');
+
+        $plugin = $this->getRouteParam($request, 'plugin');
+        $pageId = $this->getRouteParam($request, 'pageId');
+
+        $pluginPath = $this->grav['locator']->findResource("plugin://{$plugin}");
+
+        if (!$pluginPath) {
+            throw new NotFoundException("Plugin '{$plugin}' not found.");
+        }
+
+        $blueprintFile = $pluginPath . '/admin/blueprints/' . basename($pageId) . '.yaml';
+
+        if (!file_exists($blueprintFile)) {
+            throw new NotFoundException("Page blueprint '{$pageId}' not found for plugin '{$plugin}'.");
+        }
+
+        $blueprint = new Blueprint($blueprintFile);
+        $blueprint->load();
+
+        return ApiResponse::create($this->serializeBlueprint($blueprint, $pageId));
+    }
+
+    /**
      * GET /blueprints/config/{scope} - Get blueprint for system/site config.
      */
     public function configBlueprint(ServerRequestInterface $request): ResponseInterface
@@ -571,7 +599,7 @@ class BlueprintController extends AbstractApiController
 
             // Copy standard properties
             $props = [
-                'label', 'help', 'placeholder', 'default', 'description',
+                'label', 'help', 'placeholder', 'default', 'description', 'content',
                 'size', 'classes', 'id', 'style', 'title', 'text',
                 'disabled', 'readonly', 'toggleable', 'highlight',
                 'minlength', 'maxlength', 'min', 'max', 'step',
@@ -594,7 +622,7 @@ class BlueprintController extends AbstractApiController
             }
 
             // Translate string properties that may contain language keys
-            foreach (['label', 'title', 'description', 'help', 'placeholder', 'text'] as $textProp) {
+            foreach (['label', 'title', 'description', 'help', 'placeholder', 'text', 'content'] as $textProp) {
                 if (isset($serialized[$textProp]) && is_string($serialized[$textProp])) {
                     $serialized[$textProp] = $this->translateLabel($serialized[$textProp]);
                 }
