@@ -18,6 +18,7 @@ use Grav\Plugin\Api\Controllers\GpmController;
 use Grav\Plugin\Api\Controllers\MediaController;
 use Grav\Plugin\Api\Controllers\SchedulerController;
 use Grav\Plugin\Api\Controllers\PagesController;
+use Grav\Plugin\Api\Controllers\MenubarController;
 use Grav\Plugin\Api\Controllers\SystemController;
 use Grav\Plugin\Api\Controllers\UsersController;
 use Grav\Plugin\Api\Controllers\WebhookController;
@@ -316,6 +317,10 @@ $r->addRoute('GET', '/gpm/themes/{slug}/field/{type}', [GpmController::class, 'c
 
         // Translations
         $r->addRoute('GET', '/translations/{lang}', [SystemController::class, 'translations']);
+
+        // Menubar
+        $r->addRoute('GET', '/menubar/items', [MenubarController::class, 'items']);
+        $r->addRoute('POST', '/menubar/actions/{plugin}/{action}', [MenubarController::class, 'executeAction']);
     }
 
     /**
