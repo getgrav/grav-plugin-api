@@ -3771,6 +3771,67 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  /dashboard/popularity:
+    get:
+      operationId: getDashboardPopularity
+      tags: [Dashboard]
+      summary: Get page view statistics
+      description: |
+        Return page view statistics from the admin popularity tracker.
+        Includes daily chart data (last 14 days), summary counters
+        (today, this week, this month), and top pages by total views.
+      responses:
+        "200":
+          description: Page view statistics.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      summary:
+                        type: object
+                        properties:
+                          today:
+                            type: integer
+                            example: 12
+                          week:
+                            type: integer
+                            example: 84
+                          month:
+                            type: integer
+                            example: 312
+                      chart:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            date:
+                              type: string
+                              example: "Mar 28"
+                            views:
+                              type: integer
+                              example: 27
+                      top_pages:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            route:
+                              type: string
+                              example: "/blog"
+                            views:
+                              type: integer
+                              example: 30
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   # ---------------------------------------------------------------------------
   # Webhooks
   # ---------------------------------------------------------------------------

@@ -4546,6 +4546,48 @@
               }
             ]
           }
+        },
+        {
+          "name": "Dashboard Popularity",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Has summary', () => pm.expect(res.data).to.have.property('summary'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/dashboard/popularity",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "dashboard",
+                "popularity"
+              ]
+            },
+            "description": "Get page view statistics including daily chart data (last 14 days), summary counters, and top pages by views.",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "API Key authentication"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              }
+            ]
+          }
         }
       ]
     },

@@ -284,6 +284,7 @@ $r->addRoute('GET', '/gpm/themes/{slug}/field/{type}', [GpmController::class, 'c
         $r->addRoute('POST', '/dashboard/notifications/{id}/hide', [DashboardController::class, 'hideNotification']);
         $r->addRoute('GET', '/dashboard/feed', [DashboardController::class, 'feed']);
         $r->addRoute('GET', '/dashboard/stats', [DashboardController::class, 'stats']);
+        $r->addRoute('GET', '/dashboard/popularity', [DashboardController::class, 'popularity']);
 
         // Scheduler & Reports
         $r->addRoute('GET', '/scheduler/jobs', [SchedulerController::class, 'jobs']);

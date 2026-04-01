@@ -267,4 +267,92 @@ class DashboardController extends AbstractApiController
 
         return ApiResponse::create($data);
     }
+
+    /**
+     * GET /dashboard/popularity - Page view statistics.
+     *
+     * Returns daily, monthly, and per-page totals from the popularity log files
+     * written by the admin plugin's Popularity tracker.
+     */
+    public function popularity(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.system.read');
+
+        $logDir = $this->grav['locator']->findResource('log://popularity', true);
+
+        $daily = [];
+        $monthly = [];
+        $totals = [];
+        $visitors = [];
+
+        if ($logDir && is_dir($logDir)) {
+            $dailyFile = $logDir . '/daily.json';
+            if (file_exists($dailyFile)) {
+                $daily = json_decode(file_get_contents($dailyFile), true) ?: [];
+            }
+
+            $monthlyFile = $logDir . '/monthly.json';
+            if (file_exists($monthlyFile)) {
+                $monthly = json_decode(file_get_contents($monthlyFile), true) ?: [];
+            }
+
+            $totalsFile = $logDir . '/totals.json';
+            if (file_exists($totalsFile)) {
+                $totals = json_decode(file_get_contents($totalsFile), true) ?: [];
+            }
+
+            $visitorsFile = $logDir . '/visitors.json';
+            if (file_exists($visitorsFile)) {
+                $visitors = json_decode(file_get_contents($visitorsFile), true) ?: [];
+            }
+        }
+
+        // Calculate summary stats
+        $today = date('d-m-Y');
+        $thisWeekStart = date('d-m-Y', strtotime('monday this week'));
+        $thisMonth = date('m-Y');
+
+        $todayViews = $daily[$today] ?? 0;
+
+        // Sum last 7 days
+        $weekViews = 0;
+        for ($i = 0; $i < 7; $i++) {
+            $day = date('d-m-Y', strtotime("-{$i} days"));
+            $weekViews += $daily[$day] ?? 0;
+        }
+
+        $monthViews = $monthly[$thisMonth] ?? 0;
+
+        // Sort daily by date for chart (last 14 days)
+        $chartData = [];
+        for ($i = 13; $i >= 0; $i--) {
+            $day = date('d-m-Y', strtotime("-{$i} days"));
+            $label = date('M j', strtotime("-{$i} days"));
+            $chartData[] = [
+                'date' => $label,
+                'views' => $daily[$day] ?? 0,
+            ];
+        }
+
+        // Top pages (sorted by views descending, top 10)
+        arsort($totals);
+        $topPages = [];
+        $count = 0;
+        foreach ($totals as $route => $views) {
+            $topPages[] = ['route' => $route, 'views' => $views];
+            if (++$count >= 10) {
+                break;
+            }
+        }
+
+        return ApiResponse::create([
+            'summary' => [
+                'today' => $todayViews,
+                'week' => $weekViews,
+                'month' => $monthViews,
+            ],
+            'chart' => $chartData,
+            'top_pages' => $topPages,
+        ]);
+    }
 }
