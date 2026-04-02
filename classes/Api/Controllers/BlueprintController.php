@@ -13,6 +13,7 @@ use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use RocketTheme\Toolbox\Event\Event;
 
 class BlueprintController extends AbstractApiController
 {
@@ -133,7 +134,19 @@ class BlueprintController extends AbstractApiController
             throw new NotFoundException("Blueprint for template '{$template}' not found.");
         }
 
-        return ApiResponse::create($this->serializeBlueprint($blueprint, $template));
+        $data = $this->serializeBlueprint($blueprint, $template);
+
+        // Fire event to allow plugins to modify the serialized blueprint fields
+        // (e.g., editor-pro overrides editor/markdown field types)
+        $event = new Event([
+            'fields' => $data['fields'],
+            'template' => $template,
+            'user' => $this->getUser($request),
+        ]);
+        $this->grav->fireEvent('onApiBlueprintResolved', $event);
+        $data['fields'] = $event['fields'];
+
+        return ApiResponse::create($data);
     }
 
     /**

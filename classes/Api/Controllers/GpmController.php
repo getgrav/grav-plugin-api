@@ -901,6 +901,45 @@ class GpmController extends AbstractApiController
     }
 
     /**
+     * GET /custom-fields — Return all custom field registrations from all enabled plugins and themes.
+     *
+     * Returns a map of field type → plugin/theme slug so admin-next can
+     * pre-populate the custom field registry at startup.
+     */
+    public function allCustomFields(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, self::PERMISSION_READ);
+
+        $gpm = $this->getGpm();
+        $allFields = [];
+
+        // Scan enabled plugins
+        foreach ($gpm->getInstalledPlugins() as $slug => $plugin) {
+            if (!$this->config->get("plugins.{$slug}.enabled", false)) {
+                continue;
+            }
+            $fields = $this->discoverCustomFields($slug, 'plugins');
+            if ($fields) {
+                foreach ($fields as $fieldType => $label) {
+                    $allFields[$fieldType] = $slug;
+                }
+            }
+        }
+
+        // Scan installed themes
+        foreach ($gpm->getInstalledThemes() as $slug => $theme) {
+            $fields = $this->discoverCustomFields($slug, 'themes');
+            if ($fields) {
+                foreach ($fields as $fieldType => $label) {
+                    $allFields[$fieldType] = $slug;
+                }
+            }
+        }
+
+        return ApiResponse::create($allFields);
+    }
+
+    /**
      * GET /gpm/{plugins|themes}/{slug}/field/{type} - Serve a custom field web component JS.
      *
      * Returns the JavaScript file for a custom admin-next field component.
@@ -928,7 +967,7 @@ class GpmController extends AbstractApiController
             200,
             [
                 'Content-Type' => 'application/javascript; charset=utf-8',
-                'Cache-Control' => 'public, max-age=31536000, immutable',
+                'Cache-Control' => 'no-cache',
             ],
             $content,
         );
@@ -994,7 +1033,7 @@ class GpmController extends AbstractApiController
             200,
             [
                 'Content-Type' => 'application/javascript; charset=utf-8',
-                'Cache-Control' => 'public, max-age=31536000, immutable',
+                'Cache-Control' => 'no-cache',
             ],
             $content,
         );

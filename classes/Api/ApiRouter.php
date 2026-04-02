@@ -254,6 +254,9 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('POST', '/users/{username}/api-keys', [UsersController::class, 'createApiKey']);
         $r->addRoute('DELETE', '/users/{username}/api-keys/{keyId}', [UsersController::class, 'deleteApiKey']);
 
+        // Custom fields discovery (all plugins/themes)
+        $r->addRoute('GET', '/custom-fields', [GpmController::class, 'allCustomFields']);
+
         // GPM (Package Manager)
         $r->addRoute('GET', '/gpm/plugins', [GpmController::class, 'plugins']);
         $r->addRoute('GET', '/gpm/plugins/{slug}', [GpmController::class, 'plugin']);
