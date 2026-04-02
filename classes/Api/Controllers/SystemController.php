@@ -75,12 +75,11 @@ class SystemController extends AbstractApiController
 
     /**
      * GET /ping - Lightweight keep-alive endpoint.
-     * Validates auth token and returns minimal response.
+     * Health/connectivity check. No auth required — session keep-alive
+     * is handled by proactive token refresh on the client side.
      */
     public function ping(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, 'api.access');
-
         return ApiResponse::create(['pong' => true]);
     }
 
@@ -205,18 +204,99 @@ class SystemController extends AbstractApiController
     {
         $this->requirePermission($request, 'api.system.read');
 
+        // Ensure backup directory is initialized before listing
+        $backups = $this->grav['backups'] ?? new Backups();
+        if (method_exists($backups, 'init')) {
+            $backups->init();
+        }
+
         $list = Backups::getAvailableBackups(true);
 
-        $data = [];
+        $items = [];
         foreach ($list as $backup) {
-            $data[] = [
-                'filename' => basename($backup['path'] ?? ''),
-                'date' => $backup['date'] ?? null,
-                'size' => $backup['size'] ?? 0,
+            // getAvailableBackups returns stdClass objects, not arrays
+            $b = is_object($backup) ? $backup : (object) $backup;
+            $items[] = [
+                'filename' => $b->filename ?? basename($b->path ?? ''),
+                'title' => $b->title ?? null,
+                'date' => $b->date ?? null,
+                'size' => $b->size ?? 0,
             ];
         }
 
-        return ApiResponse::create($data);
+        // Include purge config for storage usage display
+        $purge = Backups::getPurgeConfig();
+
+        return ApiResponse::create([
+            'backups' => $items,
+            'purge' => $purge,
+            'profiles_count' => count(Backups::getBackupProfiles() ?? []),
+        ]);
+    }
+
+    /**
+     * DELETE /system/backups/{filename} - Delete a backup file.
+     */
+    public function deleteBackup(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.system.write');
+
+        $b = $this->grav['backups'] ?? new Backups();
+        if (method_exists($b, 'init')) { $b->init(); }
+
+        $filename = $this->getRouteParam($request, 'filename');
+
+        // Validate filename (no path traversal)
+        if (!$filename || $filename !== basename($filename) || !str_ends_with($filename, '.zip')) {
+            throw new ValidationException(['filename' => ['Invalid backup filename.']]);
+        }
+
+        $backupDir = $this->grav['locator']->findResource('backup://', true);
+        $filepath = $backupDir . '/' . $filename;
+
+        if (!file_exists($filepath)) {
+            throw new NotFoundException("Backup '{$filename}' not found.");
+        }
+
+        unlink($filepath);
+
+        return ApiResponse::noContent();
+    }
+
+    /**
+     * GET /system/backups/{filename}/download - Download a backup file.
+     */
+    public function downloadBackup(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.system.read');
+
+        $b = $this->grav['backups'] ?? new Backups();
+        if (method_exists($b, 'init')) { $b->init(); }
+
+        $filename = $this->getRouteParam($request, 'filename');
+
+        if (!$filename || $filename !== basename($filename) || !str_ends_with($filename, '.zip')) {
+            throw new ValidationException(['filename' => ['Invalid backup filename.']]);
+        }
+
+        $backupDir = $this->grav['locator']->findResource('backup://', true);
+        $filepath = $backupDir . '/' . $filename;
+
+        if (!file_exists($filepath)) {
+            throw new NotFoundException("Backup '{$filename}' not found.");
+        }
+
+        $stream = fopen($filepath, 'rb');
+
+        return new \Grav\Framework\Psr7\Response(
+            200,
+            [
+                'Content-Type' => 'application/zip',
+                'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+                'Content-Length' => (string) filesize($filepath),
+            ],
+            $stream,
+        );
     }
 
     /**

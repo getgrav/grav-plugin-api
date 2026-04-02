@@ -78,12 +78,17 @@ class ApiRouter extends ProcessorBase
                 $apiBase . '/translations/',
                 $apiBase . '/thumbnails/',
             ];
+            $publicExact = [
+                $apiBase . '/ping',
+            ];
 
-            $isPublic = false;
-            foreach ($publicPrefixes as $pp) {
-                if (str_starts_with($routePath, $pp)) {
-                    $isPublic = true;
-                    break;
+            $isPublic = in_array($routePath, $publicExact, true);
+            if (!$isPublic) {
+                foreach ($publicPrefixes as $pp) {
+                    if (str_starts_with($routePath, $pp)) {
+                        $isPublic = true;
+                        break;
+                    }
                 }
             }
 
@@ -119,6 +124,8 @@ class ApiRouter extends ProcessorBase
             if (isset($rateLimitResult)) {
                 $response = $this->addRateLimitHeaders($response, $rateLimitResult);
             }
+            // CORS headers on error responses so browsers don't block them
+            $response = (new CorsMiddleware($this->config))->addHeaders($request, $response);
         } catch (Throwable $e) {
             $this->container['log']->error('API unhandled exception: ' . $e->getMessage(), [
                 'file' => $e->getFile(),
@@ -130,6 +137,8 @@ class ApiRouter extends ProcessorBase
                 'Internal Server Error',
                 $this->config->get('system.debugger.enabled') ? $e->getMessage() : 'An unexpected error occurred.'
             );
+            // CORS headers on error responses so browsers don't block them
+            $response = (new CorsMiddleware($this->config))->addHeaders($request, $response);
         }
 
         $this->stopTimer();
@@ -326,6 +335,8 @@ $r->addRoute('GET', '/gpm/themes/{slug}/field/{type}', [GpmController::class, 'c
         $r->addRoute('GET', '/system/logs', [SystemController::class, 'logs']);
         $r->addRoute('POST', '/system/backup', [SystemController::class, 'backup']);
         $r->addRoute('GET', '/system/backups', [SystemController::class, 'backups']);
+        $r->addRoute('DELETE', '/system/backups/{filename}', [SystemController::class, 'deleteBackup']);
+        $r->addRoute('GET', '/system/backups/{filename}/download', [SystemController::class, 'downloadBackup']);
 
         // Translations
         $r->addRoute('GET', '/translations/{lang}', [SystemController::class, 'translations']);
