@@ -334,7 +334,7 @@ class BlueprintController extends AbstractApiController
         $this->requirePermission($request, 'api.config.read');
 
         $scope = $this->getRouteParam($request, 'scope');
-        $validScopes = ['system', 'site', 'media', 'security'];
+        $validScopes = ['system', 'site', 'media', 'security', 'scheduler', 'backups'];
 
         if (!in_array($scope, $validScopes, true)) {
             throw new NotFoundException("Config blueprint scope '{$scope}' not found. Valid: " . implode(', ', $validScopes));
@@ -625,7 +625,7 @@ class BlueprintController extends AbstractApiController
                 'placeholder_key', 'placeholder_value', 'value_type',
                 'btnLabel', 'placement', 'sortby', 'sortby_dir',
                 'sort', 'collapsible', 'min_height', 'selectunique',
-                'condition',
+                'condition', 'wrapper_classes',
             ];
 
             foreach ($props as $prop) {

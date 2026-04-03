@@ -113,6 +113,7 @@ class SystemController extends AbstractApiController
         $pagination = $this->getPagination($request);
         $query = $request->getQueryParams();
         $levelFilter = $query['level'] ?? null;
+        $search = $query['search'] ?? null;
 
         $logFile = $this->grav['locator']->findResource('log://grav.log');
         if (!$logFile || !file_exists($logFile)) {
@@ -156,6 +157,10 @@ class SystemController extends AbstractApiController
             $message = preg_replace('/\s*\[\]\s*\[\]\s*$/', '', $message);
 
             if ($levelFilter !== null && $level !== strtoupper($levelFilter)) {
+                continue;
+            }
+
+            if ($search !== null && $search !== '' && stripos($message, $search) === false) {
                 continue;
             }
 

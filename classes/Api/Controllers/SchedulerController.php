@@ -9,6 +9,7 @@ use Grav\Plugin\Api\Exceptions\ApiException;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use RocketTheme\Toolbox\Event\Event;
 
 class SchedulerController extends AbstractApiController
 {
@@ -24,6 +25,11 @@ class SchedulerController extends AbstractApiController
 
         /** @var Scheduler $scheduler */
         $scheduler = $this->grav['scheduler'];
+
+        // Fire onSchedulerInitialized so plugins register their system jobs
+        // (cache-purge, cache-clear, backups, etc.)
+        $this->grav->fireEvent('onSchedulerInitialized', new Event(['scheduler' => $scheduler]));
+
         $allJobs = $scheduler->getAllJobs();
         $states = $scheduler->getJobStates()->content();
 
@@ -57,14 +63,30 @@ class SchedulerController extends AbstractApiController
         /** @var Scheduler $scheduler */
         $scheduler = $this->grav['scheduler'];
 
+        // Fire onSchedulerInitialized so health status sees system jobs
+        $this->grav->fireEvent('onSchedulerInitialized', new Event(['scheduler' => $scheduler]));
+
         $crontabStatus = $scheduler->isCrontabSetup();
         $statusMap = [0 => 'not_installed', 1 => 'installed', 2 => 'error'];
+
+        // Health status and active triggers
+        $health = method_exists($scheduler, 'getHealthStatus') ? $scheduler->getHealthStatus() : [];
+        $triggers = method_exists($scheduler, 'getActiveTriggers') ? $scheduler->getActiveTriggers() : [];
+
+        // Webhook plugin status
+        $webhookInstalled = class_exists('Grav\\Plugin\\SchedulerWebhookPlugin')
+            || is_dir($this->grav['locator']->findResource('plugin://scheduler-webhook') ?: '');
+        $webhookEnabled = method_exists($scheduler, 'isWebhookEnabled') && $scheduler->isWebhookEnabled();
 
         $data = [
             'crontab_status' => $statusMap[$crontabStatus] ?? 'unknown',
             'cron_command' => $scheduler->getCronCommand(),
             'scheduler_command' => $scheduler->getSchedulerCommand(),
             'whoami' => $scheduler->whoami(),
+            'health' => $health,
+            'triggers' => $triggers,
+            'webhook_installed' => $webhookInstalled,
+            'webhook_enabled' => $webhookEnabled,
         ];
 
         return ApiResponse::create($data);
