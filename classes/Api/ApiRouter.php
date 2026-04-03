@@ -18,6 +18,7 @@ use Grav\Plugin\Api\Controllers\GpmController;
 use Grav\Plugin\Api\Controllers\MediaController;
 use Grav\Plugin\Api\Controllers\SchedulerController;
 use Grav\Plugin\Api\Controllers\PagesController;
+use Grav\Plugin\Api\Controllers\ReportsController;
 use Grav\Plugin\Api\Controllers\MenubarController;
 use Grav\Plugin\Api\Controllers\SidebarController;
 use Grav\Plugin\Api\Controllers\SystemController;
@@ -274,6 +275,7 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('GET', '/gpm/plugins/{slug}/field/{type}', [GpmController::class, 'customFieldScript']);
         $r->addRoute('GET', '/gpm/plugins/{slug}/page', [GpmController::class, 'pluginPage']);
         $r->addRoute('GET', '/gpm/plugins/{slug}/page-script', [GpmController::class, 'customPageScript']);
+        $r->addRoute('GET', '/gpm/plugins/{slug}/report-script/{reportId}', [GpmController::class, 'reportScript']);
         $r->addRoute('GET', '/gpm/themes', [GpmController::class, 'themes']);
         $r->addRoute('GET', '/gpm/themes/{slug}', [GpmController::class, 'theme']);
         $r->addRoute('GET', '/gpm/themes/{slug}/readme', [GpmController::class, 'readme']);
@@ -298,12 +300,15 @@ $r->addRoute('GET', '/gpm/themes/{slug}/field/{type}', [GpmController::class, 'c
         $r->addRoute('GET', '/dashboard/stats', [DashboardController::class, 'stats']);
         $r->addRoute('GET', '/dashboard/popularity', [DashboardController::class, 'popularity']);
 
-        // Scheduler & Reports
+        // Scheduler
         $r->addRoute('GET', '/scheduler/jobs', [SchedulerController::class, 'jobs']);
         $r->addRoute('GET', '/scheduler/status', [SchedulerController::class, 'status']);
         $r->addRoute('GET', '/scheduler/history', [SchedulerController::class, 'history']);
         $r->addRoute('POST', '/scheduler/run', [SchedulerController::class, 'run']);
-        $r->addRoute('GET', '/reports', [SchedulerController::class, 'reports']);
+
+        // System Info & Reports
+        $r->addRoute('GET', '/systeminfo', [SchedulerController::class, 'systemInfo']);
+        $r->addRoute('GET', '/reports', [ReportsController::class, 'index']);
 
         // Webhooks
         $r->addRoute('GET', '/webhooks', [WebhookController::class, 'index']);

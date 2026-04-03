@@ -165,9 +165,9 @@ class SchedulerController extends AbstractApiController
     }
 
     /**
-     * GET /reports - Generate system reports.
+     * GET /systeminfo - Generate system info overview.
      */
-    public function reports(ServerRequestInterface $request): ResponseInterface
+    public function systemInfo(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, self::PERMISSION_READ);
 

@@ -1040,6 +1040,36 @@ class GpmController extends AbstractApiController
     }
 
     /**
+     * GET /gpm/plugins/{slug}/report-script/{reportId} - Serve a report web component JS.
+     *
+     * Convention: admin-next/reports/{reportId}.js
+     */
+    public function reportScript(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, self::PERMISSION_READ);
+
+        $slug = $this->getRouteParam($request, 'slug');
+        $reportId = $this->getRouteParam($request, 'reportId');
+        $path = $this->resolvePackagePath($slug, 'plugins');
+        $file = $path . '/admin-next/reports/' . basename($reportId) . '.js';
+
+        if (!file_exists($file)) {
+            throw new NotFoundException("Report component '{$reportId}' not found for plugin '{$slug}'.");
+        }
+
+        $content = file_get_contents($file);
+
+        return new \Grav\Framework\Psr7\Response(
+            200,
+            [
+                'Content-Type' => 'application/javascript; charset=utf-8',
+                'Cache-Control' => 'no-cache',
+            ],
+            $content,
+        );
+    }
+
+    /**
      * Discover a plugin page definition from filesystem conventions.
      *
      * Checks for admin-next/pages/{slug}.yaml and admin-next/pages/{slug}.js

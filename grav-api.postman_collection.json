@@ -4084,6 +4084,52 @@
                   }
                 ]
               }
+            },
+            {
+              "name": "Plugin Report Script",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                      "pm.test('Content-Type is JavaScript', () => {",
+                      "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/javascript');",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{base_url}}{{api_prefix}}/gpm/plugins/{{package_slug}}/report-script/{{report_id}}",
+                  "host": [
+                    "{{base_url}}{{api_prefix}}"
+                  ],
+                  "path": [
+                    "gpm",
+                    "plugins",
+                    "{{package_slug}}",
+                    "report-script",
+                    "{{report_id}}"
+                  ]
+                },
+                "description": "Get the JavaScript web component script for a plugin's report. Returns application/javascript content. The reportId matches the component field from the /reports endpoint response.",
+                "header": [
+                  {
+                    "key": "X-API-Key",
+                    "value": "{{api_key}}",
+                    "description": "API Key authentication"
+                  },
+                  {
+                    "key": "X-Grav-Environment",
+                    "value": "{{grav_environment}}",
+                    "description": "Grav environment"
+                  }
+                ]
+              }
             }
           ]
         }
@@ -4270,11 +4316,11 @@
       ]
     },
     {
-      "name": "Reports",
-      "description": "System reports and diagnostics.",
+      "name": "System Info",
+      "description": "System info and diagnostics overview.",
       "item": [
         {
-          "name": "System Reports",
+          "name": "System Info",
           "event": [
             {
               "listen": "test",
@@ -4291,6 +4337,53 @@
           "request": {
             "method": "GET",
             "url": {
+              "raw": "{{base_url}}{{api_prefix}}/systeminfo",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "systeminfo"
+              ]
+            },
+            "description": "Get system info overview including environment checks and diagnostics.",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "API Key authentication"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reports",
+      "description": "Plugin-extensible diagnostic reports.",
+      "item": [
+        {
+          "name": "Get Reports",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Has data array', () => pm.expect(res.data).to.be.an('array'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
               "raw": "{{base_url}}{{api_prefix}}/reports",
               "host": [
                 "{{base_url}}{{api_prefix}}"
@@ -4299,7 +4392,7 @@
                 "reports"
               ]
             },
-            "description": "Get system reports including environment checks and diagnostics.",
+            "description": "Get plugin-extensible diagnostic reports including security check, YAML linting, and plugin-provided reports.",
             "header": [
               {
                 "key": "X-API-Key",

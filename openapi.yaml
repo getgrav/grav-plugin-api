@@ -3301,6 +3301,58 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  /gpm/plugins/{slug}/report-script/{reportId}:
+    get:
+      operationId: getPluginReportScript
+      tags: [GPM]
+      summary: Get plugin report web component script
+      description: |
+        Serves the JavaScript file containing a plugin's report web component.
+        Used by the admin panel to dynamically load plugin-provided report UIs
+        in the Tools > Reports tab. Returns `application/javascript` content.
+
+        Convention: plugins place report scripts at
+        `admin-next/reports/{reportId}.js` within their plugin directory.
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          description: Plugin slug (e.g. `problems`).
+          schema:
+            type: string
+          example: problems
+        - name: reportId
+          in: path
+          required: true
+          description: Report component identifier matching the `component` field from `/reports`.
+          schema:
+            type: string
+          example: problems-report
+      responses:
+        "200":
+          description: JavaScript file returned.
+          content:
+            application/javascript:
+              schema:
+                type: string
+                description: Raw JavaScript source for the report web component.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: No report script found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                status: 404
+                title: Not Found
+                detail: "Report component 'problems-report' not found for plugin 'problems'."
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   # ---------------------------------------------------------------------------
   # Scheduler
   # ---------------------------------------------------------------------------
@@ -3499,17 +3551,17 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
-  /reports:
+  /systeminfo:
     get:
-      operationId: getSystemReports
-      tags: [Scheduler]
-      summary: Get system reports
+      operationId: getSystemInfo
+      tags: [System]
+      summary: Get system info overview
       description: |
-        Return a system health report including PHP info, Grav status, disk
+        Return a system info overview including PHP info, Grav status, disk
         usage, plugin health, and cache status.
       responses:
         "200":
-          description: System reports returned.
+          description: System info returned.
           content:
             application/json:
               schema:
@@ -3550,6 +3602,71 @@ paths:
                         type: object
                         description: Cache driver and status.
                         additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  # ---------------------------------------------------------------------------
+  # Reports
+  # ---------------------------------------------------------------------------
+  /reports:
+    get:
+      operationId: getReports
+      tags: [Reports]
+      summary: Get plugin-extensible reports
+      description: |
+        Returns an array of diagnostic reports. Built-in reports include
+        a Security Check (XSS scan) and a YAML Linter. Plugins can add
+        their own reports via the `onApiGenerateReports` event, optionally
+        specifying a web component for custom rendering.
+      responses:
+        "200":
+          description: Reports returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          description: Unique report identifier.
+                          example: security-check
+                        title:
+                          type: string
+                          description: Human-readable report title.
+                          example: Grav Security Check
+                        provider:
+                          type: string
+                          description: Source of the report (core or plugin name).
+                          example: core
+                        component:
+                          type: string
+                          nullable: true
+                          description: Optional web component tag name for custom rendering.
+                          example: null
+                        status:
+                          type: string
+                          enum: [success, warning, error]
+                          description: Overall report status.
+                          example: success
+                        message:
+                          type: string
+                          description: Summary message for the report.
+                          example: "Security Scan complete: No issues found."
+                        items:
+                          type: array
+                          description: Report-specific detail items.
+                          items:
+                            type: object
+                            additionalProperties: true
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":

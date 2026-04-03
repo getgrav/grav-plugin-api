@@ -66,6 +66,13 @@ actions:
       write:
         label: Run Jobs
 
+  api.reports:
+    type: access
+    label: Reports API
+    actions:
+      read:
+        label: View Reports
+
   api.webhooks:
     type: access
     label: Webhooks API

@@ -383,7 +383,7 @@ GET /api/v1/gpm/repository/themes?q=blog
 
 Searches match against slug, name, description, author, and keywords. All repository endpoints support pagination (`?page=2&per_page=50`).
 
-### Scheduler & Tools
+### Scheduler
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -391,7 +391,13 @@ Searches match against slug, name, description, author, and keywords. All reposi
 | `GET` | `/scheduler/status` | Get cron installation status |
 | `GET` | `/scheduler/history` | Job execution history (paginated) |
 | `POST` | `/scheduler/run` | Trigger scheduler run manually |
-| `GET` | `/reports` | Generate system reports |
+
+### System Info & Reports
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/systeminfo` | System info overview (PHP, disk, cache, plugins) |
+| `GET` | `/reports` | Plugin-extensible diagnostic reports |
 
 ### Dashboard
 
@@ -795,6 +801,7 @@ Plugins can integrate with the admin-next UI by registering sidebar navigation i
 | `GET` | `/sidebar/items` | Collect sidebar navigation items from all plugins |
 | `GET` | `/gpm/plugins/{slug}/page` | Get a plugin's page definition for admin-next |
 | `GET` | `/gpm/plugins/{slug}/page-script` | Serve a plugin's page web component JS |
+| `GET` | `/gpm/plugins/{slug}/report-script/{reportId}` | Serve a plugin's report web component JS |
 | `GET` | `/blueprints/plugins/{plugin}/pages/{pageId}` | Get a custom page blueprint for a plugin |
 
 **Register a sidebar item** via `onApiSidebarItems`:
