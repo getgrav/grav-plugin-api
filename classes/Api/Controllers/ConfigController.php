@@ -78,8 +78,9 @@ class ConfigController extends AbstractApiController
         }
 
         // ETag validation for conflict detection
+        // Redact before hashing so it matches the ETag the client received from show()
         $existingArray = is_array($existing) ? $existing : ['value' => $existing];
-        $currentHash = $this->generateEtag($existingArray);
+        $currentHash = $this->generateEtag($this->redactSensitiveFields($existingArray));
         $this->validateEtag($request, $currentHash);
 
         $body = $this->getRequestBody($request);
