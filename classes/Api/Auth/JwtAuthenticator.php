@@ -127,11 +127,17 @@ class JwtAuthenticator implements AuthenticatorInterface
     protected function extractBearerToken(ServerRequestInterface $request): ?string
     {
         $header = $request->getHeaderLine('Authorization');
-        if (!str_starts_with($header, 'Bearer ')) {
-            return null;
+        if (str_starts_with($header, 'Bearer ')) {
+            return substr($header, 7);
         }
 
-        return substr($header, 7);
+        // Fallback: check query parameter for direct links (e.g. file downloads)
+        $params = $request->getQueryParams();
+        if (!empty($params['token'])) {
+            return $params['token'];
+        }
+
+        return null;
     }
 
     protected function validateToken(string $token): ?UserInterface
