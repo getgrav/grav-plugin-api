@@ -1040,6 +1040,35 @@ class GpmController extends AbstractApiController
     }
 
     /**
+     * GET /gpm/plugins/{slug}/widget-script — Serve a floating widget web component JS.
+     *
+     * Convention: admin-next/widgets/{slug}.js
+     */
+    public function widgetScript(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, self::PERMISSION_READ);
+
+        $slug = $this->getRouteParam($request, 'slug');
+        $path = $this->resolvePackagePath($slug, 'plugins');
+        $file = $path . '/admin-next/widgets/' . basename($slug) . '.js';
+
+        if (!file_exists($file)) {
+            throw new NotFoundException("Widget component not found for plugin '{$slug}'.");
+        }
+
+        $content = file_get_contents($file);
+
+        return new \Grav\Framework\Psr7\Response(
+            200,
+            [
+                'Content-Type' => 'application/javascript; charset=utf-8',
+                'Cache-Control' => 'no-cache',
+            ],
+            $content,
+        );
+    }
+
+    /**
      * GET /gpm/plugins/{slug}/report-script/{reportId} - Serve a report web component JS.
      *
      * Convention: admin-next/reports/{reportId}.js
