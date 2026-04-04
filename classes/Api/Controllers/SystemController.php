@@ -68,9 +68,70 @@ class SystemController extends AbstractApiController
             'environment' => $this->config->get('system.environment') ?? $this->grav['uri']->environment(),
             'plugins' => $plugins,
             'themes' => $themes,
+            'php_config' => $this->getPhpConfig(),
         ];
 
         return ApiResponse::create($data);
+    }
+
+    private function getPhpConfig(): array
+    {
+        $ini = function (string $key): string {
+            return (string) ini_get($key);
+        };
+
+        return [
+            'Upload & POST' => [
+                'file_uploads' => $ini('file_uploads'),
+                'upload_max_filesize' => $ini('upload_max_filesize'),
+                'max_file_uploads' => $ini('max_file_uploads'),
+                'post_max_size' => $ini('post_max_size'),
+            ],
+            'Memory & Execution' => [
+                'memory_limit' => $ini('memory_limit'),
+                'max_execution_time' => $ini('max_execution_time') . 's',
+                'max_input_time' => $ini('max_input_time') . 's',
+                'max_input_vars' => $ini('max_input_vars'),
+            ],
+            'Error Handling' => [
+                'display_errors' => $ini('display_errors'),
+                'error_reporting' => (string) error_reporting(),
+                'log_errors' => $ini('log_errors'),
+                'error_log' => $ini('error_log') ?: '(none)',
+            ],
+            'Paths & Environment' => [
+                'open_basedir' => $ini('open_basedir') ?: '(none)',
+                'sys_temp_dir' => sys_get_temp_dir(),
+                'doc_root' => $_SERVER['DOCUMENT_ROOT'] ?? '(unknown)',
+                'include_path' => $ini('include_path'),
+            ],
+            'Session' => [
+                'session.save_handler' => $ini('session.save_handler'),
+                'session.save_path' => $ini('session.save_path') ?: '(default)',
+                'session.gc_maxlifetime' => $ini('session.gc_maxlifetime') . 's',
+                'session.cookie_lifetime' => $ini('session.cookie_lifetime') . 's',
+                'session.cookie_secure' => $ini('session.cookie_secure'),
+                'session.cookie_httponly' => $ini('session.cookie_httponly'),
+            ],
+            'OPcache' => function_exists('opcache_get_status') ? [
+                'opcache.enable' => $ini('opcache.enable'),
+                'opcache.memory_consumption' => $ini('opcache.memory_consumption') . 'MB',
+                'opcache.max_accelerated_files' => $ini('opcache.max_accelerated_files'),
+                'opcache.validate_timestamps' => $ini('opcache.validate_timestamps'),
+                'opcache.revalidate_freq' => $ini('opcache.revalidate_freq') . 's',
+            ] : ['opcache.enable' => '0'],
+            'Security' => [
+                'allow_url_fopen' => $ini('allow_url_fopen'),
+                'allow_url_include' => $ini('allow_url_include'),
+                'disable_functions' => $ini('disable_functions') ?: '(none)',
+                'expose_php' => $ini('expose_php'),
+            ],
+            'Date & Locale' => [
+                'date.timezone' => $ini('date.timezone') ?: date_default_timezone_get(),
+                'default_charset' => $ini('default_charset'),
+                'mbstring.internal_encoding' => $ini('mbstring.internal_encoding') ?: '(default)',
+            ],
+        ];
     }
 
     /**
