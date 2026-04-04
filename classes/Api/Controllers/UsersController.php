@@ -139,7 +139,7 @@ class UsersController extends AbstractApiController
         }
 
         // Partial update - only update provided fields
-        $allowedFields = ['email', 'fullname', 'title', 'state', 'access', 'twofa_enabled'];
+        $allowedFields = ['email', 'fullname', 'title', 'state', 'language', 'content_editor', 'access', 'twofa_enabled'];
         foreach ($allowedFields as $field) {
             if (array_key_exists($field, $body)) {
                 $user->set($field, $body[$field]);

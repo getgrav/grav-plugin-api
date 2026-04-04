@@ -19,6 +19,8 @@ class UserSerializer implements SerializerInterface
             'fullname' => $resource->get('fullname'),
             'title' => $resource->get('title'),
             'state' => $resource->get('state', 'enabled'),
+            'language' => $resource->get('language', ''),
+            'content_editor' => $resource->get('content_editor', ''),
             'access' => $resource->get('access', []),
             'avatar_url' => $this->resolveAvatarUrl($resource),
             'twofa_enabled' => (bool) $resource->get('twofa_enabled', false),
