@@ -8,6 +8,7 @@ use Grav\Common\Filesystem\Folder;
 use Grav\Common\Grav;
 use Grav\Common\Config\Config;
 use Grav\Common\Language\Language;
+use Grav\Common\Language\LanguageCodes;
 use Grav\Common\Page\Interfaces\PageInterface;
 use Grav\Common\Page\Page;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
@@ -65,12 +66,18 @@ class PagesController extends AbstractApiController
             $total = count($allPages);
             $slice = array_slice($allPages, $pagination['offset'], $pagination['limit']);
 
+            $includeTranslations = filter_var(
+                $request->getQueryParams()['translations'] ?? false,
+                FILTER_VALIDATE_BOOLEAN
+            );
+
             // Use lighter serialization for listing (no content, no children)
             $listOptions = [
                 'include_content' => false,
                 'render_content' => false,
                 'include_children' => false,
                 'include_media' => false,
+                'include_translations' => $includeTranslations,
             ];
 
             $data = $this->serializer->serializeCollection($slice, $listOptions);
@@ -608,14 +615,192 @@ class PagesController extends AbstractApiController
             ]);
         }
 
+        $langs = $language->getLanguages();
+        $default = $language->getDefault() ?: null;
+
+        $languageDetails = [];
+        foreach ($langs as $code) {
+            $languageDetails[] = [
+                'code' => $code,
+                'name' => LanguageCodes::getName($code) ?: $code,
+                'native_name' => LanguageCodes::getNativeName($code) ?: $code,
+                'rtl' => LanguageCodes::isRtl($code),
+                'is_default' => $code === $default,
+            ];
+        }
+
         $data = [
             'enabled' => true,
-            'languages' => $language->getLanguages(),
-            'default' => $language->getDefault() ?: null,
-            'active' => $language->getActive() ?: $language->getDefault() ?: null,
+            'languages' => $languageDetails,
+            'default' => $default,
+            'active' => $language->getActive() ?: $default,
         ];
 
         return ApiResponse::create($data);
+    }
+
+    /**
+     * POST /pages/{route}/sync - Sync/reset a translation from another language.
+     * Copies content and header from source language to target language.
+     */
+    public function sync(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, self::PERMISSION_WRITE);
+
+        $body = $this->getRequestBody($request);
+        $this->requireFields($body, ['source_lang', 'target_lang']);
+
+        $sourceLang = $body['source_lang'];
+        $targetLang = $body['target_lang'];
+        $this->validateLanguageCode($sourceLang);
+        $this->validateLanguageCode($targetLang);
+
+        if ($sourceLang === $targetLang) {
+            throw new ValidationException('Source and target languages must be different.');
+        }
+
+        $route = $this->getRouteParam($request, 'route');
+
+        /** @var Language $language */
+        $language = $this->grav['language'];
+        $previousLang = $language->getActive() ?? false;
+
+        try {
+            // Load the source page
+            $language->setActive($sourceLang);
+            $this->enablePages(true);
+            $sourcePage = $this->grav['pages']->find('/' . $route);
+
+            if (!$sourcePage) {
+                throw new NotFoundException("Page not found at route '/{$route}' for source language '{$sourceLang}'.");
+            }
+
+            $sourceContent = $sourcePage->rawMarkdown();
+            $sourceHeader = (array) $sourcePage->header();
+
+            // Load the target page
+            $language->setActive($targetLang);
+            $this->enablePages(true);
+            $targetPage = $this->grav['pages']->find('/' . $route);
+
+            if (!$targetPage) {
+                throw new NotFoundException("Page not found at route '/{$route}' for target language '{$targetLang}'.");
+            }
+
+            // Verify the target translation file actually exists
+            $translated = $targetPage->translatedLanguages();
+            if (!isset($translated[$targetLang])) {
+                throw new ValidationException(
+                    "No translation file exists for language '{$targetLang}'. Use POST /pages/{route}/translate to create one first."
+                );
+            }
+
+            $this->fireEvent('onApiBeforePageSync', [
+                'page' => $targetPage,
+                'source_lang' => $sourceLang,
+                'target_lang' => $targetLang,
+                'header' => &$sourceHeader,
+                'content' => &$sourceContent,
+            ]);
+
+            // Overwrite the target with source data
+            $targetPage->header((object) $sourceHeader);
+            $targetPage->rawMarkdown($sourceContent);
+
+            $this->fireAdminEvent('onAdminSave', ['object' => &$targetPage, 'page' => &$targetPage]);
+            $targetPage->save();
+            $this->clearPagesCache();
+
+            // Re-fetch the updated page
+            $this->enablePages(true);
+            $updatedPage = $this->grav['pages']->find('/' . $route);
+
+            $this->fireAdminEvent('onAdminAfterSave', ['object' => $updatedPage ?? $targetPage, 'page' => $updatedPage ?? $targetPage]);
+            $this->fireEvent('onApiPageSynced', [
+                'page' => $updatedPage ?? $targetPage,
+                'route' => '/' . $route,
+                'source_lang' => $sourceLang,
+                'target_lang' => $targetLang,
+            ]);
+
+            $data = $this->serializer->serialize($updatedPage ?? $targetPage);
+            return ApiResponse::create($data);
+        } finally {
+            $this->restoreLanguage($previousLang);
+        }
+    }
+
+    /**
+     * GET /pages/{route}/compare - Compare two language versions of a page side-by-side.
+     */
+    public function compare(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, self::PERMISSION_READ);
+
+        $params = $request->getQueryParams();
+        $sourceLang = $params['source'] ?? null;
+        $targetLang = $params['target'] ?? null;
+
+        if (!$sourceLang || !$targetLang) {
+            throw new ValidationException("Both 'source' and 'target' query parameters are required.");
+        }
+
+        $this->validateLanguageCode($sourceLang);
+        $this->validateLanguageCode($targetLang);
+
+        $route = $this->getRouteParam($request, 'route');
+
+        /** @var Language $language */
+        $language = $this->grav['language'];
+        $previousLang = $language->getActive() ?? false;
+
+        try {
+            // Load source page
+            $language->setActive($sourceLang);
+            $this->enablePages(true);
+            $sourcePage = $this->grav['pages']->find('/' . $route);
+
+            $sourceData = null;
+            if ($sourcePage) {
+                $translated = $sourcePage->translatedLanguages();
+                $sourceData = [
+                    'lang' => $sourceLang,
+                    'exists' => isset($translated[$sourceLang]),
+                    'title' => $sourcePage->title(),
+                    'content' => $sourcePage->rawMarkdown(),
+                    'header' => (array) $sourcePage->header(),
+                    'modified' => $sourcePage->modified() ? date('c', $sourcePage->modified()) : null,
+                ];
+            }
+
+            // Load target page
+            $language->setActive($targetLang);
+            $this->enablePages(true);
+            $targetPage = $this->grav['pages']->find('/' . $route);
+
+            $targetData = null;
+            if ($targetPage) {
+                $translated = $targetPage->translatedLanguages();
+                $targetData = [
+                    'lang' => $targetLang,
+                    'exists' => isset($translated[$targetLang]),
+                    'title' => $targetPage->title(),
+                    'content' => $targetPage->rawMarkdown(),
+                    'header' => (array) $targetPage->header(),
+                    'modified' => $targetPage->modified() ? date('c', $targetPage->modified()) : null,
+                ];
+            }
+
+            $data = [
+                'route' => '/' . $route,
+                'source' => $sourceData,
+                'target' => $targetData,
+            ];
+
+            return ApiResponse::create($data);
+        } finally {
+            $this->restoreLanguage($previousLang);
+        }
     }
 
     /**
