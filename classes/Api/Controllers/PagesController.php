@@ -377,8 +377,8 @@ class PagesController extends AbstractApiController
         $this->requireFields($body, ['parent']);
 
         $newParentRoute = '/' . trim($body['parent'], '/');
-        $newSlug = $body['slug'] ?? $page->slug();
-        $newOrder = $body['order'] ?? $page->order();
+        $newSlug = ltrim($body['slug'] ?? $page->slug(), '.');
+        $newOrder = array_key_exists('order', $body) ? $body['order'] : $page->order();
 
         // Resolve new parent path
         if ($newParentRoute === '/') {
