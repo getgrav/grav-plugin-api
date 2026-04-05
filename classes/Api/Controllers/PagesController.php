@@ -243,6 +243,22 @@ class PagesController extends AbstractApiController
             $route = $this->getRouteParam($request, 'route');
             $page = $this->findPageOrFail('/' . $route);
 
+            // Guard against writing to a non-existent translation file. When
+            // ?lang=X is specified but no X translation exists, Grav's fallback
+            // would silently resolve to the source language and clobber it.
+            // Force callers to create the translation via POST /translate first.
+            $query = $request->getQueryParams();
+            $requestedLang = $query['lang'] ?? null;
+            if ($requestedLang && $this->isMultiLangEnabled()) {
+                $pageLang = $page->language() ?: null;
+                if ($pageLang !== $requestedLang) {
+                    throw new ValidationException(
+                        "No '{$requestedLang}' translation exists for this page. "
+                        . "Use POST /pages/{$route}/translate to create it first."
+                    );
+                }
+            }
+
             // ETag validation for conflict detection
             $currentData = $this->serializer->serialize($page);
             $this->validateEtag($request, $this->generateEtag($currentData));
