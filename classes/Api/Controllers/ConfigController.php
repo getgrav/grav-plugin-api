@@ -117,7 +117,15 @@ class ConfigController extends AbstractApiController
 
         $data = is_array($merged) ? $merged : ['value' => $merged];
 
-        return $this->respondWithEtag($data);
+        // Emit invalidations — plugin config changes also invalidate the plugins list.
+        $tags = ['config:update:' . $scope];
+        if (str_starts_with($scope, 'plugins/')) {
+            $pluginName = substr($scope, 8);
+            $tags[] = 'plugins:update:' . $pluginName;
+            $tags[] = 'plugins:list';
+        }
+
+        return $this->respondWithEtag($data, 200, $tags);
     }
 
     /**

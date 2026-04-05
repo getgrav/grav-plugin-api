@@ -110,6 +110,7 @@ class UsersController extends AbstractApiController
         return ApiResponse::created(
             data: $this->serializeUser($user),
             location: $this->getApiBaseUrl() . '/users/' . $username,
+            headers: $this->invalidationHeaders(['users:create:' . $username, 'users:list']),
         );
     }
 
@@ -161,7 +162,11 @@ class UsersController extends AbstractApiController
         $this->fireAdminEvent('onAdminAfterSave', ['object' => $user]);
         $this->fireEvent('onApiUserUpdated', ['user' => $user]);
 
-        return $this->respondWithEtag($this->serializeUser($user));
+        return $this->respondWithEtag(
+            $this->serializeUser($user),
+            200,
+            ['users:update:' . $username, 'users:list'],
+        );
     }
 
     public function delete(ServerRequestInterface $request): ResponseInterface
@@ -187,7 +192,9 @@ class UsersController extends AbstractApiController
 
         $this->fireEvent('onApiUserDeleted', ['username' => $username]);
 
-        return ApiResponse::noContent();
+        return ApiResponse::noContent(
+            $this->invalidationHeaders(['users:delete:' . $username, 'users:list']),
+        );
     }
 
     /**
@@ -249,7 +256,11 @@ class UsersController extends AbstractApiController
         ]);
         $user->save();
 
-        return ApiResponse::create($this->serializeUser($user), 201);
+        return ApiResponse::create(
+            $this->serializeUser($user),
+            201,
+            $this->invalidationHeaders(['users:update:' . $username]),
+        );
     }
 
     /**
@@ -282,7 +293,11 @@ class UsersController extends AbstractApiController
         $user->set('avatar', []);
         $user->save();
 
-        return ApiResponse::create($this->serializeUser($user));
+        return ApiResponse::create(
+            $this->serializeUser($user),
+            200,
+            $this->invalidationHeaders(['users:update:' . $username]),
+        );
     }
 
     /**
@@ -369,6 +384,7 @@ class UsersController extends AbstractApiController
         return ApiResponse::created(
             data: $data,
             location: $this->getApiBaseUrl() . '/users/' . $username . '/api-keys',
+            headers: $this->invalidationHeaders(['users:update:' . $username . ':api-keys']),
         );
     }
 
@@ -388,7 +404,9 @@ class UsersController extends AbstractApiController
             throw new NotFoundException("API key '{$keyId}' not found for user '{$username}'.");
         }
 
-        return ApiResponse::noContent();
+        return ApiResponse::noContent(
+            $this->invalidationHeaders(['users:update:' . $username . ':api-keys']),
+        );
     }
 
     /**

@@ -83,24 +83,24 @@ class ApiResponse
     /**
      * 200 OK with data envelope.
      */
-    public static function ok(mixed $data): ResponseInterface
+    public static function ok(mixed $data, array $headers = []): ResponseInterface
     {
-        return self::create($data);
+        return self::create($data, 200, $headers);
     }
 
     /**
      * 201 Created with Location header.
      */
-    public static function created(mixed $data, string $location): ResponseInterface
+    public static function created(mixed $data, string $location, array $headers = []): ResponseInterface
     {
-        return self::create($data, 201, ['Location' => $location]);
+        return self::create($data, 201, array_merge($headers, ['Location' => $location]));
     }
 
     /**
      * 204 No Content.
      */
-    public static function noContent(): ResponseInterface
+    public static function noContent(array $headers = []): ResponseInterface
     {
-        return new Response(204);
+        return new Response(204, $headers);
     }
 }

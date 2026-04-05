@@ -30,6 +30,7 @@ cors:
     - If-None-Match
   expose_headers:
     - ETag
+    - X-Invalidates
     - X-RateLimit-Limit
     - X-RateLimit-Remaining
     - X-RateLimit-Reset

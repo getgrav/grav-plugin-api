@@ -87,7 +87,14 @@ class MediaController extends AbstractApiController
         $route = $this->getRouteParam($request, 'route') ?? '';
         $location = "{$baseUrl}/pages/{$route}/media";
 
-        return ApiResponse::created($serialized, $location);
+        return ApiResponse::created(
+            $serialized,
+            $location,
+            $this->invalidationHeaders([
+                'media:update:pages/' . $route,
+                'pages:update:/' . $route,
+            ]),
+        );
     }
 
     /**
@@ -129,7 +136,14 @@ class MediaController extends AbstractApiController
         ]);
         $this->fireEvent('onApiMediaDeleted', ['page' => $page, 'filename' => $filename]);
 
-        return ApiResponse::noContent();
+        $route = $this->getRouteParam($request, 'route') ?? '';
+        return ApiResponse::noContent(
+            $this->invalidationHeaders([
+                'media:delete:pages/' . $route . '/' . $filename,
+                'media:update:pages/' . $route,
+                'pages:update:/' . $route,
+            ]),
+        );
     }
 
     /**
@@ -245,7 +259,11 @@ class MediaController extends AbstractApiController
 
         $location = $this->getApiBaseUrl() . '/media';
 
-        return ApiResponse::created($created, $location);
+        return ApiResponse::created(
+            $created,
+            $location,
+            $this->invalidationHeaders(['media:update:' . ($relativePath !== '' ? $relativePath : '/'), 'media:list']),
+        );
     }
 
     /**
@@ -271,7 +289,14 @@ class MediaController extends AbstractApiController
             unlink($metaPath);
         }
 
-        return ApiResponse::noContent();
+        $parentDir = ltrim(dirname($relativePath), '.');
+        return ApiResponse::noContent(
+            $this->invalidationHeaders([
+                'media:delete:' . $relativePath,
+                'media:update:' . ($parentDir !== '' ? $parentDir : '/'),
+                'media:list',
+            ]),
+        );
     }
 
     /**
@@ -307,7 +332,11 @@ class MediaController extends AbstractApiController
             'file_count' => 0,
         ];
 
-        return ApiResponse::created($data, $this->getApiBaseUrl() . '/media?path=' . urlencode($relativePath));
+        return ApiResponse::created(
+            $data,
+            $this->getApiBaseUrl() . '/media?path=' . urlencode($relativePath),
+            $this->invalidationHeaders(['media:create:' . $relativePath, 'media:list']),
+        );
     }
 
     /**
@@ -348,7 +377,9 @@ class MediaController extends AbstractApiController
             throw new ValidationException('Unable to delete folder.');
         }
 
-        return ApiResponse::noContent();
+        return ApiResponse::noContent(
+            $this->invalidationHeaders(['media:delete:' . $relativePath, 'media:list']),
+        );
     }
 
     /**
@@ -401,7 +432,14 @@ class MediaController extends AbstractApiController
 
         $targetPath = $toDir !== '' ? $mediaPath . '/' . $toDir : $mediaPath;
 
-        return ApiResponse::ok($this->serializeSiteFile($targetPath, $toFilename, $toDir));
+        return ApiResponse::ok(
+            $this->serializeSiteFile($targetPath, $toFilename, $toDir),
+            $this->invalidationHeaders([
+                'media:delete:' . $from,
+                'media:create:' . $to,
+                'media:list',
+            ]),
+        );
     }
 
     /**
@@ -444,7 +482,14 @@ class MediaController extends AbstractApiController
             'file_count' => 0,
         ];
 
-        return ApiResponse::ok($data);
+        return ApiResponse::ok(
+            $data,
+            $this->invalidationHeaders([
+                'media:delete:' . $from,
+                'media:create:' . $to,
+                'media:list',
+            ]),
+        );
     }
 
     // -------------------------------------------------------------------------

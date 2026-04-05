@@ -219,7 +219,11 @@ class PagesController extends AbstractApiController
             $data = $this->serializer->serialize($newPage ?? $page);
             $location = $this->getApiBaseUrl() . '/pages' . $route;
 
-            return ApiResponse::created($data, $location);
+            return ApiResponse::created(
+                $data,
+                $location,
+                $this->invalidationHeaders(['pages:create:' . $route, 'pages:list']),
+            );
         } finally {
             $this->restoreLanguage($previousLang);
         }
@@ -305,7 +309,7 @@ class PagesController extends AbstractApiController
 
             $data = $this->serializer->serialize($page);
 
-            return $this->respondWithEtag($data);
+            return $this->respondWithEtag($data, 200, ['pages:update:/' . $route, 'pages:list']);
         } finally {
             $this->restoreLanguage($previousLang);
         }
@@ -339,7 +343,9 @@ class PagesController extends AbstractApiController
                 $this->fireAdminEvent('onAdminAfterDelete', ['object' => $page, 'page' => $page]);
                 $this->fireEvent('onApiPageDeleted', ['route' => '/' . $route, 'lang' => $lang]);
 
-                return ApiResponse::noContent();
+                return ApiResponse::noContent(
+                    $this->invalidationHeaders(['pages:delete:/' . $route, 'pages:list']),
+                );
             }
 
             if (!$includeChildren && $page->children()->count() > 0) {
@@ -358,7 +364,9 @@ class PagesController extends AbstractApiController
             $this->fireAdminEvent('onAdminAfterDelete', ['object' => $page, 'page' => $page]);
             $this->fireEvent('onApiPageDeleted', ['route' => '/' . $route]);
 
-            return ApiResponse::noContent();
+            return ApiResponse::noContent(
+                $this->invalidationHeaders(['pages:delete:/' . $route, 'pages:list']),
+            );
         } finally {
             $this->restoreLanguage($previousLang);
         }
@@ -425,14 +433,20 @@ class PagesController extends AbstractApiController
             'new_route' => $newRoute,
         ]);
 
+        $moveTags = ['pages:move:/' . $route, 'pages:update:' . $newRoute, 'pages:list'];
+
         if (!$movedPage) {
             // Fallback: return minimal data if page can't be found at expected route
-            return ApiResponse::create(['route' => $newRoute, 'slug' => $newSlug]);
+            return ApiResponse::create(
+                ['route' => $newRoute, 'slug' => $newSlug],
+                200,
+                $this->invalidationHeaders($moveTags),
+            );
         }
 
         $data = $this->serializer->serialize($movedPage);
 
-        return $this->respondWithEtag($data);
+        return $this->respondWithEtag($data, 200, $moveTags);
     }
 
     /**
@@ -478,17 +492,20 @@ class PagesController extends AbstractApiController
         $this->enablePages(true);
         $copiedPage = $this->grav['pages']->find($destRoute);
 
+        $copyTags = ['pages:create:' . $destRoute, 'pages:list'];
+
         if (!$copiedPage) {
             return ApiResponse::created(
                 ['route' => $destRoute, 'slug' => $destSlug],
                 $this->getApiBaseUrl() . '/pages' . $destRoute,
+                $this->invalidationHeaders($copyTags),
             );
         }
 
         $data = $this->serializer->serialize($copiedPage);
         $location = $this->getApiBaseUrl() . '/pages' . $destRoute;
 
-        return ApiResponse::created($data, $location);
+        return ApiResponse::created($data, $location, $this->invalidationHeaders($copyTags));
     }
 
     /**
@@ -592,7 +609,11 @@ class PagesController extends AbstractApiController
             $data = $this->serializer->serialize($newPage ?? $translatedPage);
             $location = $this->getApiBaseUrl() . '/pages/' . $route;
 
-            return ApiResponse::created($data, $location);
+            return ApiResponse::created(
+                $data,
+                $location,
+                $this->invalidationHeaders(['pages:update:/' . $route, 'pages:list']),
+            );
         } finally {
             $this->restoreLanguage($previousLang);
         }
@@ -726,7 +747,11 @@ class PagesController extends AbstractApiController
             ]);
 
             $data = $this->serializer->serialize($updatedPage ?? $targetPage);
-            return ApiResponse::create($data);
+            return ApiResponse::create(
+                $data,
+                200,
+                $this->invalidationHeaders(['pages:update:/' . $route, 'pages:list']),
+            );
         } finally {
             $this->restoreLanguage($previousLang);
         }
@@ -894,7 +919,11 @@ class PagesController extends AbstractApiController
             }
         }
 
-        return ApiResponse::create($childData);
+        return ApiResponse::create(
+            $childData,
+            200,
+            $this->invalidationHeaders(['pages:reorder:/' . $route, 'pages:list']),
+        );
     }
 
     /**
@@ -957,13 +986,28 @@ class PagesController extends AbstractApiController
 
         $this->clearPagesCache();
 
-        return ApiResponse::create([
-            'operation' => $operation,
-            'results' => $results,
-            'total' => count($results),
-            'successful' => count(array_filter($results, fn($r) => $r['status'] === 'success')),
-            'failed' => count(array_filter($results, fn($r) => $r['status'] === 'error')),
-        ]);
+        // Build per-route invalidations so listeners on specific pages react too.
+        $tags = ['pages:list'];
+        foreach ($results as $r) {
+            if ($r['status'] !== 'success') continue;
+            $tags[] = match ($operation) {
+                'delete' => 'pages:delete:' . $r['route'],
+                'copy' => 'pages:create:' . $r['route'],
+                default => 'pages:update:' . $r['route'],
+            };
+        }
+
+        return ApiResponse::create(
+            [
+                'operation' => $operation,
+                'results' => $results,
+                'total' => count($results),
+                'successful' => count(array_filter($results, fn($r) => $r['status'] === 'success')),
+                'failed' => count(array_filter($results, fn($r) => $r['status'] === 'error')),
+            ],
+            200,
+            $this->invalidationHeaders($tags),
+        );
     }
 
     /**
@@ -1162,7 +1206,17 @@ class PagesController extends AbstractApiController
             }
         }
 
-        return ApiResponse::create($affectedData);
+        // Emit one update/move tag per reorganized page plus list invalidation
+        $tags = ['pages:list'];
+        foreach ($resolved as $op) {
+            $tags[] = 'pages:move:' . $op['route'];
+        }
+
+        return ApiResponse::create(
+            $affectedData,
+            200,
+            $this->invalidationHeaders($tags),
+        );
     }
 
     /**

@@ -192,12 +192,62 @@ abstract class AbstractApiController
     }
 
     /**
-     * Create a response with ETag header.
+     * Create a response with ETag header, optionally paired with invalidation tags.
+     *
+     * @param array<int, string> $invalidates
      */
-    protected function respondWithEtag(mixed $data, int $status = 200): ResponseInterface
+    protected function respondWithEtag(mixed $data, int $status = 200, array $invalidates = []): ResponseInterface
     {
         $etag = $this->generateEtag($data);
-        return ApiResponse::create($data, $status, ['ETag' => '"' . $etag . '"']);
+        $headers = ['ETag' => '"' . $etag . '"'];
+        if ($invalidates !== []) {
+            $headers['X-Invalidates'] = implode(', ', $invalidates);
+        }
+        return ApiResponse::create($data, $status, $headers);
+    }
+
+    /**
+     * Build headers array containing just the X-Invalidates header for a set of tags.
+     * Useful when composing responses via ApiResponse::created() / noContent() etc.
+     *
+     * @param array<int, string> $tags
+     * @return array<string, string>
+     */
+    protected function invalidationHeaders(array $tags): array
+    {
+        $tags = array_values(array_filter($tags, static fn($t) => is_string($t) && $t !== ''));
+        return $tags === [] ? [] : ['X-Invalidates' => implode(', ', $tags)];
+    }
+
+    /**
+     * Create a response with an X-Invalidates header declaring which client-side
+     * caches this mutation should evict. Tags follow `resource:action[:id]` form:
+     *
+     *   pages:update:/blog/post-1
+     *   pages:list
+     *   users:create
+     *
+     * The admin-next client reads this header and emits invalidation events on
+     * its pub/sub bus, causing list/detail views to refetch automatically.
+     *
+     * @param array<int, string> $tags
+     */
+    protected function respondWithInvalidation(
+        mixed $data,
+        array $tags,
+        int $status = 200,
+        array $extraHeaders = [],
+    ): ResponseInterface {
+        $headers = $extraHeaders;
+        if ($tags !== []) {
+            $headers['X-Invalidates'] = implode(', ', $tags);
+        }
+        if ($status === 204) {
+            // 204 responses have no body — use a bare Response with headers only.
+            $headers['Cache-Control'] = 'no-store, max-age=0';
+            return new \Grav\Framework\Psr7\Response(204, $headers);
+        }
+        return ApiResponse::create($data, $status, $headers);
     }
 
     /**

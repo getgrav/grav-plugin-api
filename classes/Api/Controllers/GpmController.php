@@ -265,11 +265,19 @@ class GpmController extends AbstractApiController
             'type' => $type,
         ]);
 
-        return ApiResponse::create([
-            'message' => ucfirst($type) . " '{$package}' installed successfully.",
-            'package' => $package,
-            'type' => $type,
-        ], 201);
+        $tags = $type === 'plugin'
+            ? ['plugins:create:' . $package, 'plugins:list', 'gpm:update']
+            : ['themes:create:' . $package, 'themes:list', 'gpm:update'];
+
+        return ApiResponse::create(
+            [
+                'message' => ucfirst($type) . " '{$package}' installed successfully.",
+                'package' => $package,
+                'type' => $type,
+            ],
+            201,
+            $this->invalidationHeaders($tags),
+        );
     }
 
     /**
@@ -318,7 +326,11 @@ class GpmController extends AbstractApiController
             'type' => $type,
         ]);
 
-        return ApiResponse::noContent();
+        $tags = $type === 'plugin'
+            ? ['plugins:delete:' . $package, 'plugins:list', 'gpm:update']
+            : ['themes:delete:' . $package, 'themes:list', 'gpm:update'];
+
+        return ApiResponse::noContent($this->invalidationHeaders($tags));
     }
 
     /**
@@ -351,10 +363,20 @@ class GpmController extends AbstractApiController
             throw new ApiException(500, 'Update Failed', $message);
         }
 
-        return ApiResponse::create([
-            'message' => "Package '{$package}' updated successfully.",
-            'package' => $package,
-        ]);
+        return ApiResponse::create(
+            [
+                'message' => "Package '{$package}' updated successfully.",
+                'package' => $package,
+            ],
+            200,
+            $this->invalidationHeaders([
+                'plugins:update:' . $package,
+                'themes:update:' . $package,
+                'plugins:list',
+                'themes:list',
+                'gpm:update',
+            ]),
+        );
     }
 
     /**
@@ -399,7 +421,11 @@ class GpmController extends AbstractApiController
             }
         }
 
-        return ApiResponse::create($results);
+        return ApiResponse::create(
+            $results,
+            200,
+            $this->invalidationHeaders(['plugins:list', 'themes:list', 'gpm:update']),
+        );
     }
 
     /**
@@ -442,11 +468,15 @@ class GpmController extends AbstractApiController
             'new_version' => $gravInfo->getVersion(),
         ]);
 
-        return ApiResponse::create([
-            'message' => 'Grav upgraded successfully.',
-            'previous_version' => GRAV_VERSION,
-            'new_version' => $gravInfo->getVersion(),
-        ]);
+        return ApiResponse::create(
+            [
+                'message' => 'Grav upgraded successfully.',
+                'previous_version' => GRAV_VERSION,
+                'new_version' => $gravInfo->getVersion(),
+            ],
+            200,
+            $this->invalidationHeaders(['gpm:update']),
+        );
     }
 
     /**
@@ -499,9 +529,11 @@ class GpmController extends AbstractApiController
             throw new ApiException(500, 'Installation Failed', $message);
         }
 
-        return ApiResponse::create([
-            'message' => 'Package installed successfully via direct install.',
-        ], 201);
+        return ApiResponse::create(
+            ['message' => 'Package installed successfully via direct install.'],
+            201,
+            $this->invalidationHeaders(['plugins:list', 'themes:list', 'gpm:update']),
+        );
     }
 
     /**
