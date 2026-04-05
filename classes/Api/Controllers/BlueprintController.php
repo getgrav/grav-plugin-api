@@ -166,7 +166,18 @@ class BlueprintController extends AbstractApiController
         $blueprint = new Blueprint($pluginPath . '/blueprints.yaml');
         $blueprint->load();
 
-        return ApiResponse::create($this->serializeBlueprint($blueprint, $pluginName));
+        $data = $this->serializeBlueprint($blueprint, $pluginName);
+
+        // Fire event to allow plugins to modify serialized fields
+        $event = new Event([
+            'fields' => $data['fields'],
+            'plugin' => $pluginName,
+            'user' => $this->getUser($request),
+        ]);
+        $this->grav->fireEvent('onApiBlueprintResolved', $event);
+        $data['fields'] = $event['fields'];
+
+        return ApiResponse::create($data);
     }
 
     /**

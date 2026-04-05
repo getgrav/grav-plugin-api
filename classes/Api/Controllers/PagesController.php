@@ -260,7 +260,9 @@ class PagesController extends AbstractApiController
 
             if (array_key_exists('header', $body)) {
                 $existing = (array) $page->header();
-                $merged = array_merge($existing, $body['header']);
+                $merged = array_replace_recursive($existing, $body['header']);
+                // Strip null values — toggleable fields send null to signal removal
+                $merged = $this->stripNullValues($merged);
                 $page->header((object) $merged);
             }
 
@@ -1499,5 +1501,25 @@ class PagesController extends AbstractApiController
         }
 
         throw new NotFoundException("Could not locate the language file for '{$lang}' at route: {$page->route()}");
+    }
+
+    /**
+     * Recursively strip null values from an array.
+     * Used to remove header fields that were toggled off (sent as null).
+     */
+    private function stripNullValues(array $data): array
+    {
+        foreach ($data as $key => $value) {
+            if ($value === null) {
+                unset($data[$key]);
+            } elseif (is_array($value)) {
+                $data[$key] = $this->stripNullValues($value);
+                // Remove empty arrays left after stripping
+                if (empty($data[$key])) {
+                    unset($data[$key]);
+                }
+            }
+        }
+        return $data;
     }
 }
