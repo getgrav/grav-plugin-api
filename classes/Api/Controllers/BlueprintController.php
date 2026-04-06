@@ -637,6 +637,7 @@ class BlueprintController extends AbstractApiController
                 'btnLabel', 'placement', 'sortby', 'sortby_dir',
                 'sort', 'collapsible', 'min_height', 'selectunique',
                 'condition', 'wrapper_classes',
+                'provider', 'translate',
             ];
 
             foreach ($props as $prop) {
