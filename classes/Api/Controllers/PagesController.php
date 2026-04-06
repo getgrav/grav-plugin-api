@@ -251,6 +251,11 @@ class PagesController extends AbstractApiController
             $requestedLang = $query['lang'] ?? null;
             if ($requestedLang && $this->isMultiLangEnabled()) {
                 $pageLang = $page->language() ?: null;
+                // A default.md file (no language suffix) is treated as the default language
+                $defaultLang = $this->grav['language']->getDefault() ?: 'en';
+                if (!$pageLang && $requestedLang === $defaultLang) {
+                    $pageLang = $defaultLang;
+                }
                 if ($pageLang !== $requestedLang) {
                     throw new ValidationException(
                         "No '{$requestedLang}' translation exists for this page. "
