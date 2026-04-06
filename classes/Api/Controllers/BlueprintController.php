@@ -393,6 +393,13 @@ class BlueprintController extends AbstractApiController
         $blueprint = new Blueprint();
         $blueprint->embed('', $merged);
 
+        // Fire onBlueprintCreated so plugins (e.g. seo-magic) can extend page blueprints
+        $this->ensurePagesEnabled();
+        $this->grav->fireEvent('onBlueprintCreated', new Event([
+            'blueprint' => $blueprint,
+            'type'      => 'pages/' . $template,
+        ]));
+
         return $blueprint;
     }
 
