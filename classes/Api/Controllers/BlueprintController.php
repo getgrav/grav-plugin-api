@@ -277,7 +277,7 @@ class BlueprintController extends AbstractApiController
      * Tries PLUGIN_ADMIN.KEY first (admin plugin), then PLUGIN_API.KEY (API plugin fallback),
      * then falls back to a human-readable version derived from the permission name.
      */
-    private function translateLabel(string $label): string
+    protected function translateLabel(string $label): string
     {
         $lang = $this->grav['language'];
 
@@ -534,7 +534,7 @@ class BlueprintController extends AbstractApiController
      * Ensure the Pages subsystem is initialized.
      * Many data-options@ directives reference Pages:: methods that need this.
      */
-    private function ensurePagesEnabled(): void
+    protected function ensurePagesEnabled(): void
     {
         if ($this->pagesEnabled) {
             return;
@@ -546,13 +546,13 @@ class BlueprintController extends AbstractApiController
         $this->pagesEnabled = true;
     }
 
-    private bool $pagesEnabled = false;
+    protected bool $pagesEnabled = false;
 
     /**
      * Resolve a data-*@ directive by calling the referenced PHP callable.
      * Supports format: '\Grav\Common\Utils::timezones' or ['method', 'args']
      */
-    private function resolveDataDirective(mixed $directive): ?array
+    protected function resolveDataDirective(mixed $directive): ?array
     {
         try {
             $callable = is_array($directive) ? ($directive[0] ?? null) : $directive;
@@ -592,7 +592,7 @@ class BlueprintController extends AbstractApiController
     /**
      * Serialize a Blueprint object into a JSON-friendly structure.
      */
-    private function serializeBlueprint(Blueprint $blueprint, string $name): array
+    protected function serializeBlueprint(Blueprint $blueprint, string $name): array
     {
         $form = $blueprint->form();
         $fields = $blueprint->fields();
@@ -611,7 +611,7 @@ class BlueprintController extends AbstractApiController
      * Recursively serialize blueprint fields into a structure
      * suitable for client-side form rendering.
      */
-    private function serializeFields(array $fields, string $prefix = ''): array
+    protected function serializeFields(array $fields, string $prefix = ''): array
     {
         $result = [];
 
