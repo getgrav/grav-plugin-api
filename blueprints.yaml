@@ -163,10 +163,22 @@ form:
       title: Backend
       underline: true
 
-    flex_backend.enabled:
+    flex_backend.pages:
       type: toggle
-      label: Flex-Objects Backend
-      help: Use Flex-Objects for page and user listings (faster search, filtering, and pagination for large sites)
+      label: Flex Pages Backend
+      help: Use Flex-Objects for page listings (faster search, filtering, and pagination)
+      highlight: 1
+      default: 1
+      options:
+        1: Enabled
+        0: Disabled
+      validate:
+        type: bool
+
+    flex_backend.accounts:
+      type: toggle
+      label: Flex Accounts Backend
+      help: Use Flex-Objects for user listings (faster search and pagination)
       highlight: 1
       default: 1
       options:

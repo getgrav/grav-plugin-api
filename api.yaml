@@ -44,7 +44,8 @@ rate_limit:
   storage: file
 
 flex_backend:
-  enabled: true
+  pages: true
+  accounts: true
 
 pagination:
   default_per_page: 20

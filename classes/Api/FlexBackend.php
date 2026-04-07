@@ -13,18 +13,27 @@ use Grav\Framework\Flex\FlexDirectory;
  * When enabled (default), listing endpoints use flex directories for
  * indexed search, filtering, sorting, and pagination. When disabled
  * or unavailable, controllers fall back to regular Grav services.
+ *
+ * Config keys: plugins.api.flex_backend.pages, plugins.api.flex_backend.accounts
  */
 trait FlexBackend
 {
-    protected function isFlexEnabled(): bool
-    {
-        return $this->config->get('plugins.api.flex_backend.enabled', true)
-            && isset($this->grav['flex_objects']);
-    }
+    /**
+     * Map flex directory types to their config keys.
+     */
+    private const FLEX_CONFIG_MAP = [
+        'pages' => 'pages',
+        'user-accounts' => 'accounts',
+    ];
 
     protected function getFlexDirectory(string $type): ?FlexDirectory
     {
-        if (!$this->isFlexEnabled()) {
+        $configKey = self::FLEX_CONFIG_MAP[$type] ?? $type;
+        if (!$this->config->get('plugins.api.flex_backend.' . $configKey, true)) {
+            return null;
+        }
+
+        if (!isset($this->grav['flex_objects'])) {
             return null;
         }
 
