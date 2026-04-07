@@ -645,6 +645,7 @@ class BlueprintController extends AbstractApiController
                 'sort', 'collapsible', 'min_height', 'selectunique',
                 'condition', 'wrapper_classes',
                 'provider', 'translate',
+                'page_field', 'page_template', 'success_msg', 'error_msg',
             ];
 
             foreach ($props as $prop) {
@@ -654,7 +655,7 @@ class BlueprintController extends AbstractApiController
             }
 
             // Translate string properties that may contain language keys
-            foreach (['label', 'title', 'description', 'help', 'placeholder', 'text', 'content'] as $textProp) {
+            foreach (['label', 'title', 'description', 'help', 'placeholder', 'text', 'content', 'success_msg', 'error_msg'] as $textProp) {
                 if (isset($serialized[$textProp]) && is_string($serialized[$textProp])) {
                     $serialized[$textProp] = $this->translateLabel($serialized[$textProp]);
                 }
@@ -700,7 +701,7 @@ class BlueprintController extends AbstractApiController
             // Handle nested fields (structural containers)
             if (isset($field['fields']) && is_array($field['fields'])) {
                 // For layout containers, don't add prefix (fields bind to their own names)
-                $layoutTypes = ['tabs', 'tab', 'section', 'fieldset', 'columns', 'column'];
+                $layoutTypes = ['tabs', 'tab', 'section', 'fieldset', 'columns', 'column', 'page-exists'];
                 $childPrefix = in_array($type, $layoutTypes, true) ? $prefix : $fieldPath;
 
                 $serialized['fields'] = $this->serializeFields($field['fields'], $childPrefix);
