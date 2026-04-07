@@ -7,11 +7,13 @@ namespace Grav\Plugin\Api\Controllers;
 use Grav\Common\User\Authentication;
 use Grav\Common\User\Interfaces\UserCollectionInterface;
 use Grav\Common\User\Interfaces\UserInterface;
+use Grav\Framework\Flex\FlexDirectory;
 use Grav\Plugin\Api\Auth\ApiKeyManager;
 use Grav\Plugin\Api\Exceptions\ConflictException;
 use Grav\Plugin\Api\Exceptions\ForbiddenException;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
+use Grav\Plugin\Api\FlexBackend;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Grav\Plugin\Api\Serializers\UserSerializer;
 use Psr\Http\Message\ResponseInterface;
@@ -19,15 +21,66 @@ use Psr\Http\Message\ServerRequestInterface;
 
 class UsersController extends AbstractApiController
 {
+    use FlexBackend;
+
     private ?UserSerializer $serializer = null;
 
     public function index(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'api.users.read');
 
+        $directory = $this->getFlexDirectory('user-accounts');
+        if ($directory) {
+            return $this->indexViaFlex($request, $directory);
+        }
+        return $this->indexViaAccounts($request);
+    }
+
+    /**
+     * List users using the Flex-Objects backend (indexed, searchable).
+     */
+    private function indexViaFlex(ServerRequestInterface $request, FlexDirectory $directory): ResponseInterface
+    {
+        $pagination = $this->getPagination($request);
+        $query = $request->getQueryParams();
+        $search = $query['search'] ?? null;
+
+        $collection = $directory->getCollection();
+
+        // Apply search (searches username, email, fullname per blueprint config)
+        if ($search && $search !== '') {
+            $collection = $collection->search($search);
+        }
+
+        // Sort by username by default
+        $collection = $collection->sort(['username' => 'asc']);
+
+        $total = $collection->count();
+        $slice = $collection->slice($pagination['offset'], $pagination['limit']);
+
+        $data = [];
+        foreach ($slice as $flexUser) {
+            if ($flexUser instanceof UserInterface) {
+                $data[] = $this->serializeUser($flexUser);
+            }
+        }
+
+        return ApiResponse::paginated(
+            data: $data,
+            total: $total,
+            page: $pagination['page'],
+            perPage: $pagination['per_page'],
+            baseUrl: $this->getApiBaseUrl() . '/users',
+        );
+    }
+
+    /**
+     * List users using filesystem scan (fallback).
+     */
+    private function indexViaAccounts(ServerRequestInterface $request): ResponseInterface
+    {
         $pagination = $this->getPagination($request);
 
-        // Scan account files directly (UserCollection iteration doesn't work in all contexts)
         $allUsers = [];
         foreach ($this->getAllUsernames() as $username) {
             $user = $this->grav['accounts']->load($username);
@@ -37,8 +90,6 @@ class UsersController extends AbstractApiController
         }
 
         $total = count($allUsers);
-
-        // Apply pagination
         $paged = array_slice($allUsers, $pagination['offset'], $pagination['limit']);
 
         return ApiResponse::paginated(

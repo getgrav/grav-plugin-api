@@ -158,6 +158,23 @@ form:
         - If-None-Match
       value_only: true
 
+    section_backend:
+      type: section
+      title: Backend
+      underline: true
+
+    flex_backend.enabled:
+      type: toggle
+      label: Flex-Objects Backend
+      help: Use Flex-Objects for page and user listings (faster search, filtering, and pagination for large sites)
+      highlight: 1
+      default: 1
+      options:
+        1: Enabled
+        0: Disabled
+      validate:
+        type: bool
+
     section_rate_limit:
       type: section
       title: Rate Limiting

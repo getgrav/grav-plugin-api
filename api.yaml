@@ -43,6 +43,9 @@ rate_limit:
   window: 60
   storage: file
 
+flex_backend:
+  enabled: true
+
 pagination:
   default_per_page: 20
   max_per_page: 100

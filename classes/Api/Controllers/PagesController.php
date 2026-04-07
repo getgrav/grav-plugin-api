@@ -11,8 +11,10 @@ use Grav\Common\Language\Language;
 use Grav\Common\Language\LanguageCodes;
 use Grav\Common\Page\Interfaces\PageInterface;
 use Grav\Common\Page\Page;
+use Grav\Framework\Flex\FlexDirectory;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
+use Grav\Plugin\Api\FlexBackend;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Grav\Plugin\Api\Serializers\MediaSerializer;
 use Grav\Plugin\Api\Serializers\PageSerializer;
@@ -22,6 +24,7 @@ use Psr\Http\Message\ServerRequestInterface;
 
 class PagesController extends AbstractApiController
 {
+    use FlexBackend;
     private const PERMISSION_READ = 'api.pages.read';
     private const PERMISSION_WRITE = 'api.pages.write';
 
@@ -49,50 +52,159 @@ class PagesController extends AbstractApiController
         $previousLang = $this->applyLanguage($request);
 
         try {
-            $this->enablePages();
-
-            $filters = $this->getFilters($request, self::ALLOWED_FILTERS);
-            $sorting = $this->getSorting($request, self::ALLOWED_SORT_FIELDS);
-            $pagination = $this->getPagination($request);
-
-            // Default sort: date desc
-            $sortField = $sorting['sort'] ?? 'date';
-            $sortOrder = $sorting['sort'] ? $sorting['order'] : 'desc';
-
-            $pages = $this->grav['pages'];
-            $allPages = $this->collectAndFilterPages($pages->instances(), $filters);
-            $allPages = $this->sortPages($allPages, $sortField, $sortOrder);
-
-            $total = count($allPages);
-            $slice = array_slice($allPages, $pagination['offset'], $pagination['limit']);
-
-            $includeTranslations = filter_var(
-                $request->getQueryParams()['translations'] ?? false,
-                FILTER_VALIDATE_BOOLEAN
-            );
-
-            // Use lighter serialization for listing (no content, no children)
-            $listOptions = [
-                'include_content' => false,
-                'render_content' => false,
-                'include_children' => false,
-                'include_media' => false,
-                'include_translations' => $includeTranslations,
-            ];
-
-            $data = $this->serializer->serializeCollection($slice, $listOptions);
-            $baseUrl = $this->getApiBaseUrl() . '/pages';
-
-            return ApiResponse::paginated(
-                data: $data,
-                total: $total,
-                page: $pagination['page'],
-                perPage: $pagination['per_page'],
-                baseUrl: $baseUrl,
-            );
+            $directory = $this->getFlexDirectory('pages');
+            if ($directory) {
+                return $this->indexViaFlex($request, $directory);
+            }
+            return $this->indexViaPages($request);
         } finally {
             $this->restoreLanguage($previousLang);
         }
+    }
+
+    /**
+     * List pages using the Flex-Objects backend (indexed, cached).
+     */
+    private function indexViaFlex(ServerRequestInterface $request, FlexDirectory $directory): ResponseInterface
+    {
+        $filters = $this->getFilters($request, self::ALLOWED_FILTERS);
+        $sorting = $this->getSorting($request, self::ALLOWED_SORT_FIELDS);
+        $pagination = $this->getPagination($request);
+        $query = $request->getQueryParams();
+        $search = $query['search'] ?? null;
+
+        $sortField = $sorting['sort'] ?? 'date';
+        $sortOrder = $sorting['sort'] ? $sorting['order'] : 'desc';
+
+        // Start with full collection
+        $collection = $directory->getCollection();
+
+        // Apply search
+        if ($search && $search !== '') {
+            $collection = $collection->search($search);
+        }
+
+        // Apply filters using flex methods where available
+        if (isset($filters['published'])) {
+            $bool = filter_var($filters['published'], FILTER_VALIDATE_BOOLEAN);
+            if (method_exists($collection, 'withPublished')) {
+                $collection = $collection->withPublished($bool);
+            }
+        }
+        if (isset($filters['visible'])) {
+            $bool = filter_var($filters['visible'], FILTER_VALIDATE_BOOLEAN);
+            if (method_exists($collection, 'withVisible')) {
+                $collection = $collection->withVisible($bool);
+            }
+        }
+        if (isset($filters['routable'])) {
+            $bool = filter_var($filters['routable'], FILTER_VALIDATE_BOOLEAN);
+            if (method_exists($collection, 'withRoutable')) {
+                $collection = $collection->withRoutable($bool);
+            }
+        }
+
+        // Template, parent, children_of, root — filter manually on the collection
+        if (isset($filters['template']) || isset($filters['parent']) || isset($filters['children_of']) || isset($filters['root'])) {
+            $filtered = [];
+            foreach ($collection as $page) {
+                if ($page instanceof PageInterface && $this->matchesFilters($page, $filters)) {
+                    $filtered[$page->getKey()] = $page;
+                }
+            }
+            // Re-select from the collection to maintain the flex type
+            $collection = $collection->select(array_keys($filtered));
+        }
+
+        // Map sort fields to flex-compatible field names
+        $flexSortField = match ($sortField) {
+            'date' => 'date',
+            'modified' => 'timestamp',
+            'title' => 'title',
+            'slug' => 'slug',
+            'order' => 'order',
+            default => 'date',
+        };
+        $collection = $collection->sort([$flexSortField => $sortOrder]);
+
+        // Skip root page
+        $items = [];
+        foreach ($collection as $page) {
+            if ($page instanceof PageInterface && $page->route() && $page->route() !== '/') {
+                $items[] = $page;
+            }
+        }
+
+        $total = count($items);
+        $slice = array_slice($items, $pagination['offset'], $pagination['limit']);
+
+        $includeTranslations = filter_var(
+            $request->getQueryParams()['translations'] ?? false,
+            FILTER_VALIDATE_BOOLEAN
+        );
+
+        $listOptions = [
+            'include_content' => false,
+            'render_content' => false,
+            'include_children' => false,
+            'include_media' => false,
+            'include_translations' => $includeTranslations,
+        ];
+
+        $data = $this->serializer->serializeCollection($slice, $listOptions);
+
+        return ApiResponse::paginated(
+            data: $data,
+            total: $total,
+            page: $pagination['page'],
+            perPage: $pagination['per_page'],
+            baseUrl: $this->getApiBaseUrl() . '/pages',
+        );
+    }
+
+    /**
+     * List pages using the regular Grav Pages service (fallback).
+     */
+    private function indexViaPages(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->enablePages();
+
+        $filters = $this->getFilters($request, self::ALLOWED_FILTERS);
+        $sorting = $this->getSorting($request, self::ALLOWED_SORT_FIELDS);
+        $pagination = $this->getPagination($request);
+
+        $sortField = $sorting['sort'] ?? 'date';
+        $sortOrder = $sorting['sort'] ? $sorting['order'] : 'desc';
+
+        $pages = $this->grav['pages'];
+        $allPages = $this->collectAndFilterPages($pages->instances(), $filters);
+        $allPages = $this->sortPages($allPages, $sortField, $sortOrder);
+
+        $total = count($allPages);
+        $slice = array_slice($allPages, $pagination['offset'], $pagination['limit']);
+
+        $includeTranslations = filter_var(
+            $request->getQueryParams()['translations'] ?? false,
+            FILTER_VALIDATE_BOOLEAN
+        );
+
+        $listOptions = [
+            'include_content' => false,
+            'render_content' => false,
+            'include_children' => false,
+            'include_media' => false,
+            'include_translations' => $includeTranslations,
+        ];
+
+        $data = $this->serializer->serializeCollection($slice, $listOptions);
+
+        return ApiResponse::paginated(
+            data: $data,
+            total: $total,
+            page: $pagination['page'],
+            perPage: $pagination['per_page'],
+            baseUrl: $this->getApiBaseUrl() . '/pages',
+        );
     }
 
     /**
