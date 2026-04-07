@@ -233,8 +233,27 @@ class DashboardController extends AbstractApiController
             }
         }
 
+        // Count themes
+        $themes = $this->grav['themes']->all();
+        $totalThemes = is_countable($themes) ? count($themes) : 0;
+
         // Active theme
         $activeTheme = $this->grav['config']->get('system.pages.theme');
+
+        // Count media files
+        $mediaDir = $this->grav['locator']->findResource('user://media', true)
+            ?: $this->grav['locator']->findResource('user://images', true);
+        $totalMedia = 0;
+        if ($mediaDir && is_dir($mediaDir)) {
+            $iterator = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($mediaDir, \FilesystemIterator::SKIP_DOTS)
+            );
+            foreach ($iterator as $file) {
+                if ($file->isFile()) {
+                    $totalMedia++;
+                }
+            }
+        }
 
         // Last backup
         $backupsDir = $this->grav['locator']->findResource('backup://', true);
@@ -258,6 +277,12 @@ class DashboardController extends AbstractApiController
             'plugins' => [
                 'total' => count($plugins),
                 'active' => $activePlugins,
+            ],
+            'themes' => [
+                'total' => $totalThemes,
+            ],
+            'media' => [
+                'total' => $totalMedia,
             ],
             'theme' => $activeTheme,
             'grav_version' => GRAV_VERSION,
