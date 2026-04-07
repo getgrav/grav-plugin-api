@@ -6,6 +6,7 @@ namespace Grav\Plugin\Api\Controllers;
 
 use Grav\Common\Config\Config;
 use Grav\Common\Grav;
+use Grav\Common\Page\Interfaces\PageInterface;
 use Grav\Common\User\Interfaces\UserInterface;
 use Grav\Plugin\Api\Exceptions\ForbiddenException;
 use Grav\Plugin\Api\Exceptions\UnauthorizedException;
@@ -302,6 +303,16 @@ abstract class AbstractApiController
      */
     protected function fireAdminEvent(string $name, array $data = []): Event
     {
+        // Ensure $grav['page'] is set when firing page-related admin events.
+        // In admin-classic this is always set; with flex-objects via API it may not be,
+        // causing plugins that read $grav['page'] (SEO Magic, etc.) to get null.
+        $page = $data['page'] ?? $data['object'] ?? null;
+        if ($page instanceof PageInterface) {
+            // Use offsetUnset first to clear any Pimple frozen state, then set.
+            unset($this->grav['page']);
+            $this->grav['page'] = $page;
+        }
+
         $event = new Event($data);
         $this->grav->fireEvent($name, $event);
         return $event;

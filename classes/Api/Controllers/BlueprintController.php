@@ -701,7 +701,7 @@ class BlueprintController extends AbstractApiController
             // Handle nested fields (structural containers)
             if (isset($field['fields']) && is_array($field['fields'])) {
                 // For layout containers, don't add prefix (fields bind to their own names)
-                $layoutTypes = ['tabs', 'tab', 'section', 'fieldset', 'columns', 'column', 'page-exists'];
+                $layoutTypes = ['tabs', 'tab', 'section', 'fieldset', 'columns', 'column', 'page-exists', 'elements', 'element'];
                 $childPrefix = in_array($type, $layoutTypes, true) ? $prefix : $fieldPath;
 
                 $serialized['fields'] = $this->serializeFields($field['fields'], $childPrefix);
