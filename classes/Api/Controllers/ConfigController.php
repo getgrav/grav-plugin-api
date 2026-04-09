@@ -100,6 +100,20 @@ class ConfigController extends AbstractApiController
         $obj = new Data($merged, $blueprint);
         $obj->filter(true, true);
 
+        // Set the config file on the Data object so plugins (e.g., revisions-pro)
+        // can read the file path for revision tracking.
+        $configFile = $this->resolveConfigFile($scope);
+        if ($configFile) {
+            $obj->file(\RocketTheme\Toolbox\File\YamlFile::instance($configFile));
+        }
+
+        // Set the AdminProxy route so plugins that detect context from the admin
+        // route (e.g., revisions-pro getDataType) work correctly in API context.
+        $admin = $this->grav['admin'] ?? null;
+        if ($admin && property_exists($admin, 'route')) {
+            $admin->route = $this->scopeToAdminRoute($scope);
+        }
+
         // Allow plugins to modify config before save
         $this->fireAdminEvent('onAdminSave', ['object' => &$obj]);
 
@@ -140,6 +154,40 @@ class ConfigController extends AbstractApiController
      *   - plugins/{name}  -> 'plugins.{name}'
      *   - themes/{name}   -> 'themes.{name}'
      */
+    /**
+     * Map a config scope to the admin route format that plugins expect.
+     */
+    private function scopeToAdminRoute(string $scope): string
+    {
+        return match (true) {
+            str_starts_with($scope, 'plugins/') => '/' . $scope,
+            str_starts_with($scope, 'themes/') => '/' . $scope,
+            default => '/config/' . $scope,
+        };
+    }
+
+    /**
+     * Resolve the config file path for a given scope.
+     */
+    private function resolveConfigFile(string $scope): ?string
+    {
+        $configDir = $this->grav['locator']->findResource('user://config', true, true);
+
+        $filePath = match (true) {
+            $scope === 'system' => $configDir . '/system.yaml',
+            $scope === 'site' => $configDir . '/site.yaml',
+            $scope === 'media' => $configDir . '/media.yaml',
+            $scope === 'security' => $configDir . '/security.yaml',
+            $scope === 'scheduler' => $configDir . '/scheduler.yaml',
+            $scope === 'backups' => $configDir . '/backups.yaml',
+            str_starts_with($scope, 'plugins/') => $configDir . '/plugins/' . substr($scope, 8) . '.yaml',
+            str_starts_with($scope, 'themes/') => $configDir . '/themes/' . substr($scope, 7) . '.yaml',
+            default => null,
+        };
+
+        return $filePath;
+    }
+
     /**
      * Load the blueprint for the given config scope.
      *
