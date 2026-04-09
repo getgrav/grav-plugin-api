@@ -22,6 +22,7 @@ use Grav\Plugin\Api\Controllers\ReportsController;
 use Grav\Plugin\Api\Controllers\MenubarController;
 use Grav\Plugin\Api\Controllers\SidebarController;
 use Grav\Plugin\Api\Controllers\FloatingWidgetController;
+use Grav\Plugin\Api\Controllers\ContextPanelController;
 use Grav\Plugin\Api\Controllers\SystemController;
 use Grav\Plugin\Api\Controllers\UsersController;
 use Grav\Plugin\Api\Controllers\WebhookController;
@@ -359,6 +360,10 @@ $r->addRoute('GET', '/gpm/themes/{slug}/field/{type}', [GpmController::class, 'c
         // Floating Widgets
         $r->addRoute('GET', '/floating-widgets', [FloatingWidgetController::class, 'items']);
         $r->addRoute('GET', '/gpm/plugins/{slug}/widget-script', [GpmController::class, 'widgetScript']);
+
+        // Context Panels
+        $r->addRoute('GET', '/context-panels', [ContextPanelController::class, 'items']);
+        $r->addRoute('GET', '/gpm/plugins/{slug}/panel-script', [GpmController::class, 'panelScript']);
     }
 
     /**

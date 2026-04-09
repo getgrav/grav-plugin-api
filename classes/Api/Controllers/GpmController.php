@@ -1101,6 +1101,35 @@ class GpmController extends AbstractApiController
     }
 
     /**
+     * GET /gpm/plugins/{slug}/panel-script — Serve a context panel web component JS.
+     *
+     * Convention: admin-next/panels/{slug}.js
+     */
+    public function panelScript(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, self::PERMISSION_READ);
+
+        $slug = $this->getRouteParam($request, 'slug');
+        $path = $this->resolvePackagePath($slug, 'plugins');
+        $file = $path . '/admin-next/panels/' . basename($slug) . '.js';
+
+        if (!file_exists($file)) {
+            throw new NotFoundException("Panel component not found for plugin '{$slug}'.");
+        }
+
+        $content = file_get_contents($file);
+
+        return new \Grav\Framework\Psr7\Response(
+            200,
+            [
+                'Content-Type' => 'application/javascript; charset=utf-8',
+                'Cache-Control' => 'no-cache',
+            ],
+            $content,
+        );
+    }
+
+    /**
      * GET /gpm/plugins/{slug}/report-script/{reportId} - Serve a report web component JS.
      *
      * Convention: admin-next/reports/{reportId}.js
