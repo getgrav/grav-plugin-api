@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Grav\Plugin\Api\Controllers;
 
+use Grav\Common\Data\Blueprints;
 use Grav\Common\Data\Data;
 use Grav\Common\Yaml;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
@@ -94,8 +95,10 @@ class ConfigController extends AbstractApiController
             ? array_replace_recursive($existing, $body)
             : $body;
 
-        // Wrap in a Data object for admin event compatibility
-        $obj = new Data($merged);
+        // Load the blueprint and apply field-type filtering (e.g., commalist → array)
+        $blueprint = $this->loadBlueprint($scope);
+        $obj = new Data($merged, $blueprint);
+        $obj->filter(true, true);
 
         // Allow plugins to modify config before save
         $this->fireAdminEvent('onAdminSave', ['object' => &$obj]);
@@ -137,6 +140,34 @@ class ConfigController extends AbstractApiController
      *   - plugins/{name}  -> 'plugins.{name}'
      *   - themes/{name}   -> 'themes.{name}'
      */
+    /**
+     * Load the blueprint for the given config scope.
+     *
+     * Blueprints define field types (e.g., commalist) that determine how
+     * values are coerced — without this, arrays may be saved as strings.
+     */
+    private function loadBlueprint(string $scope): ?\Grav\Common\Data\Blueprint
+    {
+        try {
+            $blueprintKey = match (true) {
+                in_array($scope, ['system', 'site', 'media', 'security', 'scheduler', 'backups']) => 'config/' . $scope,
+                str_starts_with($scope, 'plugins/') => 'plugins/' . substr($scope, 8),
+                str_starts_with($scope, 'themes/') => 'themes/' . substr($scope, 7),
+                default => null,
+            };
+
+            if ($blueprintKey === null) {
+                return null;
+            }
+
+            $blueprints = new Blueprints();
+            return $blueprints->get($blueprintKey);
+        } catch (\Exception $e) {
+            // If blueprint can't be loaded, save without filtering
+            return null;
+        }
+    }
+
     private function resolveConfigKey(?string $scope): string
     {
         if ($scope === null || $scope === '') {
