@@ -29,7 +29,7 @@ class PagesController extends AbstractApiController
     private const PERMISSION_WRITE = 'api.pages.write';
 
     private const ALLOWED_FILTERS = ['published', 'template', 'routable', 'visible', 'parent', 'children_of', 'root'];
-    private const ALLOWED_SORT_FIELDS = ['date', 'title', 'slug', 'modified', 'order'];
+    private const ALLOWED_SORT_FIELDS = ['date', 'title', 'slug', 'modified', 'order', 'default'];
 
     private readonly PageSerializer $serializer;
 
@@ -75,6 +75,15 @@ class PagesController extends AbstractApiController
 
         $sortField = $sorting['sort'] ?? 'date';
         $sortOrder = $sorting['sort'] ? $sorting['order'] : 'desc';
+
+        // 'default' sort with children_of: use native page ordering
+        if ($sortField === 'default' && isset($filters['children_of'])) {
+            return $this->indexViaDefaultSort($request, $filters['children_of'], $filters, $pagination);
+        }
+        if ($sortField === 'default') {
+            $sortField = 'order';
+            $sortOrder = 'asc';
+        }
 
         // Start with full collection
         $collection = $directory->getCollection();
@@ -175,6 +184,14 @@ class PagesController extends AbstractApiController
 
         $sortField = $sorting['sort'] ?? 'date';
         $sortOrder = $sorting['sort'] ? $sorting['order'] : 'desc';
+
+        if ($sortField === 'default' && isset($filters['children_of'])) {
+            return $this->indexViaDefaultSort($request, $filters['children_of'], $filters, $pagination);
+        }
+        if ($sortField === 'default') {
+            $sortField = 'order';
+            $sortOrder = 'asc';
+        }
 
         $pages = $this->grav['pages'];
         $allPages = $this->collectAndFilterPages($pages->instances(), $filters);
@@ -1477,6 +1494,122 @@ class PagesController extends AbstractApiController
 
         $remainder = substr($pageRoute, strlen($parentRoute) + 1);
         return !str_contains($remainder, '/');
+    }
+
+    private function indexViaDefaultSort(ServerRequestInterface $request, string $parentRoute, array $filters, array $pagination): ResponseInterface
+    {
+        // Collect direct children and find parent using Flex or Pages service
+        $directory = $this->getFlexDirectory('pages');
+        $parent = null;
+        $childRoute = '/' . trim($filters['children_of'], '/');
+
+        $items = [];
+        if ($directory) {
+            foreach ($directory->getCollection() as $page) {
+                if (!$page instanceof PageInterface) {
+                    continue;
+                }
+                if ($page->route() === $childRoute) {
+                    $parent = $page;
+                }
+                if ($this->isDirectChildOf($page, $filters['children_of'])) {
+                    $items[] = $page;
+                }
+            }
+        } else {
+            $this->enablePages();
+            $parent = $this->grav['pages']->find($childRoute);
+            $allPages = $this->collectAndFilterPages($this->grav['pages']->instances(), $filters);
+            $items = $allPages;
+        }
+
+        // Check parent's collection ordering (e.g. blog ordered by date desc)
+        $collectionSort = null;
+        $collectionDir = 'asc';
+        if ($parent) {
+            $header = $parent->header();
+
+            // Use ->get() for nested dot-notation access (works for both stdClass and Header objects)
+            $getVal = function (string $key, $default = null) use ($header) {
+                if (method_exists($header, 'get')) {
+                    return $header->get($key, $default);
+                }
+                // Fallback for stdClass: walk dot-path
+                $parts = explode('.', $key);
+                $current = $header;
+                foreach ($parts as $part) {
+                    if (is_object($current) && isset($current->$part)) {
+                        $current = $current->$part;
+                    } elseif (is_array($current) && isset($current[$part])) {
+                        $current = $current[$part];
+                    } else {
+                        return $default;
+                    }
+                }
+                return $current;
+            };
+
+            $displayOrder = $getVal('admin.children_display_order', 'collection');
+
+            if ($displayOrder === 'collection') {
+                $collectionSort = $getVal('content.order.by');
+                $collectionDir = $getVal('content.order.dir', 'asc');
+            }
+        }
+
+        if ($collectionSort) {
+            // Use collection ordering from parent header
+            $sortField = match ($collectionSort) {
+                'title' => 'title',
+                'date' => 'date',
+                'modified', 'timestamp' => 'modified',
+                'slug', 'basename' => 'slug',
+                default => 'order',
+            };
+            $items = $this->sortPages($items, $sortField, $collectionDir);
+        } else {
+            // Filesystem order: ordered pages first (ascending), then unordered (alpha by slug)
+            $ordered = [];
+            $unordered = [];
+            foreach ($items as $page) {
+                if ($page->order()) {
+                    $ordered[] = $page;
+                } else {
+                    $unordered[] = $page;
+                }
+            }
+            usort($ordered, function ($a, $b) {
+                return ($a->order() ?: '0') <=> ($b->order() ?: '0');
+            });
+            usort($unordered, function ($a, $b) {
+                return strcasecmp($a->slug() ?? '', $b->slug() ?? '');
+            });
+            $items = array_merge($ordered, $unordered);
+        }
+
+        $total = count($items);
+        $slice = array_slice($items, $pagination['offset'], $pagination['limit']);
+
+        $includeTranslations = filter_var(
+            $request->getQueryParams()['translations'] ?? false,
+            FILTER_VALIDATE_BOOLEAN
+        );
+
+        $data = $this->serializer->serializeCollection($slice, [
+            'include_content' => false,
+            'render_content' => false,
+            'include_children' => false,
+            'include_media' => false,
+            'include_translations' => $includeTranslations,
+        ]);
+
+        return ApiResponse::paginated(
+            data: $data,
+            total: $total,
+            page: $pagination['page'],
+            perPage: $pagination['per_page'],
+            baseUrl: $this->getApiBaseUrl() . '/pages',
+        );
     }
 
     /**

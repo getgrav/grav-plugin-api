@@ -29,6 +29,7 @@ class PageSerializer implements SerializerInterface
             'route' => $resource->route(),
             'slug' => $resource->slug(),
             'title' => $resource->title(),
+            'menu' => $resource->menu(),
             'template' => $resource->template(),
             'language' => $resource->language(),
             'header' => $this->serializeHeader($resource->header()),
