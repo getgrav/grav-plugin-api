@@ -168,12 +168,15 @@ class ConfigController extends AbstractApiController
 
     /**
      * Resolve the config file path for a given scope.
+     *
+     * Uses the base user/config path (not environment-specific) so revisions
+     * are stored alongside the same files that admin-classic uses.
      */
     private function resolveConfigFile(string $scope): ?string
     {
-        $configDir = $this->grav['locator']->findResource('user://config', true, true);
+        $configDir = GRAV_ROOT . '/user/config';
 
-        $filePath = match (true) {
+        return match (true) {
             $scope === 'system' => $configDir . '/system.yaml',
             $scope === 'site' => $configDir . '/site.yaml',
             $scope === 'media' => $configDir . '/media.yaml',
@@ -184,8 +187,6 @@ class ConfigController extends AbstractApiController
             str_starts_with($scope, 'themes/') => $configDir . '/themes/' . substr($scope, 7) . '.yaml',
             default => null,
         };
-
-        return $filePath;
     }
 
     /**
