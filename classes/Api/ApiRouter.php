@@ -15,6 +15,7 @@ use Grav\Plugin\Api\Controllers\BlueprintController;
 use Grav\Plugin\Api\Controllers\ConfigController;
 use Grav\Plugin\Api\Controllers\DashboardController;
 use Grav\Plugin\Api\Controllers\GpmController;
+use Grav\Plugin\Api\Controllers\LoginSettingsController;
 use Grav\Plugin\Api\Controllers\MediaController;
 use Grav\Plugin\Api\Controllers\SchedulerController;
 use Grav\Plugin\Api\Controllers\PagesController;
@@ -210,8 +211,11 @@ class ApiRouter extends ProcessorBase
     {
         // Auth (no auth required for these)
         $r->addRoute('POST', '/auth/token', [AuthController::class, 'token']);
+        $r->addRoute('POST', '/auth/2fa/verify', [AuthController::class, 'verify2fa']);
         $r->addRoute('POST', '/auth/refresh', [AuthController::class, 'refresh']);
         $r->addRoute('POST', '/auth/revoke', [AuthController::class, 'revoke']);
+        $r->addRoute('POST', '/auth/forgot-password', [AuthController::class, 'forgotPassword']);
+        $r->addRoute('POST', '/auth/reset-password', [AuthController::class, 'resetPassword']);
 
         // Languages
         $r->addRoute('GET', '/languages', [PagesController::class, 'siteLanguages']);
@@ -264,6 +268,8 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('POST', '/users/{username}/avatar', [UsersController::class, 'uploadAvatar']);
         $r->addRoute('DELETE', '/users/{username}/avatar', [UsersController::class, 'deleteAvatar']);
         $r->addRoute('POST', '/users/{username}/2fa', [UsersController::class, 'generate2fa']);
+        $r->addRoute('POST', '/users/{username}/2fa/enable', [UsersController::class, 'enable2fa']);
+        $r->addRoute('POST', '/users/{username}/2fa/disable', [UsersController::class, 'disable2fa']);
         $r->addRoute('GET', '/users/{username}/api-keys', [UsersController::class, 'apiKeys']);
         $r->addRoute('POST', '/users/{username}/api-keys', [UsersController::class, 'createApiKey']);
         $r->addRoute('DELETE', '/users/{username}/api-keys/{keyId}', [UsersController::class, 'deleteApiKey']);
@@ -349,6 +355,10 @@ $r->addRoute('GET', '/gpm/themes/{slug}/field/{type}', [GpmController::class, 'c
 
         // Translations
         $r->addRoute('GET', '/translations/{lang}', [SystemController::class, 'translations']);
+
+        // Login settings (admin-relevant subset of plugins.login config)
+        $r->addRoute('GET', '/login-settings/data', [LoginSettingsController::class, 'data']);
+        $r->addRoute('PATCH', '/login-settings/save', [LoginSettingsController::class, 'save']);
 
         // Menubar
         $r->addRoute('GET', '/menubar/items', [MenubarController::class, 'items']);

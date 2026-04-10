@@ -108,7 +108,17 @@ class UsersController extends AbstractApiController
         $username = $this->getRouteParam($request, 'username');
         $user = $this->loadUserOrFail($username);
 
-        return $this->respondWithEtag($this->serializeUser($user));
+        $data = $this->serializeUser($user);
+
+        // ETag is computed from the user data only — system capability flags
+        // like twofa_global_enabled are not part of the resource state and
+        // shouldn't cause spurious 409s on PATCH when the admin flips the
+        // global setting between fetch and save.
+        $etag = $this->generateEtag($data);
+
+        $data['twofa_global_enabled'] = (bool) $this->config->get('plugins.login.twofa_enabled', false);
+
+        return ApiResponse::create($data, 200, ['ETag' => '"' . $etag . '"']);
     }
 
     public function create(ServerRequestInterface $request): ResponseInterface
@@ -381,6 +391,9 @@ class UsersController extends AbstractApiController
 
         // Save to user
         $user->set('twofa_secret', $formattedSecret);
+        // Generating/regenerating a secret resets the enabled flag — the user
+        // must verify a code against the new secret to re-enable.
+        $user->set('twofa_enabled', false);
         $user->save();
 
         // Generate QR code data URI
@@ -390,6 +403,105 @@ class UsersController extends AbstractApiController
             'secret' => $formattedSecret,
             'qr_code' => $qrImage,
         ]);
+    }
+
+    /**
+     * POST /users/{username}/2fa/enable - Verify a code against the stored
+     * secret and set twofa_enabled=true. Self-only: only the account owner
+     * can enable their own 2FA, because enabling requires proving you hold
+     * the secret (otherwise an attacker could lock a user out by enabling
+     * 2FA with a secret they don't control).
+     */
+    public function enable2fa(ServerRequestInterface $request): ResponseInterface
+    {
+        $username = $this->getRouteParam($request, 'username');
+        $user = $this->loadUserOrFail($username);
+
+        $currentUser = $this->getUser($request);
+        if ($currentUser->username !== $username) {
+            throw new ForbiddenException('Only the account owner can enable 2FA.');
+        }
+
+        $body = $this->getRequestBody($request);
+        $this->requireFields($body, ['code']);
+
+        if (!class_exists(\Grav\Plugin\Login\TwoFactorAuth\TwoFactorAuth::class)) {
+            throw new \Grav\Plugin\Api\Exceptions\ApiException(
+                500,
+                '2FA Not Available',
+                'The Login plugin with 2FA support must be installed.',
+            );
+        }
+
+        $secret = (string) $user->get('twofa_secret');
+        if ($secret === '') {
+            throw new ValidationException('2FA secret has not been generated. POST /users/{username}/2fa first.');
+        }
+
+        $twoFa = new \Grav\Plugin\Login\TwoFactorAuth\TwoFactorAuth();
+        if (!$twoFa->verifyCode($secret, (string) $body['code'])) {
+            throw new ValidationException('Invalid 2FA code.');
+        }
+
+        $user->set('twofa_enabled', true);
+        $user->save();
+
+        $this->fireEvent('onApiUser2faEnabled', ['user' => $user]);
+
+        return ApiResponse::create(['twofa_enabled' => true]);
+    }
+
+    /**
+     * POST /users/{username}/2fa/disable - Disable 2FA for a user.
+     *
+     * Self-disable requires a valid current TOTP code so that a stolen
+     * session cannot unilaterally remove 2FA. Admins with api.users.write
+     * (or superadmin) can force-disable without a code — used for lost-
+     * device recovery. Both paths clear twofa_secret.
+     */
+    public function disable2fa(ServerRequestInterface $request): ResponseInterface
+    {
+        $username = $this->getRouteParam($request, 'username');
+        $user = $this->loadUserOrFail($username);
+
+        $currentUser = $this->getUser($request);
+        $isSelf = $currentUser->username === $username;
+        $isAdmin = $this->isSuperAdmin($currentUser) || $this->hasPermission($currentUser, 'api.users.write');
+
+        if (!$isSelf && !$isAdmin) {
+            throw new ForbiddenException('You do not have permission to disable 2FA for this user.');
+        }
+
+        if ($isSelf && !$isAdmin) {
+            // Self-disable without admin privilege requires code verification.
+            $body = $this->getRequestBody($request);
+            $this->requireFields($body, ['code']);
+
+            if (!class_exists(\Grav\Plugin\Login\TwoFactorAuth\TwoFactorAuth::class)) {
+                throw new \Grav\Plugin\Api\Exceptions\ApiException(
+                    500,
+                    '2FA Not Available',
+                    'The Login plugin with 2FA support must be installed.',
+                );
+            }
+
+            $secret = (string) $user->get('twofa_secret');
+            $twoFa = new \Grav\Plugin\Login\TwoFactorAuth\TwoFactorAuth();
+            if (!$secret || !$twoFa->verifyCode($secret, (string) $body['code'])) {
+                throw new ValidationException('Invalid 2FA code.');
+            }
+        }
+
+        $user->set('twofa_enabled', false);
+        $user->set('twofa_secret', '');
+        $user->save();
+
+        $this->fireEvent('onApiUser2faDisabled', [
+            'user' => $user,
+            'forced_by_admin' => !$isSelf,
+        ]);
+
+        return ApiResponse::create(['twofa_enabled' => false]);
     }
 
     public function apiKeys(ServerRequestInterface $request): ResponseInterface

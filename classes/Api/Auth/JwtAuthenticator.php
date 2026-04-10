@@ -72,6 +72,59 @@ class JwtAuthenticator implements AuthenticatorInterface
     }
 
     /**
+     * Generate a short-lived, single-use challenge token for flows like 2FA
+     * verification or password reset handoff. The $purpose field is stored in
+     * the token's `type` claim and must match on validation.
+     */
+    public function generateChallengeToken(UserInterface $user, string $purpose, int $ttl = 300): string
+    {
+        $secret = $this->getSecret();
+        $algorithm = $this->config->get('plugins.api.auth.jwt_algorithm', 'HS256');
+
+        $payload = [
+            'iss' => 'grav-api',
+            'sub' => $user->username,
+            'iat' => time(),
+            'exp' => time() + $ttl,
+            'type' => $purpose,
+            'jti' => bin2hex(random_bytes(16)),
+        ];
+
+        return JWT::encode($payload, $secret, $algorithm);
+    }
+
+    /**
+     * Validate a challenge token and return the associated user. The token must
+     * carry the expected purpose in its `type` claim and must not have been
+     * revoked. Returns null if invalid, expired, or revoked.
+     */
+    public function validateChallengeToken(string $token, string $expectedPurpose): ?UserInterface
+    {
+        try {
+            $secret = $this->getSecret();
+            $algorithm = $this->config->get('plugins.api.auth.jwt_algorithm', 'HS256');
+
+            $decoded = JWT::decode($token, new Key($secret, $algorithm));
+
+            if (($decoded->type ?? null) !== $expectedPurpose) {
+                return null;
+            }
+
+            if ($this->isTokenRevoked($decoded->jti ?? '')) {
+                return null;
+            }
+
+            /** @var UserCollectionInterface $accounts */
+            $accounts = $this->grav['accounts'];
+            $user = $accounts->load($decoded->sub);
+
+            return $user->exists() ? $user : null;
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    /**
      * Validate a refresh token and return the associated user.
      */
     public function validateRefreshToken(string $token): ?UserInterface

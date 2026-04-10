@@ -36,6 +36,8 @@ class ApiPlugin extends Plugin
                 ['onRequestHandlerInit', 99000],
             ],
             'onBeforeCacheClear' => ['onBeforeCacheClear', 0],
+            'onApiSidebarItems' => ['onApiSidebarItems', 0],
+            'onApiPluginPageInfo' => ['onApiPluginPageInfo', 0],
             PermissionsRegisterEvent::class => ['onRegisterPermissions', 1000],
         ];
     }
@@ -75,6 +77,13 @@ class ApiPlugin extends Plugin
         if ($this->active) {
             // Disable pages processing for API requests - we don't need Twig/templates
             $this->grav['pages']->disablePages();
+
+            // Register the plugin's templates path so server-side operations
+            // that need to render Twig (e.g. password reset emails composed
+            // by AuthController) can find emails/api/*.html.twig.
+            $this->enable([
+                'onTwigTemplatePaths' => ['onTwigTemplatePaths', 0],
+            ]);
             return;
         }
 
@@ -290,5 +299,79 @@ class ApiPlugin extends Plugin
     {
         $actions = PermissionsReader::fromYaml("plugin://{$this->name}/permissions.yaml");
         $event->permissions->addActions($actions);
+    }
+
+    /**
+     * Register the "Login & Security" sidebar entry. Only appears for
+     * users who can edit login settings. Gated here so non-admin users
+     * never see it in their navigation.
+     */
+    public function onApiSidebarItems(Event $event): void
+    {
+        // Only show if the login plugin is installed.
+        if (!class_exists(\Grav\Plugin\Login\Login::class)) {
+            return;
+        }
+
+        $user = $event['user'] ?? null;
+        if (!$user) {
+            return;
+        }
+
+        $canSee = (bool) $user->get('access.admin.super')
+            || (bool) $user->get('access.api.login-settings.read')
+            || (bool) $user->get('access.api.login-settings.write');
+
+        if (!$canSee) {
+            return;
+        }
+
+        $items = $event['items'] ?? [];
+        $items[] = [
+            'id'       => 'login-settings',
+            'plugin'   => 'login-settings',
+            'label'    => 'Login & Security',
+            'icon'     => 'fa-shield-alt',
+            'route'    => '/plugin/login-settings',
+            'priority' => 3,
+        ];
+        $event['items'] = $items;
+    }
+
+    /**
+     * Return the plugin page definition for the "login-settings" virtual
+     * page. The slug is served by the API plugin on behalf of the login
+     * plugin so we don't have to add admin-next files to a third-party
+     * upstream. The blueprint is filtered to only admin-relevant fields —
+     * frontend routing and registration settings stay out.
+     */
+    public function onApiPluginPageInfo(Event $event): void
+    {
+        if (($event['plugin'] ?? null) !== 'login-settings') {
+            return;
+        }
+
+        if (!class_exists(\Grav\Plugin\Login\Login::class)) {
+            return;
+        }
+
+        $event['definition'] = [
+            'id'            => 'login-settings',
+            'plugin'        => 'api',
+            'title'         => 'Login & Security',
+            'icon'          => 'fa-shield-alt',
+            'page_type'     => 'blueprint',
+            'blueprint'     => 'login-settings',
+            'data_endpoint' => '/login-settings/data',
+            'save_endpoint' => '/login-settings/save',
+            'actions'       => [
+                [
+                    'id'      => 'save',
+                    'label'   => 'Save',
+                    'icon'    => 'fa-check',
+                    'primary' => true,
+                ],
+            ],
+        ];
     }
 }
