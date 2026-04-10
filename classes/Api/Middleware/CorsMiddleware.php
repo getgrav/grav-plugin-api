@@ -50,9 +50,11 @@ class CorsMiddleware
         }
 
         $exposeHeaders = (array) $this->config->get('plugins.api.cors.expose_headers', []);
-        if ($exposeHeaders) {
-            $response = $response->withHeader('Access-Control-Expose-Headers', implode(', ', $exposeHeaders));
+        // Always expose X-Invalidates so the client can read cache invalidation tags
+        if (!in_array('X-Invalidates', $exposeHeaders)) {
+            $exposeHeaders[] = 'X-Invalidates';
         }
+        $response = $response->withHeader('Access-Control-Expose-Headers', implode(', ', $exposeHeaders));
 
         return $response;
     }
