@@ -22,7 +22,7 @@ class UserSerializer implements SerializerInterface
             'language' => $resource->get('language', ''),
             'content_editor' => $resource->get('content_editor', ''),
             'access' => $resource->get('access', []),
-            'avatar_url' => $this->resolveAvatarUrl($resource),
+            'avatar_url' => self::resolveAvatarUrl($resource),
             'twofa_enabled' => (bool) $resource->get('twofa_enabled', false),
             'twofa_secret' => $resource->get('twofa_secret') ? true : false,
             'created' => $this->formatTimestamp($resource->get('created')),
@@ -34,7 +34,7 @@ class UserSerializer implements SerializerInterface
      * Resolve the avatar URL for a user.
      * Returns the URL to an uploaded avatar, or null if none exists.
      */
-    private function resolveAvatarUrl(UserInterface $resource): ?string
+    public static function resolveAvatarUrl(UserInterface $resource): ?string
     {
         $avatar = $resource->get('avatar');
 

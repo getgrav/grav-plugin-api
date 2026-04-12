@@ -81,12 +81,3 @@ actions:
         label: View Webhooks
       write:
         label: Manage Webhooks
-
-  api.login-settings:
-    type: access
-    label: Login Settings API
-    actions:
-      read:
-        label: View Login Settings
-      write:
-        label: Edit Login Settings

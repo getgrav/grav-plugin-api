@@ -16,27 +16,44 @@ use RocketTheme\Toolbox\Event\Event;
  *
  * Item format:
  *   [
- *     'id'       => 'license-manager',      // unique identifier
- *     'plugin'   => 'license-manager',      // owning plugin slug
- *     'label'    => 'License Manager',      // display name
- *     'icon'     => 'fa-key',              // FA icon class
- *     'route'    => '/plugin/license-manager', // admin-next route
- *     'priority' => 0,                      // sort order (higher = earlier)
- *     'badge'    => null,                   // optional badge text/count
+ *     'id'        => 'license-manager',      // unique identifier
+ *     'plugin'    => 'license-manager',      // owning plugin slug
+ *     'label'     => 'License Manager',      // display name
+ *     'icon'      => 'fa-key',              // FA icon class
+ *     'route'     => '/plugin/license-manager', // admin-next route
+ *     'priority'  => 0,                      // sort order (higher = earlier)
+ *     'badge'     => null,                   // optional badge text/count
+ *     'authorize' => 'api.some.permission',  // optional — filter by user permission
  *   ]
  */
 class SidebarController extends AbstractApiController
 {
     /**
-     * GET /sidebar/items — Collect sidebar items from plugins.
+     * GET /sidebar/items — Collect sidebar items from plugins, filtered by
+     * the current user's permissions.
      */
     public function items(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'api.access');
 
-        $event = new Event(['items' => [], 'user' => $this->getUser($request)]);
+        $user = $this->getUser($request);
+        $event = new Event(['items' => [], 'user' => $user]);
         $this->grav->fireEvent('onApiSidebarItems', $event);
 
-        return ApiResponse::create($event['items']);
+        $isSuperAdmin = $this->isSuperAdmin($user);
+        $filtered = [];
+        foreach ($event['items'] as $item) {
+            $authorize = $item['authorize'] ?? null;
+            if ($authorize !== null && !$isSuperAdmin && !$this->hasPermission($user, $authorize)) {
+                continue;
+            }
+            // Strip the authorize field — it's a server-side annotation, not client data
+            unset($item['authorize']);
+            $filtered[] = $item;
+        }
+
+        usort($filtered, fn($a, $b) => ($b['priority'] ?? 0) <=> ($a['priority'] ?? 0));
+
+        return ApiResponse::create($filtered);
     }
 }

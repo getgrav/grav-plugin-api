@@ -15,12 +15,12 @@ use Grav\Plugin\Api\Controllers\BlueprintController;
 use Grav\Plugin\Api\Controllers\ConfigController;
 use Grav\Plugin\Api\Controllers\DashboardController;
 use Grav\Plugin\Api\Controllers\GpmController;
-use Grav\Plugin\Api\Controllers\LoginSettingsController;
 use Grav\Plugin\Api\Controllers\MediaController;
 use Grav\Plugin\Api\Controllers\SchedulerController;
 use Grav\Plugin\Api\Controllers\PagesController;
 use Grav\Plugin\Api\Controllers\ReportsController;
 use Grav\Plugin\Api\Controllers\MenubarController;
+use Grav\Plugin\Api\Controllers\SettingsController;
 use Grav\Plugin\Api\Controllers\SidebarController;
 use Grav\Plugin\Api\Controllers\FloatingWidgetController;
 use Grav\Plugin\Api\Controllers\ContextPanelController;
@@ -217,6 +217,9 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('POST', '/auth/forgot-password', [AuthController::class, 'forgotPassword']);
         $r->addRoute('POST', '/auth/reset-password', [AuthController::class, 'resetPassword']);
 
+        // Current user profile + resolved permissions (protected — auth required)
+        $r->addRoute('GET', '/me', [AuthController::class, 'me']);
+
         // Languages
         $r->addRoute('GET', '/languages', [PagesController::class, 'siteLanguages']);
 
@@ -356,16 +359,15 @@ $r->addRoute('GET', '/gpm/themes/{slug}/field/{type}', [GpmController::class, 'c
         // Translations
         $r->addRoute('GET', '/translations/{lang}', [SystemController::class, 'translations']);
 
-        // Login settings (admin-relevant subset of plugins.login config)
-        $r->addRoute('GET', '/login-settings/data', [LoginSettingsController::class, 'data']);
-        $r->addRoute('PATCH', '/login-settings/save', [LoginSettingsController::class, 'save']);
-
         // Menubar
         $r->addRoute('GET', '/menubar/items', [MenubarController::class, 'items']);
         $r->addRoute('POST', '/menubar/actions/{plugin}/{action}', [MenubarController::class, 'executeAction']);
 
         // Sidebar
         $r->addRoute('GET', '/sidebar/items', [SidebarController::class, 'items']);
+
+        // Admin-next settings panels (plugins register via onApiAdminSettingsPanels)
+        $r->addRoute('GET', '/settings/panels', [SettingsController::class, 'panels']);
 
         // Floating Widgets
         $r->addRoute('GET', '/floating-widgets', [FloatingWidgetController::class, 'items']);

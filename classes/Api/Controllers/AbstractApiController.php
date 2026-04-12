@@ -11,6 +11,7 @@ use Grav\Common\User\Interfaces\UserInterface;
 use Grav\Plugin\Api\Exceptions\ForbiddenException;
 use Grav\Plugin\Api\Exceptions\UnauthorizedException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
+use Grav\Plugin\Api\PermissionResolver;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -68,12 +69,21 @@ abstract class AbstractApiController
     }
 
     /**
-     * Check user permission via direct access array lookup.
+     * Check user permission with parent-key inheritance.
+     *
+     * Granting "api.pages" implicitly covers "api.pages.read" via walk-up
+     * resolution, matching how Grav's core ACL resolves permissions.
      */
     protected function hasPermission(UserInterface $user, string $permission): bool
     {
-        // Convert dot notation (api.pages.read) to access array path (access.api.pages.read)
-        return (bool) $user->get('access.' . $permission);
+        return (bool) $this->getPermissionResolver()->resolve($user, $permission);
+    }
+
+    private ?PermissionResolver $permissionResolver = null;
+
+    protected function getPermissionResolver(): PermissionResolver
+    {
+        return $this->permissionResolver ??= new PermissionResolver($this->grav['permissions']);
     }
 
     /**

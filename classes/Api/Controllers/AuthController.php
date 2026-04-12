@@ -12,7 +12,9 @@ use Grav\Plugin\Api\Exceptions\ForbiddenException;
 use Grav\Plugin\Api\Exceptions\TooManyRequestsException;
 use Grav\Plugin\Api\Exceptions\UnauthorizedException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
+use Grav\Plugin\Api\PermissionResolver;
 use Grav\Plugin\Api\Response\ApiResponse;
+use Grav\Plugin\Api\Serializers\UserSerializer;
 use Grav\Plugin\Login\Login;
 use Grav\Plugin\Login\TwoFactorAuth\TwoFactorAuth;
 use Psr\Http\Message\ResponseInterface;
@@ -448,17 +450,54 @@ class AuthController extends AbstractApiController
         ]);
     }
 
+    /**
+     * GET /me — Return the authenticated user's profile and resolved permissions.
+     */
+    public function me(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.access');
+
+        $user = $this->getUser($request);
+        $isSuperAdmin = $this->isSuperAdmin($user);
+
+        $resolver = $this->getPermissionResolver();
+        $resolvedAccess = $resolver->resolvedMap($user, $isSuperAdmin);
+
+        return ApiResponse::create([
+            'username'    => $user->username,
+            'fullname'    => $user->get('fullname'),
+            'email'       => $user->get('email'),
+            'avatar_url'  => UserSerializer::resolveAvatarUrl($user),
+            'super_admin' => $isSuperAdmin,
+            'access'      => $resolvedAccess,
+            'content_editor' => $user->get('content_editor', ''),
+        ]);
+    }
+
     private function issueTokenPair(JwtAuthenticator $jwt, UserInterface $user): ResponseInterface
     {
         $accessToken = $jwt->generateAccessToken($user);
         $refreshToken = $jwt->generateRefreshToken($user);
         $expiresIn = (int) $this->config->get('plugins.api.auth.jwt_expiry', 3600);
 
+        $isSuperAdmin = $this->isSuperAdmin($user);
+        $resolver = $this->getPermissionResolver();
+        $resolvedAccess = $resolver->resolvedMap($user, $isSuperAdmin);
+
         return ApiResponse::create([
-            'access_token' => $accessToken,
+            'access_token'  => $accessToken,
             'refresh_token' => $refreshToken,
-            'token_type' => 'Bearer',
-            'expires_in' => $expiresIn,
+            'token_type'    => 'Bearer',
+            'expires_in'    => $expiresIn,
+            'user' => [
+                'username'    => $user->username,
+                'fullname'    => $user->get('fullname'),
+                'email'       => $user->get('email'),
+                'avatar_url'  => UserSerializer::resolveAvatarUrl($user),
+                'super_admin' => $isSuperAdmin,
+                'access'      => $resolvedAccess,
+                'content_editor' => $user->get('content_editor', ''),
+            ],
         ]);
     }
 
