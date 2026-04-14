@@ -6,7 +6,7 @@ Built for the AI-native era — designed to work seamlessly with AI agents, MCP 
 
 ## Requirements
 
-- Grav CMS 1.8+
+- Grav CMS 2.0+
 - PHP 8.3+
 - Login Plugin 3.8+
 
