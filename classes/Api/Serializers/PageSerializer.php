@@ -27,6 +27,10 @@ class PageSerializer implements SerializerInterface
 
         $data = [
             'route' => $resource->route(),
+            // Structural route — for the home page, route() returns the
+            // public alias '/' but rawRoute() returns the actual page like
+            // '/home'. Clients editing/finding pages should prefer this.
+            'raw_route' => $resource->rawRoute(),
             'slug' => $resource->slug(),
             'title' => $resource->title(),
             'menu' => $resource->menu(),

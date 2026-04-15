@@ -12,6 +12,7 @@ use Grav\Events\PermissionsRegisterEvent;
 use Grav\Framework\Acl\PermissionsReader;
 use Grav\Plugin\Api\ApiRouter;
 use Grav\Plugin\Api\Auth\ApiKeyManager;
+use Grav\Plugin\Api\Popularity\PopularityTracker;
 use Grav\Plugin\Api\Webhooks\WebhookDispatcher;
 use RocketTheme\Toolbox\Event\Event;
 
@@ -71,6 +72,14 @@ class ApiPlugin extends Plugin
     {
         // Register webhook event listeners (always active, not just on API routes)
         $this->registerWebhookListeners();
+
+        // Page-view tracking subscribes for FRONTEND requests only — the
+        // handler itself short-circuits for admin/API/non-page requests.
+        if (!$this->active && !$this->isAdmin()) {
+            $this->enable([
+                'onPageInitialized' => ['onFrontendPageInitialized', 0],
+            ]);
+        }
 
         if ($this->active) {
             // Disable pages processing for API requests - we don't need Twig/templates
@@ -297,6 +306,15 @@ class ApiPlugin extends Plugin
     {
         $actions = PermissionsReader::fromYaml("plugin://{$this->name}/permissions.yaml");
         $event->permissions->addActions($actions);
+    }
+
+    /**
+     * Track a frontend page view. Replaces admin-classic's Popularity
+     * tracker so popularity stats keep working in admin-next-only installs.
+     */
+    public function onFrontendPageInitialized(): void
+    {
+        (new PopularityTracker())->trackHit();
     }
 
 }

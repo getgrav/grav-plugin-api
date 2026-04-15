@@ -50,3 +50,13 @@ flex_backend:
 pagination:
   default_per_page: 20
   max_per_page: 100
+
+popularity:
+  enabled: true
+  history:
+    daily: 30
+    monthly: 12
+    visitors: 20
+  ignore:
+    - '/test*'
+    - '/modular'
