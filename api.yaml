@@ -1,4 +1,4 @@
-enabled: false
+enabled: true
 route: /api
 version_prefix: v1
 
