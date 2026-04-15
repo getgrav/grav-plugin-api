@@ -8,11 +8,13 @@ use Grav\Common\Config\Config;
 use Grav\Common\Grav;
 use Grav\Common\Page\Interfaces\PageInterface;
 use Grav\Common\User\Interfaces\UserInterface;
+use Grav\Plugin\Api\Auth\JwtAuthenticator;
 use Grav\Plugin\Api\Exceptions\ForbiddenException;
 use Grav\Plugin\Api\Exceptions\UnauthorizedException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\PermissionResolver;
 use Grav\Plugin\Api\Response\ApiResponse;
+use Grav\Plugin\Api\Serializers\UserSerializer;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use RocketTheme\Toolbox\Event\Event;
@@ -60,12 +62,16 @@ abstract class AbstractApiController
     }
 
     /**
-     * Check if user is a super admin via direct access array lookup.
-     * Grav's authorize() requires admin context, so we check directly.
+     * Check if user is an API super user via direct access array lookup.
+     *
+     * API authority is strictly scoped to access.api.super — admin.super
+     * (admin-classic's legacy global super) is intentionally NOT honored
+     * here. Grav 2.0 separates admin-classic and API/Admin-Next authority
+     * so operators can grant one without implicitly granting the other.
      */
     protected function isSuperAdmin(UserInterface $user): bool
     {
-        return (bool) $user->get('access.admin.super');
+        return (bool) $user->get('access.api.super');
     }
 
     /**
@@ -311,6 +317,33 @@ abstract class AbstractApiController
      * changes would silently bypass them. This method ensures compatibility by
      * firing the same events with the same data signatures the admin uses.
      */
+    protected function issueTokenPair(JwtAuthenticator $jwt, UserInterface $user): ResponseInterface
+    {
+        $accessToken = $jwt->generateAccessToken($user);
+        $refreshToken = $jwt->generateRefreshToken($user);
+        $expiresIn = (int) $this->config->get('plugins.api.auth.jwt_expiry', 3600);
+
+        $isSuperAdmin = $this->isSuperAdmin($user);
+        $resolver = $this->getPermissionResolver();
+        $resolvedAccess = $resolver->resolvedMap($user, $isSuperAdmin);
+
+        return ApiResponse::create([
+            'access_token'  => $accessToken,
+            'refresh_token' => $refreshToken,
+            'token_type'    => 'Bearer',
+            'expires_in'    => $expiresIn,
+            'user' => [
+                'username'    => $user->username,
+                'fullname'    => $user->get('fullname'),
+                'email'       => $user->get('email'),
+                'avatar_url'  => UserSerializer::resolveAvatarUrl($user),
+                'super_admin' => $isSuperAdmin,
+                'access'      => $resolvedAccess,
+                'content_editor' => $user->get('content_editor', ''),
+            ],
+        ]);
+    }
+
     protected function fireAdminEvent(string $name, array $data = []): Event
     {
         // Ensure $grav['page'] is set when firing page-related admin events.

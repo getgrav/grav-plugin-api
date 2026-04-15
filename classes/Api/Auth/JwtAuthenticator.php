@@ -225,8 +225,17 @@ class JwtAuthenticator implements AuthenticatorInterface
             $secret = bin2hex(random_bytes(32));
             $this->config->set('plugins.api.auth.jwt_secret', $secret);
 
-            // Persist the generated secret
-            $file = $this->grav['locator']->findResource('user://config/plugins/api.yaml', true, true);
+            // Persist the generated secret (honors environment override)
+            $locator = $this->grav['locator'];
+            $file = $locator->findResource('config://plugins/api.yaml', true, true);
+            if (!$file) {
+                $configDir = $locator->findResource('config://', true, true);
+                $file = $configDir . '/plugins/api.yaml';
+            }
+            $dir = dirname($file);
+            if (!is_dir($dir)) {
+                mkdir($dir, 0775, true);
+            }
             $yaml = \Grav\Common\Yaml::parse(file_exists($file) ? file_get_contents($file) : '') ?? [];
             $yaml['auth']['jwt_secret'] = $secret;
             file_put_contents($file, \Grav\Common\Yaml::dump($yaml));

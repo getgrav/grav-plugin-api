@@ -169,12 +169,15 @@ class ConfigController extends AbstractApiController
     /**
      * Resolve the config file path for a given scope.
      *
-     * Uses the base user/config path (not environment-specific) so revisions
-     * are stored alongside the same files that admin-classic uses.
+     * Uses the `config://` stream so the path honors Grav's environment
+     * override (e.g. user/env/localhost/config) the same way admin-classic does.
      */
     private function resolveConfigFile(string $scope): ?string
     {
-        $configDir = GRAV_ROOT . '/user/config';
+        $configDir = $this->grav['locator']->findResource('config://', true, true);
+        if (!$configDir) {
+            return null;
+        }
 
         return match (true) {
             $scope === 'system' => $configDir . '/system.yaml',
@@ -241,7 +244,7 @@ class ConfigController extends AbstractApiController
      */
     private function writeConfigFile(string $scope, mixed $data): void
     {
-        $configDir = $this->grav['locator']->findResource('user://config', true, true);
+        $configDir = $this->grav['locator']->findResource('config://', true, true);
         $yaml = Yaml::dump($data);
 
         $filePath = match (true) {

@@ -21,6 +21,7 @@ use Grav\Plugin\Api\Controllers\PagesController;
 use Grav\Plugin\Api\Controllers\ReportsController;
 use Grav\Plugin\Api\Controllers\MenubarController;
 use Grav\Plugin\Api\Controllers\SettingsController;
+use Grav\Plugin\Api\Controllers\SetupController;
 use Grav\Plugin\Api\Controllers\SidebarController;
 use Grav\Plugin\Api\Controllers\FloatingWidgetController;
 use Grav\Plugin\Api\Controllers\ContextPanelController;
@@ -216,6 +217,8 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('POST', '/auth/revoke', [AuthController::class, 'revoke']);
         $r->addRoute('POST', '/auth/forgot-password', [AuthController::class, 'forgotPassword']);
         $r->addRoute('POST', '/auth/reset-password', [AuthController::class, 'resetPassword']);
+        $r->addRoute('GET',  '/auth/setup', [SetupController::class, 'status']);
+        $r->addRoute('POST', '/auth/setup', [SetupController::class, 'create']);
 
         // Current user profile + resolved permissions (protected — auth required)
         $r->addRoute('GET', '/me', [AuthController::class, 'me']);
