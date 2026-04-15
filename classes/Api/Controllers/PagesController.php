@@ -136,10 +136,11 @@ class PagesController extends AbstractApiController
         };
         $collection = $collection->sort([$flexSortField => $sortOrder]);
 
-        // Skip root page
+        // Skip the virtual pages-root container (no file on disk). The home
+        // page IS a real file-backed page even though its route is '/'.
         $items = [];
         foreach ($collection as $page) {
-            if ($page instanceof PageInterface && $page->route() && $page->route() !== '/') {
+            if ($page instanceof PageInterface && $page->route() && $page->exists()) {
                 $items[] = $page;
             }
         }
@@ -1433,8 +1434,9 @@ class PagesController extends AbstractApiController
         $pages = [];
 
         foreach ($instances as $page) {
-            // Skip the root page
-            if (!$page->route() || $page->route() === '/') {
+            // Skip the virtual pages-root container (no file on disk).
+            // The home page is a real file-backed page with route '/'.
+            if (!$page->route() || !$page->exists()) {
                 continue;
             }
 

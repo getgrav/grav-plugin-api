@@ -208,7 +208,9 @@ class DashboardController extends AbstractApiController
         $publishedPages = 0;
 
         foreach ($allPages as $page) {
-            if (!$page->route() || $page->route() === '/') {
+            // Skip the virtual pages-root container (no file on disk); the
+            // home page IS a real file-backed page with route '/'.
+            if (!$page->route() || !$page->exists()) {
                 continue;
             }
             $totalPages++;
@@ -296,78 +298,45 @@ class DashboardController extends AbstractApiController
     /**
      * GET /dashboard/popularity - Page view statistics.
      *
-     * Returns daily, monthly, and per-page totals from the popularity log files
-     * written by the admin plugin's Popularity tracker.
+     * Reads from PopularityStore (single-file flat JSON, ISO date keys).
+     * On first read after an upgrade from admin-classic, the store imports
+     * the legacy four-JSON-file layout transparently.
      */
     public function popularity(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'api.system.read');
 
-        $logDir = $this->grav['locator']->findResource('log://popularity', true);
+        $store = new \Grav\Plugin\Api\Popularity\PopularityStore();
+        $daily = $store->getDaily(365);
+        $monthly = $store->getMonthly(24);
 
-        $daily = [];
-        $monthly = [];
-        $totals = [];
-        $visitors = [];
+        $todayKey = date('Y-m-d');
+        $thisMonthKey = date('Y-m');
 
-        if ($logDir && is_dir($logDir)) {
-            $dailyFile = $logDir . '/daily.json';
-            if (file_exists($dailyFile)) {
-                $daily = json_decode(file_get_contents($dailyFile), true) ?: [];
-            }
+        $todayViews = (int) ($daily[$todayKey] ?? 0);
 
-            $monthlyFile = $logDir . '/monthly.json';
-            if (file_exists($monthlyFile)) {
-                $monthly = json_decode(file_get_contents($monthlyFile), true) ?: [];
-            }
-
-            $totalsFile = $logDir . '/totals.json';
-            if (file_exists($totalsFile)) {
-                $totals = json_decode(file_get_contents($totalsFile), true) ?: [];
-            }
-
-            $visitorsFile = $logDir . '/visitors.json';
-            if (file_exists($visitorsFile)) {
-                $visitors = json_decode(file_get_contents($visitorsFile), true) ?: [];
-            }
-        }
-
-        // Calculate summary stats
-        $today = date('d-m-Y');
-        $thisWeekStart = date('d-m-Y', strtotime('monday this week'));
-        $thisMonth = date('m-Y');
-
-        $todayViews = $daily[$today] ?? 0;
-
-        // Sum last 7 days
+        // Sum last 7 days from ISO-keyed daily map
         $weekViews = 0;
         for ($i = 0; $i < 7; $i++) {
-            $day = date('d-m-Y', strtotime("-{$i} days"));
-            $weekViews += $daily[$day] ?? 0;
+            $day = date('Y-m-d', strtotime("-{$i} days"));
+            $weekViews += (int) ($daily[$day] ?? 0);
         }
 
-        $monthViews = $monthly[$thisMonth] ?? 0;
+        $monthViews = (int) ($monthly[$thisMonthKey] ?? 0);
 
-        // Sort daily by date for chart (last 14 days)
+        // 14-day chart, oldest first
         $chartData = [];
         for ($i = 13; $i >= 0; $i--) {
-            $day = date('d-m-Y', strtotime("-{$i} days"));
-            $label = date('M j', strtotime("-{$i} days"));
+            $day = date('Y-m-d', strtotime("-{$i} days"));
             $chartData[] = [
-                'date' => $label,
-                'views' => $daily[$day] ?? 0,
+                'date' => date('M j', strtotime("-{$i} days")),
+                'views' => (int) ($daily[$day] ?? 0),
             ];
         }
 
-        // Top pages (sorted by views descending, top 10)
-        arsort($totals);
         $topPages = [];
-        $count = 0;
-        foreach ($totals as $route => $views) {
-            $topPages[] = ['route' => $route, 'views' => $views];
-            if (++$count >= 10) {
-                break;
-            }
+        foreach ($store->getTopPages(10) as $route => $views) {
+            $topPages[] = ['route' => $route, 'views' => (int) $views];
         }
 
         return ApiResponse::create([
