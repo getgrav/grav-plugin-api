@@ -1,4 +1,8 @@
 actions:
+  api.super:
+    label: API Super User
+    type: access
+
   api.access:
     label: API Access
     type: access

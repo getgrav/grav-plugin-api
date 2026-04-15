@@ -1,7 +1,7 @@
-vendor/
 composer.lock
 .idea/
 .DS_Store
 *.cache
 aspen-export.json
 node_modules/
+.phpunit.cache

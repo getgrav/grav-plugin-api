@@ -474,33 +474,6 @@ class AuthController extends AbstractApiController
         ]);
     }
 
-    private function issueTokenPair(JwtAuthenticator $jwt, UserInterface $user): ResponseInterface
-    {
-        $accessToken = $jwt->generateAccessToken($user);
-        $refreshToken = $jwt->generateRefreshToken($user);
-        $expiresIn = (int) $this->config->get('plugins.api.auth.jwt_expiry', 3600);
-
-        $isSuperAdmin = $this->isSuperAdmin($user);
-        $resolver = $this->getPermissionResolver();
-        $resolvedAccess = $resolver->resolvedMap($user, $isSuperAdmin);
-
-        return ApiResponse::create([
-            'access_token'  => $accessToken,
-            'refresh_token' => $refreshToken,
-            'token_type'    => 'Bearer',
-            'expires_in'    => $expiresIn,
-            'user' => [
-                'username'    => $user->username,
-                'fullname'    => $user->get('fullname'),
-                'email'       => $user->get('email'),
-                'avatar_url'  => UserSerializer::resolveAvatarUrl($user),
-                'super_admin' => $isSuperAdmin,
-                'access'      => $resolvedAccess,
-                'content_editor' => $user->get('content_editor', ''),
-            ],
-        ]);
-    }
-
     private function userRequiresTwoFactor(UserInterface $user): bool
     {
         if (!class_exists(TwoFactorAuth::class)) {
