@@ -179,12 +179,24 @@ class JwtAuthenticator implements AuthenticatorInterface
 
     protected function extractBearerToken(ServerRequestInterface $request): ?string
     {
+        // Primary: `X-API-Token` custom header. Preferred because it survives
+        // FPM / FastCGI / CGI setups that silently strip the `Authorization`
+        // header (MAMP's mod_fastcgi being the common trigger). Accepts either
+        // a bare JWT or the traditional `Bearer <jwt>` form.
+        $custom = trim($request->getHeaderLine('X-API-Token'));
+        if ($custom !== '') {
+            return str_starts_with($custom, 'Bearer ') ? substr($custom, 7) : $custom;
+        }
+
+        // Legacy / standards-compliant: `Authorization: Bearer <jwt>`.
+        // Kept for external clients (curl, Postman, CI) and backward compat.
         $header = $request->getHeaderLine('Authorization');
         if (str_starts_with($header, 'Bearer ')) {
             return substr($header, 7);
         }
 
-        // Fallback: check query parameter for direct links (e.g. file downloads)
+        // Fallback: query parameter for direct links (e.g. file downloads
+        // where a browser <a download> tag can't attach a header).
         $params = $request->getQueryParams();
         if (!empty($params['token'])) {
             return $params['token'];

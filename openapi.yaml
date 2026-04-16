@@ -15,8 +15,15 @@ info:
     | Method | Header / mechanism | Best for |
     |---|---|---|
     | **API key** | `X-API-Key: grav_...` | CLI tools, MCP servers, server-to-server, automation |
-    | **JWT Bearer token** | `Authorization: Bearer <token>` | Mobile apps, SPAs, browser-based clients |
+    | **JWT token** (recommended) | `X-API-Token: <token>` | SPAs, mobile apps, admin-next plugin bundles |
+    | **JWT Bearer token** (alt) | `Authorization: Bearer <token>` | Standard HTTP clients on hosts that don't strip the header |
     | **Session cookie** | `grav-site` cookie | Admin panel extensions |
+
+    > Prefer `X-API-Token` over `Authorization: Bearer` when portability matters:
+    > PHP under FastCGI / CGI / PHP-FPM (notably MAMP's `mod_fastcgi`) silently
+    > strips `Authorization` before it reaches the application. A custom `X-*`
+    > header bypasses this entirely. The server accepts either transport for the
+    > same JWT.
 
     **API keys** are long-lived credentials that don't expire by default. Generate
     them via `bin/plugin api keys:generate` or the admin panel. Best for any
@@ -130,8 +137,9 @@ tags:
     description: Serve cached image thumbnails.
 
 security:
-  - bearerAuth: []
+  - apiToken: []
   - apiKey: []
+  - bearerAuth: []
   - sessionAuth: []
 
 paths:
@@ -4658,11 +4666,24 @@ components:
   # Security Schemes
   # ---------------------------------------------------------------------------
   securitySchemes:
+    apiToken:
+      type: apiKey
+      in: header
+      name: X-API-Token
+      description: |
+        Recommended transport for JWT access tokens obtained from `POST /auth/token`.
+        Uses a custom header so the token survives FastCGI / PHP-FPM / CGI environments
+        (MAMP, shared hosts) that strip the standard `Authorization` header before it
+        reaches PHP. Accepts either a bare JWT or the `Bearer <jwt>` form.
+
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: JWT access token obtained from `POST /auth/token`.
+      description: |
+        Alternative transport for JWT access tokens — standard HTTP Bearer semantics.
+        Works on most hosts but may be stripped by some FastCGI / CGI setups; prefer
+        `X-API-Token` when portability across hosts matters.
 
     apiKey:
       type: apiKey
