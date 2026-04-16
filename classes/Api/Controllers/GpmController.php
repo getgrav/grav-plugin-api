@@ -13,6 +13,7 @@ use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Grav\Plugin\Api\Serializers\PackageSerializer;
+use Grav\Plugin\Api\Services\GpmService;
 use Grav\Plugin\Api\Services\ThumbnailService;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -171,11 +172,14 @@ class GpmController extends AbstractApiController
         $updatable = $gpm->getUpdatable();
         $gravInfo = $gpm->getGrav();
 
+        $gravUpdatable = $gravInfo ? $gravInfo->isUpdatable() : false;
+        $total = ($updatable['total'] ?? 0) + ($gravUpdatable ? 1 : 0);
+
         $data = [
             'grav' => [
                 'current' => GRAV_VERSION,
                 'available' => $gravInfo ? $gravInfo->getVersion() : null,
-                'updatable' => $gravInfo ? $gravInfo->isUpdatable() : false,
+                'updatable' => $gravUpdatable,
                 'date' => $gravInfo ? $gravInfo->getDate() : null,
                 'is_symlink' => $gravInfo ? $gravInfo->isSymlink() : false,
             ],
@@ -187,7 +191,7 @@ class GpmController extends AbstractApiController
                 $updatable['themes'] ?? [],
                 ['type' => 'theme', 'installed' => true]
             ),
-            'total' => $updatable['total'] ?? 0,
+            'total' => $total,
             'installed' => $gpm->countInstalled(),
         ];
 
@@ -200,8 +204,6 @@ class GpmController extends AbstractApiController
     public function install(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, self::PERMISSION_WRITE);
-
-        $this->requireAdminGpm();
 
         $body = $this->getRequestBody($request);
         $this->requireFields($body, ['package']);
@@ -248,7 +250,7 @@ class GpmController extends AbstractApiController
         ]);
 
         try {
-            $result = \Grav\Plugin\Admin\Gpm::install($package, [
+            $result = GpmService::install($package, [
                 'theme' => $type === 'theme',
             ]);
         } catch (\Throwable $e) {
@@ -287,8 +289,6 @@ class GpmController extends AbstractApiController
     {
         $this->requirePermission($request, self::PERMISSION_WRITE);
 
-        $this->requireAdminGpm();
-
         $body = $this->getRequestBody($request);
         $this->requireFields($body, ['package']);
 
@@ -311,7 +311,7 @@ class GpmController extends AbstractApiController
         ]);
 
         try {
-            $result = \Grav\Plugin\Admin\Gpm::uninstall($package, []);
+            $result = GpmService::uninstall($package, []);
         } catch (\Throwable $e) {
             throw new ApiException(500, 'Removal Failed', $e->getMessage());
         }
@@ -340,8 +340,6 @@ class GpmController extends AbstractApiController
     {
         $this->requirePermission($request, self::PERMISSION_WRITE);
 
-        $this->requireAdminGpm();
-
         $body = $this->getRequestBody($request);
         $this->requireFields($body, ['package']);
 
@@ -352,8 +350,16 @@ class GpmController extends AbstractApiController
             throw new ValidationException("Package '{$package}' is not updatable or not installed.");
         }
 
+        $isTheme = $gpm->isThemeInstalled($package);
+        $type = $isTheme ? 'theme' : 'plugin';
+
+        $this->fireEvent('onApiBeforePackageUpdate', [
+            'package' => $package,
+            'type' => $type,
+        ]);
+
         try {
-            $result = \Grav\Plugin\Admin\Gpm::update($package, []);
+            $result = GpmService::update($package, $isTheme ? ['theme' => true] : []);
         } catch (\Throwable $e) {
             throw new ApiException(500, 'Update Failed', $e->getMessage());
         }
@@ -363,17 +369,21 @@ class GpmController extends AbstractApiController
             throw new ApiException(500, 'Update Failed', $message);
         }
 
+        $this->fireEvent('onApiPackageUpdated', [
+            'package' => $package,
+            'type' => $type,
+        ]);
+
         return ApiResponse::create(
             [
                 'message' => "Package '{$package}' updated successfully.",
                 'package' => $package,
+                'type' => $type,
             ],
             200,
             $this->invalidationHeaders([
-                'plugins:update:' . $package,
-                'themes:update:' . $package,
-                'plugins:list',
-                'themes:list',
+                $type === 'theme' ? 'themes:update:' . $package : 'plugins:update:' . $package,
+                $type === 'theme' ? 'themes:list' : 'plugins:list',
                 'gpm:update',
             ]),
         );
@@ -386,8 +396,6 @@ class GpmController extends AbstractApiController
     {
         $this->requirePermission($request, self::PERMISSION_WRITE);
 
-        $this->requireAdminGpm();
-
         $gpm = $this->getGpm(true);
         $updatable = $gpm->getUpdatable();
 
@@ -396,7 +404,7 @@ class GpmController extends AbstractApiController
         // Update plugins
         foreach ($updatable['plugins'] ?? [] as $slug => $plugin) {
             try {
-                $result = \Grav\Plugin\Admin\Gpm::update($slug, []);
+                $result = GpmService::update($slug, []);
                 if ($result === true) {
                     $results['updated'][] = $slug;
                 } else {
@@ -410,7 +418,7 @@ class GpmController extends AbstractApiController
         // Update themes
         foreach ($updatable['themes'] ?? [] as $slug => $theme) {
             try {
-                $result = \Grav\Plugin\Admin\Gpm::update($slug, ['theme' => true]);
+                $result = GpmService::update($slug, ['theme' => true]);
                 if ($result === true) {
                     $results['updated'][] = $slug;
                 } else {
@@ -435,8 +443,6 @@ class GpmController extends AbstractApiController
     {
         $this->requirePermission($request, self::PERMISSION_WRITE);
 
-        $this->requireAdminGpm();
-
         $gpm = $this->getGpm(true);
         $gravInfo = $gpm->getGrav();
 
@@ -454,7 +460,7 @@ class GpmController extends AbstractApiController
         ]);
 
         try {
-            $result = \Grav\Plugin\Admin\Gpm::selfupgrade();
+            $result = GpmService::selfupgrade();
         } catch (\Throwable $e) {
             throw new ApiException(500, 'Upgrade Failed', $e->getMessage());
         }
@@ -486,8 +492,6 @@ class GpmController extends AbstractApiController
     {
         $this->requirePermission($request, self::PERMISSION_WRITE);
 
-        $this->requireAdminGpm();
-
         $body = $this->getRequestBody($request);
 
         // Support URL-based install
@@ -510,7 +514,7 @@ class GpmController extends AbstractApiController
         }
 
         try {
-            $result = \Grav\Plugin\Admin\Gpm::directInstall($packageFile);
+            $result = GpmService::directInstall($packageFile);
         } catch (\Throwable $e) {
             // Clean up tmp file on error
             if (isset($tmpFile) && file_exists($tmpFile)) {
@@ -773,20 +777,6 @@ class GpmController extends AbstractApiController
         }
 
         return $result;
-    }
-
-    /**
-     * Ensure the admin Gpm class is available (requires admin plugin).
-     */
-    private function requireAdminGpm(): void
-    {
-        if (!class_exists(\Grav\Plugin\Admin\Gpm::class)) {
-            throw new ApiException(
-                500,
-                'Admin Plugin Required',
-                'GPM write operations require the Grav admin plugin to be installed.'
-            );
-        }
     }
 
     /**
