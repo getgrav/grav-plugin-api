@@ -1,3 +1,9 @@
+# v1.0.0-beta.5
+## 04/16/2026
+
+1. [](#bugfix)
+    * `/auth/token` now delegates password check to `User::authenticate()` so the core trait's plaintext-password fallback fires — restores long-standing Grav behavior (admin-classic, Login plugin, frontend login) where a `password:` declared directly in `user/accounts/*.yaml` auto-hashes on first successful login. Previous direct `Authentication::verify()` call required users to pre-populate `hashed_password`, which broke the "edit yaml and log in" workflow that operators rely on when the CLI is unavailable
+
 # v1.0.0-beta.4
 ## 04/15/2026
 
