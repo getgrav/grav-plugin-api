@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Grav\Plugin\Api\Controllers;
 
-use Grav\Common\User\Authentication;
 use Grav\Common\User\Interfaces\UserCollectionInterface;
 use Grav\Common\User\Interfaces\UserInterface;
 use Grav\Plugin\Api\Auth\JwtAuthenticator;
@@ -39,7 +38,11 @@ class AuthController extends AbstractApiController
         $accounts = $this->grav['accounts'];
         $user = $accounts->load($username);
 
-        if (!$user->exists() || !Authentication::verify($password, $user->get('hashed_password'))) {
+        // Delegate to User::authenticate() so the core trait's plaintext-password
+        // fallback fires (auto-hashes a yaml-declared `password:` field on first
+        // successful login, then saves — same behavior admin-classic and the Login
+        // plugin have always had).
+        if (!$user->exists() || !$user->authenticate($password)) {
             $this->fireEvent('onApiUserLoginFailure', [
                 'username' => $username,
                 'reason' => 'password',
