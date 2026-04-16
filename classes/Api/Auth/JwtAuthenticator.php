@@ -225,20 +225,42 @@ class JwtAuthenticator implements AuthenticatorInterface
             $secret = bin2hex(random_bytes(32));
             $this->config->set('plugins.api.auth.jwt_secret', $secret);
 
-            // Persist the generated secret (honors environment override)
+            // Persist the generated secret so subsequent requests can verify
+            // tokens signed with it. Without persistence every request re-mints
+            // a different secret, producing the classic "login succeeds, next
+            // request 401" reauth loop on a fresh install.
+            //
+            // findResource() with defaults (absolute=true, all=false) returns
+            // either the first existing path or false — the previous third
+            // `true` flag returned an array and silently broke the fallback.
             $locator = $this->grav['locator'];
-            $file = $locator->findResource('config://plugins/api.yaml', true, true);
+            $file = $locator->findResource('config://plugins/api.yaml');
             if (!$file) {
-                $configDir = $locator->findResource('config://', true, true);
+                $configDir = $locator->findResource('config://', true);
+                if (!$configDir) {
+                    if (isset($this->grav['log'])) {
+                        $this->grav['log']->warning('api.auth: could not resolve config:// stream to persist JWT secret; tokens will be single-request only until jwt_secret is configured.');
+                    }
+                    return $secret;
+                }
                 $file = $configDir . '/plugins/api.yaml';
             }
+
             $dir = dirname($file);
-            if (!is_dir($dir)) {
-                mkdir($dir, 0775, true);
+            if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
+                if (isset($this->grav['log'])) {
+                    $this->grav['log']->warning(sprintf('api.auth: could not create %s to persist JWT secret.', $dir));
+                }
+                return $secret;
             }
+
             $yaml = \Grav\Common\Yaml::parse(file_exists($file) ? file_get_contents($file) : '') ?? [];
             $yaml['auth']['jwt_secret'] = $secret;
-            file_put_contents($file, \Grav\Common\Yaml::dump($yaml));
+            if (@file_put_contents($file, \Grav\Common\Yaml::dump($yaml)) === false) {
+                if (isset($this->grav['log'])) {
+                    $this->grav['log']->warning(sprintf('api.auth: could not write JWT secret to %s — tokens will not survive past this request.', $file));
+                }
+            }
         }
 
         return $secret;
