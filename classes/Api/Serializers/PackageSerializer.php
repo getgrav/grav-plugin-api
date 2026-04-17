@@ -20,9 +20,10 @@ class PackageSerializer implements SerializerInterface
             'homepage' => $resource->homepage ?? $resource->url ?? null,
         ];
 
-        // Include enabled status for installed packages
+        // Include enabled status + symlink detection for installed packages
         if ($options['installed'] ?? false) {
             $data['enabled'] = $this->isEnabled($resource, $options);
+            $data['is_symlink'] = $this->isSymlinked($resource, $options);
         }
 
         // Include update info if available
@@ -132,5 +133,17 @@ class PackageSerializer implements SerializerInterface
         // For themes, check if it's the active theme
         $activeTheme = \Grav\Common\Grav::instance()['config']->get('system.pages.theme');
         return $slug === $activeTheme;
+    }
+
+    private function isSymlinked(object $resource, array $options): bool
+    {
+        $type = $options['type'] ?? 'plugin';
+        $slug = $resource->slug ?? $options['slug_key'] ?? '';
+        if (!$slug) {
+            return false;
+        }
+        $scheme = $type === 'theme' ? 'themes' : 'plugins';
+        $path = \Grav\Common\Grav::instance()['locator']->findResource("{$scheme}://{$slug}", true);
+        return $path ? is_link($path) : false;
     }
 }
