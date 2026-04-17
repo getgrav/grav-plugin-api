@@ -474,7 +474,28 @@ class AuthController extends AbstractApiController
             'super_admin' => $isSuperAdmin,
             'access'      => $resolvedAccess,
             'content_editor' => $user->get('content_editor', ''),
+            'grav_version' => GRAV_VERSION,
+            'admin_version' => $this->getAdminPluginVersion(),
         ]);
+    }
+
+    private function getAdminPluginVersion(): ?string
+    {
+        foreach (['admin2', 'admin'] as $slug) {
+            if (!$this->config->get("plugins.{$slug}.enabled", false)) {
+                continue;
+            }
+            $blueprintFile = $this->grav['locator']->findResource("plugins://{$slug}/blueprints.yaml");
+            if (!$blueprintFile || !file_exists($blueprintFile)) {
+                continue;
+            }
+            $data = \Grav\Common\Yaml::parse(file_get_contents($blueprintFile));
+            $version = $data['version'] ?? null;
+            if ($version) {
+                return (string) $version;
+            }
+        }
+        return null;
     }
 
     private function userRequiresTwoFactor(UserInterface $user): bool

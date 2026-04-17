@@ -50,6 +50,35 @@ class PageSerializer implements SerializerInterface
         if ($includeTranslations) {
             $data['translated_languages'] = $resource->translatedLanguages();
             $data['untranslated_languages'] = $resource->untranslatedLanguages();
+
+            // Disambiguate Grav's translated_languages response: when the page
+            // has an untyped base file (e.g. default.md), Grav reports every
+            // site language as "translated" because default.md acts as a
+            // fallback for any active lang. These two fields let admin UIs
+            // tell whether each language is backed by an EXPLICIT file
+            // (default.<lang>.md) or by the implicit default.md fallback.
+            $pagePath = $resource->path();
+            $template = $resource->template();
+            $data['has_default_file'] = $pagePath && $template
+                ? is_file($pagePath . '/' . $template . '.md')
+                : false;
+
+            // List of language codes that have a concrete `{template}.{lang}.md`
+            // file on disk. Everything else in translated_languages is falling
+            // back to default.md. Empty array when multilang is off.
+            $explicit = [];
+            if ($pagePath && $template) {
+                $lang = \Grav\Common\Grav::instance()['language'] ?? null;
+                $langCodes = $lang && method_exists($lang, 'getLanguages')
+                    ? (array) $lang->getLanguages()
+                    : [];
+                foreach ($langCodes as $code) {
+                    if (is_file($pagePath . '/' . $template . '.' . $code . '.md')) {
+                        $explicit[] = $code;
+                    }
+                }
+            }
+            $data['explicit_language_files'] = $explicit;
         }
 
         if ($includeContent) {

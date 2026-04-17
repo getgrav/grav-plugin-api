@@ -66,7 +66,7 @@ if [ -n "$STATIC_API_KEY" ]; then
 else
   echo "→ Creating test API key..."
   KEY_RESPONSE=$(curl ${CURL_OPTS} "${API_BASE}/users/${USERNAME}/api-keys" \
-    -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+    -H "X-API-Token: ${ACCESS_TOKEN}" \
     -H "X-Grav-Environment: ${GRAV_ENV}" \
     -H "Content-Type: application/json" \
     -d '{"name":"Newman Test Key","expires_in_days":1}')
@@ -141,7 +141,7 @@ if [ "$CLEANUP_KEY" = true ] && [ -n "$KEY_ID" ]; then
   echo ""
   echo "→ Cleaning up test API key..."
   curl ${CURL_OPTS} -X DELETE "${API_BASE}/users/${USERNAME}/api-keys/${KEY_ID}" \
-    -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+    -H "X-API-Token: ${ACCESS_TOKEN}" \
     -H "X-Grav-Environment: ${GRAV_ENV}" \
     -o /dev/null -w "  ✓ Revoked test key (HTTP %{http_code})\n"
 fi

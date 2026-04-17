@@ -90,6 +90,86 @@ class JwtAuthenticatorTest extends TestCase
     }
 
     #[Test]
+    public function authenticates_via_x_api_token_bare_jwt(): void
+    {
+        $user = TestHelper::createMockUser('alice');
+        $authenticator = $this->buildAuthenticator(['alice' => $user]);
+
+        $token = JWT::encode([
+            'iss' => 'grav-api',
+            'sub' => 'alice',
+            'iat' => time(),
+            'exp' => time() + 3600,
+            'type' => 'access',
+        ], self::SECRET, self::ALGORITHM);
+
+        $request = TestHelper::createMockRequest(
+            headers: ['X-API-Token' => $token],
+        );
+
+        $result = $authenticator->authenticate($request);
+
+        self::assertNotNull($result);
+        self::assertSame('alice', $result->username);
+    }
+
+    #[Test]
+    public function authenticates_via_x_api_token_with_bearer_prefix(): void
+    {
+        $user = TestHelper::createMockUser('alice');
+        $authenticator = $this->buildAuthenticator(['alice' => $user]);
+
+        $token = JWT::encode([
+            'iss' => 'grav-api',
+            'sub' => 'alice',
+            'iat' => time(),
+            'exp' => time() + 3600,
+            'type' => 'access',
+        ], self::SECRET, self::ALGORITHM);
+
+        $request = TestHelper::createMockRequest(
+            headers: ['X-API-Token' => 'Bearer ' . $token],
+        );
+
+        $result = $authenticator->authenticate($request);
+
+        self::assertNotNull($result);
+        self::assertSame('alice', $result->username);
+    }
+
+    #[Test]
+    public function x_api_token_takes_precedence_over_authorization(): void
+    {
+        $alice = TestHelper::createMockUser('alice');
+        $bob = TestHelper::createMockUser('bob');
+        $authenticator = $this->buildAuthenticator(['alice' => $alice, 'bob' => $bob]);
+
+        $aliceToken = JWT::encode([
+            'iss' => 'grav-api', 'sub' => 'alice', 'iat' => time(),
+            'exp' => time() + 3600, 'type' => 'access',
+        ], self::SECRET, self::ALGORITHM);
+        $bobToken = JWT::encode([
+            'iss' => 'grav-api', 'sub' => 'bob', 'iat' => time(),
+            'exp' => time() + 3600, 'type' => 'access',
+        ], self::SECRET, self::ALGORITHM);
+
+        // X-API-Token carries Alice's JWT; Authorization carries Bob's.
+        // Custom header wins (FPM-stripping hosts may drop Authorization
+        // silently, so we want the survivable channel to be authoritative).
+        $request = TestHelper::createMockRequest(
+            headers: [
+                'X-API-Token' => $aliceToken,
+                'Authorization' => 'Bearer ' . $bobToken,
+            ],
+        );
+
+        $result = $authenticator->authenticate($request);
+
+        self::assertNotNull($result);
+        self::assertSame('alice', $result->username);
+    }
+
+    #[Test]
     public function rejects_expired_token(): void
     {
         $user = TestHelper::createMockUser('bob');

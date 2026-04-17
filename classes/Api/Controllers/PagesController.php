@@ -12,6 +12,7 @@ use Grav\Common\Language\LanguageCodes;
 use Grav\Common\Page\Interfaces\PageInterface;
 use Grav\Common\Page\Page;
 use Grav\Framework\Flex\FlexDirectory;
+use Grav\Plugin\Api\Exceptions\ApiException;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\FlexBackend;
@@ -763,6 +764,112 @@ class PagesController extends AbstractApiController
             return ApiResponse::created(
                 $data,
                 $location,
+                $this->invalidationHeaders(['pages:update:/' . $route, 'pages:list']),
+            );
+        } finally {
+            $this->restoreLanguage($previousLang);
+        }
+    }
+
+    /**
+     * POST /pages/{route}/adopt-language — Claim an untyped default page file
+     * (e.g., "default.md") as belonging to a specific language by renaming it
+     * in-place to "{template}.{lang}.md". Does not modify contents; pure
+     * filesystem rename + cache bust.
+     *
+     * Useful for sites that started single-language (bare default.md) and later
+     * enabled multilang — lets the operator declare "this existing content is
+     * the English version" without editing YAML or re-saving the page.
+     *
+     * Fails if the page already has an explicit file for that language, or if
+     * no untyped base file exists.
+     */
+    public function adoptLanguage(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, self::PERMISSION_WRITE);
+        $this->enablePages();
+
+        $route = $this->getRouteParam($request, 'route');
+        $page = $this->findPageOrFail('/' . $route);
+
+        $body = $this->getRequestBody($request);
+        $this->requireFields($body, ['lang']);
+
+        $lang = (string) $body['lang'];
+        $this->validateLanguageCode($lang);
+
+        if (!$this->isMultiLangEnabled()) {
+            throw new ValidationException('Multi-language is not enabled for this site.');
+        }
+
+        $template = $page->template();
+        $pageDir = $page->path();
+        if (!$pageDir || !is_dir($pageDir)) {
+            throw new NotFoundException("Page directory not found for route: /{$route}");
+        }
+
+        $baseFile = $pageDir . '/' . $template . '.md';
+        if (!is_file($baseFile)) {
+            throw new ValidationException(
+                "No untyped base file ({$template}.md) found for route /{$route}. "
+                . 'Page already uses language-suffixed files — use POST /pages/{route}/translate for new languages.'
+            );
+        }
+
+        // Block only if an EXPLICIT language file already exists. We can't use
+        // $page->translatedLanguages() because Grav reports the default lang
+        // as "translated" whenever default.md exists (the fallback). The
+        // question we actually need to answer is: does default.<lang>.md
+        // exist on disk?
+        $targetFilename = $this->buildPageFilename($template, $lang);
+        $targetFile = $pageDir . '/' . $targetFilename;
+        if (is_file($targetFile)) {
+            throw new ValidationException("A translation file already exists for language '{$lang}'.");
+        }
+
+        // If the config resolves to the same filename (unlikely, but guard),
+        // there's nothing to do — fail cleanly rather than nop-renaming.
+        if (realpath($baseFile) === realpath($targetFile)) {
+            throw new ValidationException(
+                'Target filename resolves to the same path as the base file — '
+                . 'check system.languages.include_default_lang_file_extension.'
+            );
+        }
+
+        $this->fireEvent('onApiBeforePageAdoptLanguage', [
+            'page' => $page,
+            'route' => '/' . $route,
+            'lang' => $lang,
+            'from_file' => $baseFile,
+            'to_file' => $targetFile,
+        ]);
+
+        if (!@rename($baseFile, $targetFile)) {
+            throw new ApiException(500, 'Rename Failed', "Failed to rename '{$baseFile}' to '{$targetFile}'.");
+        }
+
+        $this->clearPagesCache();
+
+        /** @var Language $language */
+        $language = $this->grav['language'];
+        $previousLang = $language->getActive() ?? false;
+        $language->setActive($lang);
+
+        try {
+            $this->enablePages(true);
+            $newPage = $this->grav['pages']->find('/' . $route);
+
+            $this->fireEvent('onApiPageLanguageAdopted', [
+                'page' => $newPage ?? $page,
+                'route' => '/' . $route,
+                'lang' => $lang,
+            ]);
+
+            $data = $this->serializer->serialize($newPage ?? $page);
+
+            return ApiResponse::create(
+                $data,
+                200,
                 $this->invalidationHeaders(['pages:update:/' . $route, 'pages:list']),
             );
         } finally {

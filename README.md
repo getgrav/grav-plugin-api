@@ -101,7 +101,7 @@ curl https://yoursite.com/api/v1/pages?api_key=grav_abc123...
 
 Keys are stored as bcrypt hashes in `user/data/api-keys.yaml`. Each key is associated with a user, can be named, given an optional expiry, and independently revoked. Generate keys via CLI (`bin/plugin api keys:generate`) or the admin panel.
 
-### JWT Bearer Token (recommended for browser apps, mobile apps)
+### JWT Token (recommended for browser apps, mobile apps)
 
 Short-lived credentials ideal for SPAs, mobile apps, and any client-side application where long-lived secrets shouldn't be stored. Access tokens expire after 1 hour (configurable), and refresh tokens allow obtaining new access tokens without re-entering credentials.
 
@@ -128,8 +128,16 @@ Response:
 **Step 2 — Use the access token** for API calls:
 
 ```bash
+# Recommended: X-API-Token custom header (survives FPM/FastCGI header stripping)
+curl -H "X-API-Token: eyJ..." https://yoursite.com/api/v1/pages
+
+# Also accepted: standard Authorization: Bearer
+# (works on most hosts; may be stripped by Apache mod_fastcgi / CGI on MAMP
+#  and similar setups — if that happens, use X-API-Token instead)
 curl -H "Authorization: Bearer eyJ..." https://yoursite.com/api/v1/pages
 ```
+
+> **Why `X-API-Token`?** PHP running under FastCGI / CGI / PHP-FPM can silently strip the `Authorization` header before it reaches the application. A custom `X-*` header bypasses this entirely. The server accepts either; pick the one that works for your host.
 
 **Step 3 — Refresh** before the access token expires (the old refresh token is automatically revoked — token rotation):
 
@@ -711,7 +719,7 @@ cors:
     - https://myapp.example.com
     - https://admin.example.com
   methods: [GET, POST, PATCH, DELETE, OPTIONS]
-  headers: [Content-Type, Authorization, X-API-Key, If-Match]
+  headers: [Content-Type, X-API-Token, X-API-Key, Authorization, If-Match]
   credentials: false
 ```
 
@@ -1098,7 +1106,7 @@ cors:
   enabled: true
   origins: ['*']
   methods: [GET, POST, PATCH, DELETE, OPTIONS]
-  headers: [Content-Type, Authorization, X-API-Key, If-Match, If-None-Match]
+  headers: [Content-Type, X-API-Token, X-API-Key, Authorization, If-Match, If-None-Match]
   expose_headers: [ETag, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset]
   max_age: 86400
   credentials: false
