@@ -92,9 +92,28 @@ class PageSerializer implements SerializerInterface
         $includeSummary = $options['include_summary'] ?? false;
         if ($includeSummary) {
             $summarySize = $options['summary_size'] ?? null;
-            $data['summary'] = $summarySize
-                ? $resource->summary($summarySize)
-                : $resource->summary();
+            // summary() runs the page through the full Twig / shortcode pipeline,
+            // so any page with a plugin shortcode whose dependencies aren't
+            // available in the API request context (e.g. a `[poll]` that wants
+            // the frontend theme's Twig env) can throw — we don't want that to
+            // take down the whole response for something the client is treating
+            // as a preview. Fall back to a plain-text rendering of the raw
+            // markdown, trimmed to the requested size.
+            try {
+                $data['summary'] = $summarySize
+                    ? $resource->summary($summarySize)
+                    : $resource->summary();
+            } catch (\Throwable $e) {
+                $raw = (string) $resource->rawMarkdown();
+                // Strip frontmatter artifacts, shortcodes, markdown syntax.
+                $plain = preg_replace('/\[[^\]]+\s*\/?\]/', '', $raw) ?? $raw;
+                $plain = preg_replace('/[#*_`>]/', '', $plain) ?? $plain;
+                $plain = trim(preg_replace('/\s+/', ' ', $plain) ?? $plain);
+                $max = $summarySize ?: 300;
+                $data['summary'] = mb_strlen($plain) > $max
+                    ? rtrim(mb_substr($plain, 0, $max)) . '…'
+                    : $plain;
+            }
         }
 
         if ($includeMedia) {
