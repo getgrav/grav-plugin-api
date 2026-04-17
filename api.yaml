@@ -25,6 +25,7 @@ cors:
     - Content-Type
     - Authorization
     - X-API-Key
+    - X-API-Token
     - X-Grav-Environment
     - If-Match
     - If-None-Match
