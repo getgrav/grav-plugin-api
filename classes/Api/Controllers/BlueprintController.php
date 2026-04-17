@@ -378,6 +378,13 @@ class BlueprintController extends AbstractApiController
      */
     private function loadPageBlueprint(string $template): ?Blueprint
     {
+        // Ensure plugin-contributed blueprint paths are registered on the
+        // `blueprints://pages/` locator stream. Plugins register custom page
+        // templates via the `onGetPageBlueprints` event, which Pages::getTypes()
+        // collects and maps into the stream (see Pages.php). Without this call,
+        // `blueprints://pages/{template}.yaml` only resolves to system blueprints.
+        $this->ensurePageTypesRegistered();
+
         $merged = $this->resolvePageBlueprintYaml($template, 0);
 
         // Fallback to 'default' if no template-specific blueprint exists
@@ -446,14 +453,23 @@ class BlueprintController extends AbstractApiController
             return null;
         }
 
-        // Resolve extends@ — always resolve from system to avoid self-reference
-        if (isset($data['extends@'])) {
-            $parentTemplate = $data['extends@'];
-            unset($data['extends@']);
+        // Resolve extends directive — supports both legacy `extends@:` and
+        // newer `'@extends':` syntax, each of which may be a plain string
+        // (template name) or an array with `type:` and optional `context:`.
+        // Always resolve the parent from system/blueprints stream to avoid self-reference.
+        $extendsDirective = $data['@extends'] ?? $data['extends@'] ?? null;
+        if ($extendsDirective !== null) {
+            unset($data['@extends'], $data['extends@']);
 
-            $parent = $this->resolvePageBlueprintYaml($parentTemplate, $depth + 1, true);
-            if ($parent) {
-                $data = $this->deepMerge($parent, $data);
+            $parentTemplate = is_array($extendsDirective)
+                ? ($extendsDirective['type'] ?? null)
+                : $extendsDirective;
+
+            if (is_string($parentTemplate) && $parentTemplate !== '') {
+                $parent = $this->resolvePageBlueprintYaml($parentTemplate, $depth + 1, true);
+                if ($parent) {
+                    $data = $this->deepMerge($parent, $data);
+                }
             }
         }
 
@@ -488,11 +504,14 @@ class BlueprintController extends AbstractApiController
         foreach ($fields as $key => &$field) {
             if (!is_array($field)) continue;
 
-            // Handle import@
-            if (isset($field['import@'])) {
-                $import = $field['import@'];
-                $type = is_array($import) ? ($import['type'] ?? null) : $import;
-                $context = is_array($import) ? ($import['context'] ?? 'blueprints://pages') : 'blueprints://pages';
+            // Handle import directive — supports both legacy `import@:` and
+            // newer `'@import':` syntax (string or array form).
+            $importDirective = $field['@import'] ?? $field['import@'] ?? null;
+            if ($importDirective !== null) {
+                $type = is_array($importDirective) ? ($importDirective['type'] ?? null) : $importDirective;
+                $context = is_array($importDirective)
+                    ? ($importDirective['context'] ?? 'blueprints://pages')
+                    : 'blueprints://pages';
 
                 if ($type) {
                     $importPath = $this->grav['locator']->findResource("{$context}/{$type}.yaml");
@@ -503,7 +522,7 @@ class BlueprintController extends AbstractApiController
                         }
                     }
                 }
-                unset($field['import@']);
+                unset($field['@import'], $field['import@']);
             }
 
             // Recurse into nested fields
@@ -547,6 +566,24 @@ class BlueprintController extends AbstractApiController
     }
 
     protected bool $pagesEnabled = false;
+
+    /**
+     * Fire onGetPageBlueprints so plugins contribute their blueprint paths
+     * to the `blueprints://pages/` locator stream.
+     */
+    protected function ensurePageTypesRegistered(): void
+    {
+        if ($this->pageTypesRegistered) {
+            return;
+        }
+        $this->pageTypesRegistered = true;
+
+        if (method_exists(Pages::class, 'getTypes')) {
+            Pages::getTypes();
+        }
+    }
+
+    protected bool $pageTypesRegistered = false;
 
     /**
      * Resolve a data-*@ directive by calling the referenced PHP callable.
