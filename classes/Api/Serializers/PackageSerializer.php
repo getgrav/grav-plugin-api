@@ -5,17 +5,23 @@ declare(strict_types=1);
 namespace Grav\Plugin\Api\Serializers;
 
 use Grav\Common\GPM\Licenses;
+use Parsedown;
 
 class PackageSerializer implements SerializerInterface
 {
+    private static ?Parsedown $parsedown = null;
+
     public function serialize(object $resource, array $options = []): array
     {
+        $description = $resource->description ?? null;
+
         $data = [
             'slug' => $resource->slug ?? null,
             'name' => $resource->name ?? null,
             'version' => $resource->version ?? null,
             'type' => $options['type'] ?? null,
-            'description' => $resource->description ?? null,
+            'description' => $description,
+            'description_html' => $this->renderMarkdown($description),
             'author' => $this->serializeAuthor($resource),
             'homepage' => $resource->homepage ?? $resource->url ?? null,
         ];
@@ -133,6 +139,26 @@ class PackageSerializer implements SerializerInterface
         // For themes, check if it's the active theme
         $activeTheme = \Grav\Common\Grav::instance()['config']->get('system.pages.theme');
         return $slug === $activeTheme;
+    }
+
+    /**
+     * Render a plugin/theme description as safe HTML. Descriptions are
+     * YAML-authored and routinely contain inline markdown (links, bold,
+     * emphasis) that renders as literal syntax in UIs without processing.
+     * Returns null for empty input so clients can trivially fall back.
+     */
+    private function renderMarkdown(?string $markdown): ?string
+    {
+        if ($markdown === null || $markdown === '') {
+            return null;
+        }
+        if (self::$parsedown === null) {
+            self::$parsedown = new Parsedown();
+            // Untrusted YAML input — sanitize any inline HTML and disable unsafe protocols.
+            self::$parsedown->setSafeMode(true);
+            self::$parsedown->setBreaksEnabled(false);
+        }
+        return self::$parsedown->text($markdown);
     }
 
     private function isSymlinked(object $resource, array $options): bool
