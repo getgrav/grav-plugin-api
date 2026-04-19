@@ -25,6 +25,60 @@ class PageSerializer implements SerializerInterface
 
         $includeTranslations = $options['include_translations'] ?? false;
 
+        $headerArr = $this->serializeHeader($resource->header());
+
+        // Flex-indexed PageObject instances expose EMPTY headers during
+        // listing (the index only materializes summary fields). That makes
+        // $resource->published() / visible() fall back to Grav's default
+        // "true" even when the frontmatter explicitly says false. Swap in the
+        // fully-loaded legacy Page so every downstream field reads correctly.
+        // Flex-indexed PageObject instances expose EMPTY headers during
+        // listing (the index only materializes summary fields). Read the
+        // frontmatter directly from the .md file so published/visible and
+        // everything else in the header are accurate regardless of which
+        // controller path we came through.
+        if (empty($headerArr) && $resource instanceof \Grav\Framework\Flex\Pages\FlexPageObject) {
+            $path = method_exists($resource, 'path') ? $resource->path() : null;
+            $template = $resource->template();
+            if ($path && $template) {
+                $candidates = [];
+                // Prefer the page's own language, then the active language,
+                // then the untyped default, then any matching {template}*.md.
+                $pageLang = $resource->language();
+                if ($pageLang) {
+                    $candidates[] = $path . '/' . $template . '.' . $pageLang . '.md';
+                }
+                $grav = \Grav\Common\Grav::instance();
+                $lang = $grav['language'] ?? null;
+                if ($lang && method_exists($lang, 'getLanguage')) {
+                    $active = $lang->getLanguage();
+                    if ($active) {
+                        $candidates[] = $path . '/' . $template . '.' . $active . '.md';
+                    }
+                }
+                $candidates[] = $path . '/' . $template . '.md';
+                foreach ($candidates as $file) {
+                    if (is_file($file)) {
+                        $parsed = $this->parseFrontmatter($file);
+                        if (!empty($parsed)) {
+                            $headerArr = $parsed;
+                            break;
+                        }
+                    }
+                }
+                // Fallback: glob for any {template}*.md file in the directory
+                if (empty($headerArr)) {
+                    foreach (glob($path . '/' . $template . '*.md') ?: [] as $file) {
+                        $parsed = $this->parseFrontmatter($file);
+                        if (!empty($parsed)) {
+                            $headerArr = $parsed;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
         $data = [
             'route' => $resource->route(),
             // Structural route — for the home page, route() returns the
@@ -36,10 +90,18 @@ class PageSerializer implements SerializerInterface
             'menu' => $resource->menu(),
             'template' => $resource->template(),
             'language' => $resource->language(),
-            'header' => $this->serializeHeader($resource->header()),
+            'header' => $headerArr,
             'taxonomy' => $resource->taxonomy(),
-            'published' => $resource->published(),
-            'visible' => $resource->visible(),
+            // Prefer the explicit frontmatter value for published/visible over
+            // the object method. During flex-indexed collection listings
+            // (GET /pages) the indexed PageObject::published() can return a
+            // stale/default "true" when the header isn't fully materialized,
+            // while GET /pages/{route} goes through enablePages() and reads a
+            // legacy Page where the method is correct. Reading the serialized
+            // header array (same one we return to the client) gives the same
+            // answer in both paths.
+            'published' => array_key_exists('published', $headerArr) ? (bool)$headerArr['published'] : $resource->published(),
+            'visible' => array_key_exists('visible', $headerArr) ? (bool)$headerArr['visible'] : $resource->visible(),
             'routable' => $resource->routable(),
             'date' => $this->formatTimestamp($resource->date()),
             'modified' => $this->formatTimestamp($resource->modified()),
@@ -129,6 +191,28 @@ class PageSerializer implements SerializerInterface
         }
 
         return $data;
+    }
+
+    /**
+     * Parse the YAML frontmatter from a Grav .md file. Returns the header
+     * array, or empty array if there's no frontmatter / on parse failure.
+     */
+    private function parseFrontmatter(string $file): array
+    {
+        $contents = @file_get_contents($file);
+        if ($contents === false) {
+            return [];
+        }
+        // Grav frontmatter: content between leading `---\n` and the next `---\n`.
+        if (!preg_match('/^---\r?\n(.*?)\r?\n---\r?\n/s', $contents, $m)) {
+            return [];
+        }
+        try {
+            $parsed = \Symfony\Component\Yaml\Yaml::parse($m[1]);
+            return is_array($parsed) ? $parsed : [];
+        } catch (\Throwable) {
+            return [];
+        }
     }
 
     /**
