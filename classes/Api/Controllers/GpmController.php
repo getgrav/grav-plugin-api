@@ -250,35 +250,77 @@ class GpmController extends AbstractApiController
         ]);
 
         try {
+            $gpm->checkPackagesCanBeInstalled([$package]);
+            $dependencies = $gpm->getDependencies([$package]);
+        } catch (\Throwable $e) {
+            throw new ValidationException($e->getMessage());
+        }
+
+        $depsToInstall = [];
+        foreach ($dependencies as $slug => $action) {
+            if ($action === 'install' || $action === 'update') {
+                $depsToInstall[] = (string) $slug;
+            }
+        }
+
+        $installedDeps = [];
+        try {
+            if (!empty($depsToInstall)) {
+                $depResult = GpmService::install($depsToInstall, ['theme' => false]);
+                if ($depResult !== true && !is_string($depResult)) {
+                    throw new ApiException(
+                        500,
+                        'Installation Failed',
+                        "Failed to install dependencies for {$type} '{$package}'."
+                    );
+                }
+                $installedDeps = $depsToInstall;
+            }
+
             $result = GpmService::install($package, [
                 'theme' => $type === 'theme',
+                'install_deps' => false,
             ]);
+        } catch (ApiException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             throw new ApiException(500, 'Installation Failed', $e->getMessage());
         }
 
-        if ($result !== true) {
-            $message = is_string($result) ? $result : "Failed to install {$type} '{$package}'.";
-            throw new ApiException(500, 'Installation Failed', $message);
+        if ($result !== true && !is_string($result)) {
+            throw new ApiException(500, 'Installation Failed', "Failed to install {$type} '{$package}'.");
         }
 
         $this->fireEvent('onApiPackageInstalled', [
             'package' => $package,
             'type' => $type,
+            'dependencies' => $installedDeps,
         ]);
 
         $tags = $type === 'plugin'
             ? ['plugins:create:' . $package, 'plugins:list', 'gpm:update']
             : ['themes:create:' . $package, 'themes:list', 'gpm:update'];
+        foreach ($installedDeps as $depSlug) {
+            $tags[] = 'plugins:create:' . $depSlug;
+        }
+        if (!empty($installedDeps)) {
+            $tags[] = 'plugins:list';
+        }
+
+        $message = ucfirst($type) . " '{$package}' installed successfully.";
+        if (!empty($installedDeps)) {
+            $message .= ' Dependencies installed: ' . implode(', ', $installedDeps) . '.';
+        }
 
         return ApiResponse::create(
             [
-                'message' => ucfirst($type) . " '{$package}' installed successfully.",
+                'message' => $message,
                 'package' => $package,
                 'type' => $type,
+                'dependencies' => $installedDeps,
             ],
             201,
-            $this->invalidationHeaders($tags),
+            $this->invalidationHeaders(array_values(array_unique($tags))),
         );
     }
 
@@ -359,33 +401,79 @@ class GpmController extends AbstractApiController
         ]);
 
         try {
-            $result = GpmService::update($package, $isTheme ? ['theme' => true] : []);
+            $gpm->checkPackagesCanBeInstalled([$package]);
+            $dependencies = $gpm->getDependencies([$package]);
+        } catch (\Throwable $e) {
+            throw new ValidationException($e->getMessage());
+        }
+
+        $depsToInstall = [];
+        foreach ($dependencies as $slug => $action) {
+            if ($action === 'install' || $action === 'update') {
+                $depsToInstall[] = (string) $slug;
+            }
+        }
+
+        $installedDeps = [];
+        try {
+            if (!empty($depsToInstall)) {
+                $depResult = GpmService::install($depsToInstall, ['theme' => false]);
+                if ($depResult !== true && !is_string($depResult)) {
+                    throw new ApiException(
+                        500,
+                        'Update Failed',
+                        "Failed to install dependencies for '{$package}'."
+                    );
+                }
+                $installedDeps = $depsToInstall;
+            }
+
+            $result = GpmService::update($package, [
+                'theme' => $isTheme,
+                'install_deps' => false,
+            ]);
+        } catch (ApiException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             throw new ApiException(500, 'Update Failed', $e->getMessage());
         }
 
-        if ($result !== true) {
-            $message = is_string($result) ? $result : "Failed to update '{$package}'.";
-            throw new ApiException(500, 'Update Failed', $message);
+        if ($result !== true && !is_string($result)) {
+            throw new ApiException(500, 'Update Failed', "Failed to update '{$package}'.");
         }
 
         $this->fireEvent('onApiPackageUpdated', [
             'package' => $package,
             'type' => $type,
+            'dependencies' => $installedDeps,
         ]);
+
+        $tags = [
+            $type === 'theme' ? 'themes:update:' . $package : 'plugins:update:' . $package,
+            $type === 'theme' ? 'themes:list' : 'plugins:list',
+            'gpm:update',
+        ];
+        foreach ($installedDeps as $depSlug) {
+            $tags[] = 'plugins:create:' . $depSlug;
+        }
+        if (!empty($installedDeps)) {
+            $tags[] = 'plugins:list';
+        }
+
+        $message = "Package '{$package}' updated successfully.";
+        if (!empty($installedDeps)) {
+            $message .= ' Dependencies installed: ' . implode(', ', $installedDeps) . '.';
+        }
 
         return ApiResponse::create(
             [
-                'message' => "Package '{$package}' updated successfully.",
+                'message' => $message,
                 'package' => $package,
                 'type' => $type,
+                'dependencies' => $installedDeps,
             ],
             200,
-            $this->invalidationHeaders([
-                $type === 'theme' ? 'themes:update:' . $package : 'plugins:update:' . $package,
-                $type === 'theme' ? 'themes:list' : 'plugins:list',
-                'gpm:update',
-            ]),
+            $this->invalidationHeaders(array_values(array_unique($tags))),
         );
     }
 
