@@ -420,6 +420,14 @@ class PagesController extends AbstractApiController
                 // Strip null values — toggleable fields send null to signal removal
                 $merged = $this->stripNullValues($merged);
                 $page->header((object) $merged);
+                // Sync properties that legacy Page caches separately from the
+                // header dict (otherwise they stay stale until reload).
+                if (array_key_exists('published', $body['header'])) {
+                    $page->published((bool) $body['header']['published']);
+                }
+                if (array_key_exists('visible', $body['header'])) {
+                    $page->visible((bool) $body['header']['visible']);
+                }
             }
 
             // Template change requires renaming the page file (e.g. default.md → post.md)
@@ -436,12 +444,18 @@ class PagesController extends AbstractApiController
                 $header = (array) $page->header();
                 $header['published'] = (bool) $body['published'];
                 $page->header((object) $header);
+                // Legacy Page caches $this->published at init and doesn't
+                // re-read from the header. Sync the setter so the post-save
+                // serializer reflects the new value (avoids a stale "No" in
+                // the Page Info sidebar until a reload).
+                $page->published((bool) $body['published']);
             }
 
             if (array_key_exists('visible', $body)) {
                 $header = (array) $page->header();
                 $header['visible'] = (bool) $body['visible'];
                 $page->header((object) $header);
+                $page->visible((bool) $body['visible']);
             }
 
             // Allow plugins to modify the page before save
