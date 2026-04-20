@@ -253,7 +253,7 @@ class GpmController extends AbstractApiController
             $gpm->checkPackagesCanBeInstalled([$package]);
             $dependencies = $gpm->getDependencies([$package]);
         } catch (\Throwable $e) {
-            throw new ValidationException($e->getMessage());
+            throw new ValidationException($this->stripGpmColorTags($e->getMessage()));
         }
 
         $depsToInstall = [];
@@ -263,28 +263,55 @@ class GpmController extends AbstractApiController
             }
         }
 
+        // Install each dependency individually so we can report exactly which
+        // ones succeeded if a later one fails partway through.
         $installedDeps = [];
-        try {
-            if (!empty($depsToInstall)) {
-                $depResult = GpmService::install($depsToInstall, ['theme' => false]);
-                if ($depResult !== true && !is_string($depResult)) {
-                    throw new ApiException(
-                        500,
-                        'Installation Failed',
-                        "Failed to install dependencies for {$type} '{$package}'."
-                    );
-                }
-                $installedDeps = $depsToInstall;
+        foreach ($depsToInstall as $depSlug) {
+            try {
+                $depResult = GpmService::install($depSlug, ['theme' => false]);
+            } catch (\Throwable $e) {
+                throw new ApiException(
+                    500,
+                    'Installation Failed',
+                    $this->partialFailureMessage(
+                        sprintf(
+                            "Failed to install dependency '%s' for %s '%s': %s",
+                            $depSlug,
+                            $type,
+                            $package,
+                            $this->stripGpmColorTags($e->getMessage())
+                        ),
+                        $installedDeps
+                    )
+                );
             }
+            if ($depResult !== true && !is_string($depResult)) {
+                throw new ApiException(
+                    500,
+                    'Installation Failed',
+                    $this->partialFailureMessage(
+                        "Failed to install dependency '{$depSlug}' for {$type} '{$package}'.",
+                        $installedDeps
+                    )
+                );
+            }
+            $installedDeps[] = $depSlug;
+        }
 
+        try {
             $result = GpmService::install($package, [
                 'theme' => $type === 'theme',
                 'install_deps' => false,
             ]);
-        } catch (ApiException $e) {
-            throw $e;
         } catch (\Throwable $e) {
-            throw new ApiException(500, 'Installation Failed', $e->getMessage());
+            throw new ApiException(
+                500,
+                'Installation Failed',
+                $this->partialFailureMessage(
+                    $this->stripGpmColorTags($e->getMessage()),
+                    $installedDeps
+                )
+            );
         }
 
         if ($result !== true && !is_string($result)) {
@@ -404,7 +431,7 @@ class GpmController extends AbstractApiController
             $gpm->checkPackagesCanBeInstalled([$package]);
             $dependencies = $gpm->getDependencies([$package]);
         } catch (\Throwable $e) {
-            throw new ValidationException($e->getMessage());
+            throw new ValidationException($this->stripGpmColorTags($e->getMessage()));
         }
 
         $depsToInstall = [];
@@ -414,32 +441,61 @@ class GpmController extends AbstractApiController
             }
         }
 
+        // Install each dependency individually so partial success is reportable.
         $installedDeps = [];
-        try {
-            if (!empty($depsToInstall)) {
-                $depResult = GpmService::install($depsToInstall, ['theme' => false]);
-                if ($depResult !== true && !is_string($depResult)) {
-                    throw new ApiException(
-                        500,
-                        'Update Failed',
-                        "Failed to install dependencies for '{$package}'."
-                    );
-                }
-                $installedDeps = $depsToInstall;
+        foreach ($depsToInstall as $depSlug) {
+            try {
+                $depResult = GpmService::install($depSlug, ['theme' => false]);
+            } catch (\Throwable $e) {
+                throw new ApiException(
+                    500,
+                    'Update Failed',
+                    $this->partialFailureMessage(
+                        sprintf(
+                            "Failed to install dependency '%s' for '%s': %s",
+                            $depSlug,
+                            $package,
+                            $this->stripGpmColorTags($e->getMessage())
+                        ),
+                        $installedDeps
+                    )
+                );
             }
+            if ($depResult !== true && !is_string($depResult)) {
+                throw new ApiException(
+                    500,
+                    'Update Failed',
+                    $this->partialFailureMessage(
+                        "Failed to install dependency '{$depSlug}' for '{$package}'.",
+                        $installedDeps
+                    )
+                );
+            }
+            $installedDeps[] = $depSlug;
+        }
 
+        try {
             $result = GpmService::update($package, [
                 'theme' => $isTheme,
                 'install_deps' => false,
             ]);
-        } catch (ApiException $e) {
-            throw $e;
         } catch (\Throwable $e) {
-            throw new ApiException(500, 'Update Failed', $e->getMessage());
+            throw new ApiException(
+                500,
+                'Update Failed',
+                $this->partialFailureMessage(
+                    $this->stripGpmColorTags($e->getMessage()),
+                    $installedDeps
+                )
+            );
         }
 
         if ($result !== true && !is_string($result)) {
-            throw new ApiException(500, 'Update Failed', "Failed to update '{$package}'.");
+            throw new ApiException(
+                500,
+                'Update Failed',
+                $this->partialFailureMessage("Failed to update '{$package}'.", $installedDeps)
+            );
         }
 
         $this->fireEvent('onApiPackageUpdated', [
@@ -813,6 +869,34 @@ class GpmController extends AbstractApiController
     private function getGpm(bool $refresh = false): GPM
     {
         return new GPM($refresh);
+    }
+
+    /**
+     * Strip Grav CLI color markup (e.g. <red>..</red>, <cyan>..</cyan>) from
+     * exception messages so they read cleanly in API responses.
+     */
+    private function stripGpmColorTags(string $message): string
+    {
+        return preg_replace(
+            '#</?(?:red|green|yellow|blue|magenta|cyan|white|black|light-red|light-green|light-yellow|light-blue|light-magenta|light-cyan|light-gray|dark-gray)>#i',
+            '',
+            $message
+        ) ?? $message;
+    }
+
+    /**
+     * Append a note about dependencies that were already installed before the
+     * failure, so callers can see the partial state without a separate probe.
+     *
+     * @param string[] $installedDeps
+     */
+    private function partialFailureMessage(string $message, array $installedDeps): string
+    {
+        if (empty($installedDeps)) {
+            return $message;
+        }
+
+        return $message . ' Dependencies already installed before failure: ' . implode(', ', $installedDeps) . '.';
     }
 
     /**
