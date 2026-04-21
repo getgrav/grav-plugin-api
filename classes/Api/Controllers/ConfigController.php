@@ -10,6 +10,7 @@ use Grav\Common\Yaml;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
+use Grav\Plugin\Api\Services\EnvironmentService;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -71,6 +72,9 @@ class ConfigController extends AbstractApiController
             throw new NotFoundException("Configuration scope '{$scope}' not found.");
         }
 
+        // Write target: X-Config-Environment selects an existing env folder; empty = base.
+        $targetEnv = $this->resolveTargetEnv($request);
+
         // ETag validation — hash the same shape show() returned so If-Match matches.
         $this->validateEtag($request, $this->generateEtag($this->configEtagData($configKey)));
 
@@ -92,7 +96,7 @@ class ConfigController extends AbstractApiController
 
         // Set the config file on the Data object so plugins (e.g., revisions-pro)
         // can read the file path for revision tracking.
-        $configFile = $this->resolveConfigFile($scope);
+        $configFile = $this->resolveConfigFile($scope, $targetEnv);
         if ($configFile) {
             $obj->file(\RocketTheme\Toolbox\File\YamlFile::instance($configFile));
         }
@@ -114,7 +118,7 @@ class ConfigController extends AbstractApiController
         $this->config->set($configKey, $merged);
 
         // Persist to the appropriate YAML file
-        $this->writeConfigFile($scope, $merged);
+        $this->writeConfigFile($scope, $merged, $targetEnv);
 
         // Clear config cache
         $this->grav['cache']->clearCache('standard');
@@ -171,15 +175,16 @@ class ConfigController extends AbstractApiController
     /**
      * Resolve the config file path for a given scope.
      *
-     * Resolves to the explicit write target (base user/config by default).
-     * We deliberately avoid the `config://` stream here because its first
-     * resolved path can be an env folder Grav auto-inferred from the hostname,
-     * which would create an unintended user/<host>/ folder on save.
+     * Writes land in base user/config/ unless $targetEnv is a non-empty string
+     * matching an existing user/env/<env>/ folder. We deliberately avoid the
+     * `config://` stream here because its first resolved path can be an env
+     * folder Grav auto-inferred from the hostname — that would create an
+     * unintended user/<host>/ folder on save.
      */
-    private function resolveConfigFile(string $scope): ?string
+    private function resolveConfigFile(string $scope, ?string $targetEnv = null): ?string
     {
         try {
-            return $this->resolveWriteDir() . '/' . $this->scopeFileName($scope);
+            return $this->resolveWriteDir($targetEnv) . '/' . $this->scopeFileName($scope);
         } catch (\Throwable) {
             return null;
         }
@@ -235,12 +240,13 @@ class ConfigController extends AbstractApiController
     /**
      * Resolve the scope to a filesystem path and write the YAML config file.
      */
-    private function writeConfigFile(string $scope, mixed $data): void
+    private function writeConfigFile(string $scope, mixed $data, ?string $targetEnv = null): void
     {
-        $filePath = $this->resolveWriteDir() . '/' . $this->scopeFileName($scope);
+        $filePath = $this->resolveWriteDir($targetEnv) . '/' . $this->scopeFileName($scope);
 
-        // Only ever create plugin/theme sub-dirs inside an existing base write dir.
-        // We never create env folders — those must be opted into explicitly.
+        // Only ever create plugin/theme sub-dirs inside an existing base or env
+        // write dir. We never create env roots — those must be opted into
+        // explicitly via POST /system/environments.
         $dir = dirname($filePath);
         if (!is_dir($dir)) {
             mkdir($dir, 0775, true);
@@ -252,17 +258,41 @@ class ConfigController extends AbstractApiController
     /**
      * Where config writes land.
      *
-     * Always the base user/config/ in Phase 1. Phase 2 will layer an explicit
-     * env override (via X-Config-Environment header) that must resolve to an
-     * existing user/env/<env>/ — we never implicitly pick an env folder.
+     * Base user/config/ by default. When $targetEnv is set, the matching
+     * user/env/<env>/config/ is used — but only if it already exists, we
+     * never implicitly create env folders.
      */
-    private function resolveWriteDir(): string
+    private function resolveWriteDir(?string $targetEnv = null): string
     {
+        if ($targetEnv !== null && $targetEnv !== '') {
+            $dir = (new EnvironmentService($this->grav))->envConfigRoot($targetEnv);
+            if ($dir === null) {
+                throw new ValidationException("Environment '{$targetEnv}' does not exist. Create it first via POST /system/environments.");
+            }
+            return $dir;
+        }
+
         $userConfig = $this->grav['locator']->findResource('user://config', true);
         if (!$userConfig) {
             throw new \RuntimeException('Base user/config directory not found.');
         }
         return $userConfig;
+    }
+
+    /**
+     * Read the X-Config-Environment header and validate it names a well-formed env.
+     * Empty/missing header → null (base). Invalid name → 400. Missing folder is
+     * reported later by resolveWriteDir with a clearer message.
+     */
+    private function resolveTargetEnv(ServerRequestInterface $request): ?string
+    {
+        $name = trim($request->getHeaderLine('X-Config-Environment'));
+        if ($name === '') return null;
+
+        if (!EnvironmentService::isValidName($name)) {
+            throw new ValidationException("Invalid X-Config-Environment header: '{$name}'.");
+        }
+        return $name;
     }
 
     /**

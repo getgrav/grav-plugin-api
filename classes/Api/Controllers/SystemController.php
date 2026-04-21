@@ -8,49 +8,81 @@ use Grav\Common\Backup\Backups;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
+use Grav\Plugin\Api\Services\EnvironmentService;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
 class SystemController extends AbstractApiController
 {
+    /**
+     * GET /system/environments — list writable environment targets.
+     *
+     * Response shape:
+     *   {
+     *     detected: "host.example",     // what Grav inferred from the URL
+     *     environments: [
+     *       { name: "",      label: "Default", exists: true, hasOverrides: true|false },
+     *       { name: "staging", exists: true, hasOverrides: true }
+     *     ]
+     *   }
+     *
+     * `name: ""` represents the base user/config target. Any other entry is an
+     * existing user/env/<name>/ folder that can be selected as a write target.
+     * Legacy user/<host>/config/ layouts (Grav 1.6 fallback) are included too.
+     */
     public function environments(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'api.system.read');
 
-        $currentEnv = $this->grav['uri']->environment();
-        $requestedEnv = $request->getHeaderLine('X-Grav-Environment') ?: $currentEnv;
+        $envService = new EnvironmentService($this->grav);
+        $list = [[
+            'name' => '',
+            'label' => 'Default',
+            'exists' => true,
+            'hasOverrides' => false,
+        ]];
 
-        $environments = [
-            [
-                'name' => 'default',
-                'active' => !$this->hasEnvironmentOverrides(),
-            ],
-        ];
-
-        // Scan user/env/ for environment-specific directories
-        $envDir = $this->grav['locator']->findResource('user://env', true);
-        if ($envDir && is_dir($envDir)) {
-            foreach (new \DirectoryIterator($envDir) as $item) {
-                if ($item->isDot() || !$item->isDir()) {
-                    continue;
-                }
-                $environments[] = [
-                    'name' => $item->getFilename(),
-                    'active' => $item->getFilename() === $requestedEnv,
-                ];
-            }
+        foreach ($envService->listEnvironments() as $name) {
+            $list[] = [
+                'name' => $name,
+                'label' => $name,
+                'exists' => true,
+                'hasOverrides' => $envService->envHasOverrides($name),
+            ];
         }
 
         return ApiResponse::create([
-            'current' => $requestedEnv,
-            'environments' => $environments,
+            'detected' => $this->grav['uri']->environment(),
+            'environments' => $list,
         ]);
     }
 
-    private function hasEnvironmentOverrides(): bool
+    /**
+     * POST /system/environments — create a new env folder.
+     *
+     * Body: { "name": "staging.foo.com" }
+     * Creates user/env/<name>/config/ (and user/env/ if missing).
+     */
+    public function createEnvironment(ServerRequestInterface $request): ResponseInterface
     {
-        $envDir = $this->grav['locator']->findResource('user://env', true);
-        return $envDir && is_dir($envDir) && (new \FilesystemIterator($envDir))->valid();
+        $this->requirePermission($request, 'api.config.write');
+
+        $body = $this->getRequestBody($request);
+        $name = trim((string)($body['name'] ?? ''));
+
+        $envService = new EnvironmentService($this->grav);
+        try {
+            $envService->createEnvironment($name);
+        } catch (\InvalidArgumentException $e) {
+            throw new ValidationException($e->getMessage());
+        }
+
+        return ApiResponse::create([
+            'name' => $name,
+            'label' => $name,
+            'exists' => true,
+            'hasOverrides' => false,
+        ], 201, ['X-Invalidates' => 'system:environments']);
     }
 
     public function info(ServerRequestInterface $request): ResponseInterface
