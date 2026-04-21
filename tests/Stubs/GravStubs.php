@@ -54,6 +54,24 @@ namespace Grav\Common\Config {
 }
 
 namespace Grav\Common {
+    if (!class_exists(\Grav\Common\Yaml::class, false)) {
+        // Thin shim over symfony/yaml so tests that need YAML parsing run
+        // without the full Grav core on the classpath.
+        abstract class Yaml
+        {
+            public static function parse(string $data): array
+            {
+                $parsed = \Symfony\Component\Yaml\Yaml::parse($data);
+                return is_array($parsed) ? $parsed : [];
+            }
+
+            public static function dump(mixed $data, ?int $inline = null, ?int $indent = null): string
+            {
+                return \Symfony\Component\Yaml\Yaml::dump($data, $inline ?? 5, $indent ?? 2);
+            }
+        }
+    }
+
     if (!class_exists(\Grav\Common\Grav::class, false)) {
         class Grav implements \ArrayAccess
         {

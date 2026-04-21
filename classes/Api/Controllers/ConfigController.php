@@ -10,6 +10,7 @@ use Grav\Common\Yaml;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
+use Grav\Plugin\Api\Services\ConfigDiffer;
 use Grav\Plugin\Api\Services\EnvironmentService;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -239,10 +240,25 @@ class ConfigController extends AbstractApiController
 
     /**
      * Resolve the scope to a filesystem path and write the YAML config file.
+     *
+     * We persist only the delta vs the parent (defaults for base writes;
+     * defaults+base for env writes). This mirrors how developers hand-edit
+     * Grav configs — every file contains only the values that actually
+     * override something lower in the stack.
      */
     private function writeConfigFile(string $scope, mixed $data, ?string $targetEnv = null): void
     {
         $filePath = $this->resolveWriteDir($targetEnv) . '/' . $this->scopeFileName($scope);
+
+        $full = is_array($data) ? $data : ['value' => $data];
+        $differ = new ConfigDiffer($this->grav);
+        $parent = $differ->parent($scope, $targetEnv);
+        $delta = $differ->diff($full, $parent);
+
+        // No overrides and no pre-existing file → don't create an empty placeholder.
+        if ($delta === [] && !is_file($filePath)) {
+            return;
+        }
 
         // Only ever create plugin/theme sub-dirs inside an existing base or env
         // write dir. We never create env roots — those must be opted into
@@ -252,7 +268,7 @@ class ConfigController extends AbstractApiController
             mkdir($dir, 0775, true);
         }
 
-        file_put_contents($filePath, Yaml::dump($data));
+        file_put_contents($filePath, Yaml::dump($delta));
     }
 
     /**
