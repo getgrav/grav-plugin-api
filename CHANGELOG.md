@@ -1,3 +1,9 @@
+# v1.0.0-beta.11
+## 04/21/2026
+
+1. [](#bugfix)
+    * `POST /gpm/install` and `POST /gpm/update` now install missing blueprint dependencies before installing the requested package — mirroring admin-classic's behavior via `GPM::checkPackagesCanBeInstalled()` + `GPM::getDependencies()`, which resolves version constraints, checks PHP/Grav requirements, and returns a slug-keyed `install` / `update` / `ignore` map. Previously the naive recursive branch in `GpmService::install()` passed the raw blueprint `dependencies:` list (arrays of `{name, version}`) back into itself where `array_map` silently filtered them all to `false`, so deps were never installed and the user got a half-wired plugin (e.g. installing `shortcode-ui` without `shortcode-core`). Response bodies and `onApiPackageInstalled` / `onApiPackageUpdated` events now carry a `dependencies: string[]` list of slugs that were installed alongside, and cache-invalidation tags cover each new dep so list views refresh accordingly. Failure modes are surfaced cleanly: requiring a newer Grav core, a newer PHP version, or hitting an incompatible version constraint between packages returns a `422 Unprocessable Entity` with the original `GPM::getDependencies()` error message (e.g. "One of the packages require Grav 1.8.0. Please update Grav to the latest release.") — the API never auto-upgrades Grav itself, matching admin-classic. CLI color markup (`<red>`, `<cyan>`, …) is stripped from the propagated message. Deps are installed one-at-a-time so mid-install failures report partial state — the 500 detail includes a "Dependencies already installed before failure: foo, bar." suffix so callers know exactly what got through before the failure.
+
 # v1.0.0-beta.10
 ## 04/19/2026
 

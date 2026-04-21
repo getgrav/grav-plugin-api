@@ -40,7 +40,7 @@ class GpmService
         'overwrite'       => true,
         'ignore_symlinks' => true,
         'skip_invalid'    => true,
-        'install_deps'    => true,
+        'install_deps'    => false,
         'theme'           => false,
     ];
 
@@ -84,13 +84,11 @@ class GpmService
         $messages = '';
 
         foreach ($packages as $package) {
-            if (isset($package->dependencies) && $options['install_deps']) {
-                $result = static::install($package->dependencies, $options);
-
-                if (!$result) {
-                    return false;
-                }
-            }
+            // Dependency resolution is the caller's responsibility (see
+            // GpmController::install / ::update which use GPM::getDependencies()).
+            // The blueprint `dependencies` structure is a list of
+            // ['name' => slug, 'version' => constraint] entries, not slugs or
+            // Package objects, so it can't be passed back into install().
 
             Installer::isValidDestination($options['destination'] . DS . $package->install_path);
 
