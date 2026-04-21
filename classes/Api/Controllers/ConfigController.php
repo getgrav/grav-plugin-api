@@ -51,19 +51,12 @@ class ConfigController extends AbstractApiController
 
         $scope = $this->getRouteParam($request, 'scope');
         $configKey = $this->resolveConfigKey($scope);
-        $data = $this->config->get($configKey);
 
-        if ($data === null) {
+        if ($this->config->get($configKey) === null) {
             throw new NotFoundException("Configuration scope '{$scope}' not found.");
         }
 
-        // Normalize to array for consistent response
-        $data = is_array($data) ? $data : ['value' => $data];
-
-        // Redact sensitive fields
-        $data = $this->redactSensitiveFields($data);
-
-        return $this->respondWithEtag($data);
+        return $this->respondWithEtag($this->configEtagData($configKey));
     }
 
     public function update(ServerRequestInterface $request): ResponseInterface
@@ -78,11 +71,8 @@ class ConfigController extends AbstractApiController
             throw new NotFoundException("Configuration scope '{$scope}' not found.");
         }
 
-        // ETag validation for conflict detection
-        // Redact before hashing so it matches the ETag the client received from show()
-        $existingArray = is_array($existing) ? $existing : ['value' => $existing];
-        $currentHash = $this->generateEtag($this->redactSensitiveFields($existingArray));
-        $this->validateEtag($request, $currentHash);
+        // ETag validation — hash the same shape show() returned so If-Match matches.
+        $this->validateEtag($request, $this->generateEtag($this->configEtagData($configKey)));
 
         $body = $this->getRequestBody($request);
 
@@ -132,8 +122,6 @@ class ConfigController extends AbstractApiController
         $this->fireAdminEvent('onAdminAfterSave', ['object' => $obj]);
         $this->fireEvent('onApiConfigUpdated', ['scope' => $scope, 'data' => $merged]);
 
-        $data = is_array($merged) ? $merged : ['value' => $merged];
-
         // Emit invalidations — plugin config changes also invalidate the plugins list.
         $tags = ['config:update:' . $scope];
         if (str_starts_with($scope, 'plugins/')) {
@@ -142,7 +130,21 @@ class ConfigController extends AbstractApiController
             $tags[] = 'plugins:list';
         }
 
-        return $this->respondWithEtag($data, 200, $tags);
+        // Response hashes the same shape show() would return on the next GET,
+        // so the client's stored ETag stays valid for subsequent saves.
+        return $this->respondWithEtag($this->configEtagData($configKey), 200, $tags);
+    }
+
+    /**
+     * Canonical representation used for both the response body and ETag hashing.
+     * Reading via config->get() after save reflects any blueprint defaults or
+     * type coercion Grav applies on the next request, keeping hashes stable.
+     */
+    private function configEtagData(string $configKey): array
+    {
+        $data = $this->config->get($configKey);
+        $data = is_array($data) ? $data : ['value' => $data];
+        return $this->redactSensitiveFields($data);
     }
 
     /**
