@@ -171,27 +171,18 @@ class ConfigController extends AbstractApiController
     /**
      * Resolve the config file path for a given scope.
      *
-     * Uses the `config://` stream so the path honors Grav's environment
-     * override (e.g. user/env/localhost/config) the same way admin-classic does.
+     * Resolves to the explicit write target (base user/config by default).
+     * We deliberately avoid the `config://` stream here because its first
+     * resolved path can be an env folder Grav auto-inferred from the hostname,
+     * which would create an unintended user/<host>/ folder on save.
      */
     private function resolveConfigFile(string $scope): ?string
     {
-        $configDir = $this->grav['locator']->findResource('config://', true, true);
-        if (!$configDir) {
+        try {
+            return $this->resolveWriteDir() . '/' . $this->scopeFileName($scope);
+        } catch (\Throwable) {
             return null;
         }
-
-        return match (true) {
-            $scope === 'system' => $configDir . '/system.yaml',
-            $scope === 'site' => $configDir . '/site.yaml',
-            $scope === 'media' => $configDir . '/media.yaml',
-            $scope === 'security' => $configDir . '/security.yaml',
-            $scope === 'scheduler' => $configDir . '/scheduler.yaml',
-            $scope === 'backups' => $configDir . '/backups.yaml',
-            str_starts_with($scope, 'plugins/') => $configDir . '/plugins/' . substr($scope, 8) . '.yaml',
-            str_starts_with($scope, 'themes/') => $configDir . '/themes/' . substr($scope, 7) . '.yaml',
-            default => null,
-        };
     }
 
     /**
@@ -246,27 +237,45 @@ class ConfigController extends AbstractApiController
      */
     private function writeConfigFile(string $scope, mixed $data): void
     {
-        $configDir = $this->grav['locator']->findResource('config://', true, true);
-        $yaml = Yaml::dump($data);
+        $filePath = $this->resolveWriteDir() . '/' . $this->scopeFileName($scope);
 
-        $filePath = match (true) {
-            $scope === 'system' => $configDir . '/system.yaml',
-            $scope === 'site' => $configDir . '/site.yaml',
-            $scope === 'media' => $configDir . '/media.yaml',
-            $scope === 'security' => $configDir . '/security.yaml',
-            $scope === 'scheduler' => $configDir . '/scheduler.yaml',
-            $scope === 'backups' => $configDir . '/backups.yaml',
-            str_starts_with($scope, 'plugins/') => $configDir . '/plugins/' . substr($scope, 8) . '.yaml',
-            str_starts_with($scope, 'themes/') => $configDir . '/themes/' . substr($scope, 7) . '.yaml',
-            default => throw new NotFoundException("Unknown configuration scope '{$scope}'."),
-        };
-
+        // Only ever create plugin/theme sub-dirs inside an existing base write dir.
+        // We never create env folders — those must be opted into explicitly.
         $dir = dirname($filePath);
         if (!is_dir($dir)) {
             mkdir($dir, 0775, true);
         }
 
-        file_put_contents($filePath, $yaml);
+        file_put_contents($filePath, Yaml::dump($data));
+    }
+
+    /**
+     * Where config writes land.
+     *
+     * Always the base user/config/ in Phase 1. Phase 2 will layer an explicit
+     * env override (via X-Config-Environment header) that must resolve to an
+     * existing user/env/<env>/ — we never implicitly pick an env folder.
+     */
+    private function resolveWriteDir(): string
+    {
+        $userConfig = $this->grav['locator']->findResource('user://config', true);
+        if (!$userConfig) {
+            throw new \RuntimeException('Base user/config directory not found.');
+        }
+        return $userConfig;
+    }
+
+    /**
+     * Filename for a scope, relative to a config directory.
+     */
+    private function scopeFileName(string $scope): string
+    {
+        return match (true) {
+            in_array($scope, ['system', 'site', 'media', 'security', 'scheduler', 'backups'], true) => $scope . '.yaml',
+            str_starts_with($scope, 'plugins/') => 'plugins/' . substr($scope, 8) . '.yaml',
+            str_starts_with($scope, 'themes/') => 'themes/' . substr($scope, 7) . '.yaml',
+            default => throw new NotFoundException("Unknown configuration scope '{$scope}'."),
+        };
     }
 
     /**
