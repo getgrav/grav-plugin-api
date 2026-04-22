@@ -10,6 +10,8 @@ use Grav\Common\Yaml;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
+use Grav\Plugin\Api\Services\ConfigDiffer;
+use Grav\Plugin\Api\Services\EnvironmentService;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -51,19 +53,12 @@ class ConfigController extends AbstractApiController
 
         $scope = $this->getRouteParam($request, 'scope');
         $configKey = $this->resolveConfigKey($scope);
-        $data = $this->config->get($configKey);
 
-        if ($data === null) {
+        if ($this->config->get($configKey) === null) {
             throw new NotFoundException("Configuration scope '{$scope}' not found.");
         }
 
-        // Normalize to array for consistent response
-        $data = is_array($data) ? $data : ['value' => $data];
-
-        // Redact sensitive fields
-        $data = $this->redactSensitiveFields($data);
-
-        return $this->respondWithEtag($data);
+        return $this->respondWithEtag($this->configEtagData($configKey));
     }
 
     public function update(ServerRequestInterface $request): ResponseInterface
@@ -78,11 +73,11 @@ class ConfigController extends AbstractApiController
             throw new NotFoundException("Configuration scope '{$scope}' not found.");
         }
 
-        // ETag validation for conflict detection
-        // Redact before hashing so it matches the ETag the client received from show()
-        $existingArray = is_array($existing) ? $existing : ['value' => $existing];
-        $currentHash = $this->generateEtag($this->redactSensitiveFields($existingArray));
-        $this->validateEtag($request, $currentHash);
+        // Write target: X-Config-Environment selects an existing env folder; empty = base.
+        $targetEnv = $this->resolveTargetEnv($request);
+
+        // ETag validation — hash the same shape show() returned so If-Match matches.
+        $this->validateEtag($request, $this->generateEtag($this->configEtagData($configKey)));
 
         $body = $this->getRequestBody($request);
 
@@ -102,7 +97,7 @@ class ConfigController extends AbstractApiController
 
         // Set the config file on the Data object so plugins (e.g., revisions-pro)
         // can read the file path for revision tracking.
-        $configFile = $this->resolveConfigFile($scope);
+        $configFile = $this->resolveConfigFile($scope, $targetEnv);
         if ($configFile) {
             $obj->file(\RocketTheme\Toolbox\File\YamlFile::instance($configFile));
         }
@@ -124,15 +119,13 @@ class ConfigController extends AbstractApiController
         $this->config->set($configKey, $merged);
 
         // Persist to the appropriate YAML file
-        $this->writeConfigFile($scope, $merged);
+        $this->writeConfigFile($scope, $merged, $targetEnv);
 
         // Clear config cache
         $this->grav['cache']->clearCache('standard');
 
         $this->fireAdminEvent('onAdminAfterSave', ['object' => $obj]);
         $this->fireEvent('onApiConfigUpdated', ['scope' => $scope, 'data' => $merged]);
-
-        $data = is_array($merged) ? $merged : ['value' => $merged];
 
         // Emit invalidations — plugin config changes also invalidate the plugins list.
         $tags = ['config:update:' . $scope];
@@ -142,7 +135,21 @@ class ConfigController extends AbstractApiController
             $tags[] = 'plugins:list';
         }
 
-        return $this->respondWithEtag($data, 200, $tags);
+        // Response hashes the same shape show() would return on the next GET,
+        // so the client's stored ETag stays valid for subsequent saves.
+        return $this->respondWithEtag($this->configEtagData($configKey), 200, $tags);
+    }
+
+    /**
+     * Canonical representation used for both the response body and ETag hashing.
+     * Reading via config->get() after save reflects any blueprint defaults or
+     * type coercion Grav applies on the next request, keeping hashes stable.
+     */
+    private function configEtagData(string $configKey): array
+    {
+        $data = $this->config->get($configKey);
+        $data = is_array($data) ? $data : ['value' => $data];
+        return $this->redactSensitiveFields($data);
     }
 
     /**
@@ -169,27 +176,19 @@ class ConfigController extends AbstractApiController
     /**
      * Resolve the config file path for a given scope.
      *
-     * Uses the `config://` stream so the path honors Grav's environment
-     * override (e.g. user/env/localhost/config) the same way admin-classic does.
+     * Writes land in base user/config/ unless $targetEnv is a non-empty string
+     * matching an existing user/env/<env>/ folder. We deliberately avoid the
+     * `config://` stream here because its first resolved path can be an env
+     * folder Grav auto-inferred from the hostname — that would create an
+     * unintended user/<host>/ folder on save.
      */
-    private function resolveConfigFile(string $scope): ?string
+    private function resolveConfigFile(string $scope, ?string $targetEnv = null): ?string
     {
-        $configDir = $this->grav['locator']->findResource('config://', true, true);
-        if (!$configDir) {
+        try {
+            return $this->resolveWriteDir($targetEnv) . '/' . $this->scopeFileName($scope);
+        } catch (\Throwable) {
             return null;
         }
-
-        return match (true) {
-            $scope === 'system' => $configDir . '/system.yaml',
-            $scope === 'site' => $configDir . '/site.yaml',
-            $scope === 'media' => $configDir . '/media.yaml',
-            $scope === 'security' => $configDir . '/security.yaml',
-            $scope === 'scheduler' => $configDir . '/scheduler.yaml',
-            $scope === 'backups' => $configDir . '/backups.yaml',
-            str_starts_with($scope, 'plugins/') => $configDir . '/plugins/' . substr($scope, 8) . '.yaml',
-            str_starts_with($scope, 'themes/') => $configDir . '/themes/' . substr($scope, 7) . '.yaml',
-            default => null,
-        };
     }
 
     /**
@@ -241,30 +240,88 @@ class ConfigController extends AbstractApiController
 
     /**
      * Resolve the scope to a filesystem path and write the YAML config file.
+     *
+     * We persist only the delta vs the parent (defaults for base writes;
+     * defaults+base for env writes). This mirrors how developers hand-edit
+     * Grav configs — every file contains only the values that actually
+     * override something lower in the stack.
      */
-    private function writeConfigFile(string $scope, mixed $data): void
+    private function writeConfigFile(string $scope, mixed $data, ?string $targetEnv = null): void
     {
-        $configDir = $this->grav['locator']->findResource('config://', true, true);
-        $yaml = Yaml::dump($data);
+        $filePath = $this->resolveWriteDir($targetEnv) . '/' . $this->scopeFileName($scope);
 
-        $filePath = match (true) {
-            $scope === 'system' => $configDir . '/system.yaml',
-            $scope === 'site' => $configDir . '/site.yaml',
-            $scope === 'media' => $configDir . '/media.yaml',
-            $scope === 'security' => $configDir . '/security.yaml',
-            $scope === 'scheduler' => $configDir . '/scheduler.yaml',
-            $scope === 'backups' => $configDir . '/backups.yaml',
-            str_starts_with($scope, 'plugins/') => $configDir . '/plugins/' . substr($scope, 8) . '.yaml',
-            str_starts_with($scope, 'themes/') => $configDir . '/themes/' . substr($scope, 7) . '.yaml',
-            default => throw new NotFoundException("Unknown configuration scope '{$scope}'."),
-        };
+        $full = is_array($data) ? $data : ['value' => $data];
+        $differ = new ConfigDiffer($this->grav);
+        $parent = $differ->parent($scope, $targetEnv);
+        $delta = $differ->diff($full, $parent);
 
+        // No overrides and no pre-existing file → don't create an empty placeholder.
+        if ($delta === [] && !is_file($filePath)) {
+            return;
+        }
+
+        // Only ever create plugin/theme sub-dirs inside an existing base or env
+        // write dir. We never create env roots — those must be opted into
+        // explicitly via POST /system/environments.
         $dir = dirname($filePath);
         if (!is_dir($dir)) {
             mkdir($dir, 0775, true);
         }
 
-        file_put_contents($filePath, $yaml);
+        file_put_contents($filePath, Yaml::dump($delta));
+    }
+
+    /**
+     * Where config writes land.
+     *
+     * Base user/config/ by default. When $targetEnv is set, the matching
+     * user/env/<env>/config/ is used — but only if it already exists, we
+     * never implicitly create env folders.
+     */
+    private function resolveWriteDir(?string $targetEnv = null): string
+    {
+        if ($targetEnv !== null && $targetEnv !== '') {
+            $dir = (new EnvironmentService($this->grav))->envConfigRoot($targetEnv);
+            if ($dir === null) {
+                throw new ValidationException("Environment '{$targetEnv}' does not exist. Create it first via POST /system/environments.");
+            }
+            return $dir;
+        }
+
+        $userConfig = $this->grav['locator']->findResource('user://config', true);
+        if (!$userConfig) {
+            throw new \RuntimeException('Base user/config directory not found.');
+        }
+        return $userConfig;
+    }
+
+    /**
+     * Read the X-Config-Environment header and validate it names a well-formed env.
+     * Empty/missing header → null (base). Invalid name → 400. Missing folder is
+     * reported later by resolveWriteDir with a clearer message.
+     */
+    private function resolveTargetEnv(ServerRequestInterface $request): ?string
+    {
+        $name = trim($request->getHeaderLine('X-Config-Environment'));
+        if ($name === '') return null;
+
+        if (!EnvironmentService::isValidName($name)) {
+            throw new ValidationException("Invalid X-Config-Environment header: '{$name}'.");
+        }
+        return $name;
+    }
+
+    /**
+     * Filename for a scope, relative to a config directory.
+     */
+    private function scopeFileName(string $scope): string
+    {
+        return match (true) {
+            in_array($scope, ['system', 'site', 'media', 'security', 'scheduler', 'backups'], true) => $scope . '.yaml',
+            str_starts_with($scope, 'plugins/') => 'plugins/' . substr($scope, 8) . '.yaml',
+            str_starts_with($scope, 'themes/') => 'themes/' . substr($scope, 7) . '.yaml',
+            default => throw new NotFoundException("Unknown configuration scope '{$scope}'."),
+        };
     }
 
     /**
