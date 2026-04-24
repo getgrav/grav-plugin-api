@@ -12,6 +12,7 @@ use Grav\Common\Processors\ProcessorBase;
 use Grav\Framework\Psr7\Response;
 use Grav\Plugin\Api\Controllers\AuthController;
 use Grav\Plugin\Api\Controllers\BlueprintController;
+use Grav\Plugin\Api\Controllers\BlueprintUploadController;
 use Grav\Plugin\Api\Controllers\ConfigController;
 use Grav\Plugin\Api\Controllers\DashboardController;
 use Grav\Plugin\Api\Controllers\GpmController;
@@ -20,6 +21,7 @@ use Grav\Plugin\Api\Controllers\SchedulerController;
 use Grav\Plugin\Api\Controllers\PagesController;
 use Grav\Plugin\Api\Controllers\ReportsController;
 use Grav\Plugin\Api\Controllers\MenubarController;
+use Grav\Plugin\Api\Controllers\PasswordPolicyController;
 use Grav\Plugin\Api\Controllers\SettingsController;
 use Grav\Plugin\Api\Controllers\SetupController;
 use Grav\Plugin\Api\Controllers\SidebarController;
@@ -32,6 +34,7 @@ use Grav\Plugin\Api\Exceptions\ApiException;
 use Grav\Plugin\Api\Middleware\AuthMiddleware;
 use Grav\Plugin\Api\Middleware\CorsMiddleware;
 use Grav\Plugin\Api\Middleware\JsonBodyParserMiddleware;
+use Grav\Plugin\Api\Middleware\MethodOverrideMiddleware;
 use Grav\Plugin\Api\Middleware\RateLimitMiddleware;
 use Grav\Plugin\Api\Response\ErrorResponse;
 use Psr\Http\Message\ResponseInterface;
@@ -63,6 +66,8 @@ class ApiRouter extends ProcessorBase
             // Run through API middleware chain
             $request = (new JsonBodyParserMiddleware())->processRequest($request);
             $request = (new CorsMiddleware($this->config))->processRequest($request);
+            // Must run before routing so dispatch sees the overridden method.
+            $request = (new MethodOverrideMiddleware())->processRequest($request);
 
             // Handle CORS preflight
             if ($request->getMethod() === 'OPTIONS') {
@@ -219,6 +224,7 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('POST', '/auth/reset-password', [AuthController::class, 'resetPassword']);
         $r->addRoute('GET',  '/auth/setup', [SetupController::class, 'status']);
         $r->addRoute('POST', '/auth/setup', [SetupController::class, 'create']);
+        $r->addRoute('GET',  '/auth/password-policy', [PasswordPolicyController::class, 'show']);
 
         // Current user profile + resolved permissions (protected — auth required)
         $r->addRoute('GET', '/me', [AuthController::class, 'me']);
@@ -248,6 +254,11 @@ class ApiRouter extends ProcessorBase
 
         // Thumbnails
         $r->addRoute('GET', '/thumbnails/{file:.+}', [MediaController::class, 'thumbnail']);
+
+        // Destination-aware blueprint file-field uploads (theme/plugin/user
+        // custom file fields that specify `destination:` in their blueprint).
+        $r->addRoute('POST', '/blueprint-upload', [BlueprintUploadController::class, 'upload']);
+        $r->addRoute('DELETE', '/blueprint-upload', [BlueprintUploadController::class, 'delete']);
 
         // Site-level media
         $r->addRoute('GET', '/media', [MediaController::class, 'siteMedia']);

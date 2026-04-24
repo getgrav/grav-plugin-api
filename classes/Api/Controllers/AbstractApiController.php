@@ -193,11 +193,33 @@ abstract class AbstractApiController
     protected function validateEtag(ServerRequestInterface $request, string $currentHash): void
     {
         $ifMatch = $request->getHeaderLine('If-Match');
-        if ($ifMatch && trim($ifMatch, '"') !== $currentHash) {
+        if ($ifMatch && $this->normalizeEtag($ifMatch) !== $currentHash) {
             throw new \Grav\Plugin\Api\Exceptions\ConflictException(
                 'The resource has been modified since you last retrieved it. Please fetch the latest version and try again.'
             );
         }
+    }
+
+    /**
+     * Strip transport-layer noise from an inbound ETag so comparisons survive
+     * reverse proxies that weaken the header.
+     *
+     * Apache mod_deflate and some nginx builds append `-gzip` (or `;gzip`) to
+     * ETags on compressed responses and leave it in place when the client
+     * echoes the value back in If-Match. Weak markers (`W/`) and surrounding
+     * quotes are also normalized here so the raw md5 hash is what gets
+     * compared against generateEtag()'s output.
+     */
+    private function normalizeEtag(string $etag): string
+    {
+        $etag = trim($etag);
+        if (str_starts_with($etag, 'W/')) {
+            $etag = substr($etag, 2);
+        }
+        $etag = trim($etag, '"');
+        // Strip known transport suffixes (mod_deflate: -gzip or ;gzip; nginx: -br).
+        $etag = preg_replace('/[-;](?:gzip|br|deflate)$/i', '', $etag) ?? $etag;
+        return $etag;
     }
 
     /**

@@ -11,6 +11,7 @@ use Grav\Plugin\Api\Exceptions\ConflictException;
 use Grav\Plugin\Api\Exceptions\TooManyRequestsException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
+use Grav\Plugin\Api\Services\PasswordPolicyService;
 use Grav\Plugin\Login\Login;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -26,6 +27,7 @@ class SetupController extends AbstractApiController
     {
         return ApiResponse::create([
             'setup_required' => $this->noAccountsExist(),
+            'password_policy' => PasswordPolicyService::build($this->config),
         ]);
     }
 
@@ -58,7 +60,13 @@ class SetupController extends AbstractApiController
             );
         }
 
-        if (strlen($password) < 8) {
+        $pwdRegex = (string) $this->config->get('system.pwd_regex', '');
+        if ($pwdRegex !== '' && !@preg_match('#^(?:' . $pwdRegex . ')$#', $password)) {
+            throw new ValidationException(
+                'Password does not meet the required policy.',
+                [['field' => 'password', 'message' => 'Password does not meet the required policy.']],
+            );
+        } elseif ($pwdRegex === '' && strlen($password) < 8) {
             throw new ValidationException(
                 'Password is too short.',
                 [['field' => 'password', 'message' => 'Password must be at least 8 characters.']],

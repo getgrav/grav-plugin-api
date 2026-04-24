@@ -45,7 +45,18 @@ class UsersController extends AbstractApiController
         $query = $request->getQueryParams();
         $search = $query['search'] ?? null;
 
-        $collection = $directory->getCollection();
+        // Grav's Flex FileStorage indexes every file in user/accounts/ without
+        // filtering by extension — any stray file left there by another plugin
+        // (e.g. revisions-pro's .rev snapshots) surfaces as a phantom user.
+        // Constrain to keys that look like actual usernames before the
+        // collection is built so downstream search/sort/pagination operate
+        // on real accounts only.
+        $index = $directory->getIndex();
+        $validKeys = array_values(array_filter(
+            $index->getKeys(),
+            static fn($k) => is_string($k) && preg_match('/^[a-z0-9_-]+$/i', $k) === 1,
+        ));
+        $collection = $directory->getCollection($validKeys);
 
         // Apply search (searches username, email, fullname per blueprint config)
         if ($search && $search !== '') {
