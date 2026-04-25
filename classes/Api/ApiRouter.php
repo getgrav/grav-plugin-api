@@ -15,6 +15,7 @@ use Grav\Plugin\Api\Controllers\BlueprintController;
 use Grav\Plugin\Api\Controllers\BlueprintUploadController;
 use Grav\Plugin\Api\Controllers\ConfigController;
 use Grav\Plugin\Api\Controllers\DashboardController;
+use Grav\Plugin\Api\Controllers\DashboardWidgetController;
 use Grav\Plugin\Api\Controllers\GpmController;
 use Grav\Plugin\Api\Controllers\MediaController;
 use Grav\Plugin\Api\Controllers\SchedulerController;
@@ -327,6 +328,9 @@ $r->addRoute('GET', '/gpm/themes/{slug}/field/{type}', [GpmController::class, 'c
         $r->addRoute('GET', '/dashboard/feed', [DashboardController::class, 'feed']);
         $r->addRoute('GET', '/dashboard/stats', [DashboardController::class, 'stats']);
         $r->addRoute('GET', '/dashboard/popularity', [DashboardController::class, 'popularity']);
+        $r->addRoute('GET', '/dashboard/widgets', [DashboardWidgetController::class, 'widgets']);
+        $r->addRoute('PATCH', '/dashboard/layout', [DashboardWidgetController::class, 'saveUserLayout']);
+        $r->addRoute('PATCH', '/dashboard/site-layout', [DashboardWidgetController::class, 'saveSiteLayout']);
 
         // Scheduler
         $r->addRoute('GET', '/scheduler/jobs', [SchedulerController::class, 'jobs']);

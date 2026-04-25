@@ -25,9 +25,9 @@ class DashboardController extends AbstractApiController
         $user = $this->getUser($request);
         $username = $user->get('username');
 
-        // Load cached notifications
+        // Load cached notifications (v2 schema — see notifications2.md on getgrav.org)
         $cacheFile = $this->grav['locator']->findResource(
-            'user://data/notifications/' . md5($username) . '.yaml',
+            'user://data/notifications/' . md5($username) . '_v2.yaml',
             true,
             true
         );
@@ -50,7 +50,7 @@ class DashboardController extends AbstractApiController
         // Refresh from remote if needed
         if ($force || !$lastChecked || empty($notifications) || (time() - $lastChecked > $timeout)) {
             try {
-                $body = Response::get('https://getgrav.org/notifications.json?' . time());
+                $body = Response::get('https://getgrav.org/notifications2.json?' . time());
                 $rawNotifications = json_decode($body, true);
 
                 if (is_array($rawNotifications)) {
