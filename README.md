@@ -311,6 +311,21 @@ curl -X PATCH https://yoursite.com/api/v1/config/plugins/markdown \
   -d '{"extra": true}'
 ```
 
+**Differential saves.** Config writes persist only the delta against the relevant parent yaml — `system / site / media / security / scheduler / backups` diff against `system/config/<scope>.yaml` (Grav core defaults), `plugins/<name>` diffs against `user/plugins/<name>/<name>.yaml`, and `themes/<name>` diffs against `user/themes/<name>/<name>.yaml`. Defaults come from the raw yaml on disk (not from blueprints, which describe the form and routinely diverge from runtime). Sequential arrays like `languages.supported` are treated atomically — any difference retains the whole new list, avoiding the classic admin-classic bug where shortening a list silently re-merged removed entries.
+
+**Targeting an environment for writes.** The optional `X-Config-Environment` header points writes at an existing env folder under `user/env/<name>/config/`; an empty/missing value writes to base `user/config/`. Env folders are **never** created implicitly — clients must opt in via `POST /system/environments`. A non-empty header that doesn't match an existing folder returns a clear `400`.
+
+```bash
+# Write only to the staging environment overrides
+curl -X PATCH https://yoursite.com/api/v1/config/system \
+  -H "X-API-Key: ..." \
+  -H "X-Config-Environment: staging.example.com" \
+  -H "Content-Type: application/json" \
+  -d '{"languages": {"default_lang": "fr"}}'
+```
+
+> `X-Config-Environment` is a **write-target** header (which env folder receives the change). It is distinct from `X-Grav-Environment` (which env to *load* for the request).
+
 ### Users
 
 | Method | Endpoint | Description |
@@ -332,7 +347,8 @@ curl -X PATCH https://yoursite.com/api/v1/config/plugins/markdown \
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/ping` | Keep-alive / health check |
-| `GET` | `/system/environments` | List available environments |
+| `GET` | `/system/environments` | List available environments (current host + `user/env/*` + legacy 1.6 layouts) |
+| `POST` | `/system/environments` | Create a new env folder under `user/env/<name>/config/` |
 | `GET` | `/system/info` | System information |
 | `DELETE` | `/cache` | Clear cache |
 | `GET` | `/system/logs` | Read logs |
@@ -411,10 +427,20 @@ Searches match against slug, name, description, author, and keywords. All reposi
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/dashboard/notifications` | Get system notifications |
+| `GET` | `/dashboard/notifications` | Get system notifications (v2 schema — see below) |
 | `POST` | `/dashboard/notifications/{id}/hide` | Dismiss a notification |
 | `GET` | `/dashboard/feed` | Get getgrav.org news feed |
 | `GET` | `/dashboard/stats` | Dashboard statistics snapshot |
+| `GET` | `/dashboard/popularity` | Page-view popularity series for chart widgets |
+| `GET` | `/dashboard/widgets` | Resolved widget list + layouts for the current user |
+| `PATCH` | `/dashboard/layout` | Save the current user's dashboard layout |
+| `PATCH` | `/dashboard/site-layout` | Save the site-wide default layout (super-admin) |
+
+**Customizable dashboard.** `GET /dashboard/widgets` returns a merged widget list combining (1) a built-in core registry, (2) plugin contributions via the `onApiDashboardWidgets` event, (3) the site-default layout, and (4) the current user's overrides. Site-hidden widgets are dropped entirely from a user's view (cannot be re-enabled per-user); the user's overrides win for size/order on the rest. Each resolved widget carries its allowed `sizes[]`, `defaultSize`, icon, and authorize permission so the client can render the customize-mode picker without a second round-trip.
+
+**Notifications schema (v2).** Each notification has structured fields — `type` (`info` | `notice` | `warning` | `promo`), `icon`, `title`, `message` (markdown), `link`, `image` + `accent` (for `promo` cards), `action: {label, url}`, and `dependencies` — so clients can render natively rather than receive embedded HTML. The endpoint fetches from `https://getgrav.org/notifications2.json` and caches per-user under `user/data/notifications/{md5}_v2.yaml`.
+
+**Plugin-contributed widgets** — listen for `onApiDashboardWidgets` and append to `$event['widgets']`. Each entry can declare an `authorize` permission so the resolver hides widgets the user lacks access to.
 
 ### Webhooks
 
@@ -494,8 +520,13 @@ $valid = hash_equals($signature, $_SERVER['HTTP_X_GRAV_SIGNATURE']);
 | `POST` | `/auth/token` | Login (get JWT tokens) |
 | `POST` | `/auth/refresh` | Refresh access token |
 | `POST` | `/auth/revoke` | Revoke refresh token |
+| `GET`  | `/auth/setup` | First-run check (returns `needs_setup` plus the password policy) |
+| `POST` | `/auth/setup` | Create the very first super-admin user (only when no users exist) |
+| `GET`  | `/auth/password-policy` | Structured representation of `system.pwd_regex` for client-side strength meters |
 
 These endpoints do **not** require authentication.
+
+**Password policy.** `GET /auth/password-policy` parses `system.pwd_regex` into `{ regex, min_length, rules[] }` by recognizing the common lookahead form (`(?=.*\d)`, `(?=.*[a-z])`, `(?=.*[A-Z])`, `(?=.*\W)`, `.{N,}`) and mapping each to a human-readable rule label. Admins can override the auto-detected rules with an optional `system.pwd_rules: [{id, label, pattern}, …]` list for custom or localized messaging without touching `pwd_regex`. The same policy is piggybacked on `GET /auth/setup` so the first-run setup screen renders its strength meter without a second round-trip; `POST /auth/setup` enforces it server-side regardless of what the UI shows.
 
 ### Translations
 
@@ -551,6 +582,8 @@ Blueprints provide form schema definitions used to render configuration and cont
 | `GET` | `/blueprints/users/permissions` | Get all registered permission actions | `api.users.read` |
 | `GET` | `/blueprints/config/{scope}` | Get blueprint for system config (`system`, `site`, `media`) | `api.config.read` |
 | `GET` | `/data/resolve` | Resolve blueprint data-options@ directives | `api.pages.read` |
+| `POST` | `/blueprint-upload` | Upload a file targeted by a blueprint `destination` | (scope-derived) |
+| `DELETE` | `/blueprint-upload` | Remove a previously-uploaded blueprint file (idempotent) | (scope-derived) |
 
 **List page templates:**
 
@@ -625,6 +658,10 @@ The resolved blueprint includes all inherited fields from parent blueprints (e.g
 curl -s "https://yoursite.com/api/v1/blueprints/plugins/email" \
   -H "X-API-Key: YOUR_KEY"
 ```
+
+**Blueprint file uploads.** `POST /blueprint-upload` mirrors admin-classic's `taskFilesUpload` for theme/plugin config forms. It accepts a blueprint `destination` (a Grav stream like `theme://images/logo`, `user://assets`, `account://avatars`; the `self@:subpath` form relative to a blueprint owner; or a plain user-rooted relative path) plus a `scope` (`plugins/<slug>`, `themes/<slug>`, `pages/<route>`, `users/<username>`) and writes the file to the right place.
+
+Streams resolve through Grav's locator so symlinked theme/plugin folders (common in dev setups) work cleanly — the response returns a *logical* user-rooted path (`user/themes/quark2/images/logo/foo.png`) independent of realpath, so a subsequent `DELETE /blueprint-upload` round-trips through the symlink to remove the actual file. `..` traversal and absolute paths are rejected, filenames are sanitized, and the dangerous-extension allowlist is checked. `DELETE` is idempotent — a missing file returns `204 No Content`.
 
 ## Response Format
 
@@ -706,7 +743,11 @@ rate_limit:
   enabled: true
   requests: 120
   window: 60
+  excluded_paths:
+    - /sync/   # default — exempt collab endpoints from the per-user bucket
 ```
+
+`excluded_paths` exempts matching path prefixes from the bucket entirely — useful for high-frequency authenticated traffic (e.g. the sync plugin's polling, which fires ~90 req/min per active editor and would otherwise trip the global anti-abuse limit). Auth and per-route permissions still apply, so the bypass is gated by normal authentication rather than being a free pass.
 
 ## CORS
 
@@ -722,6 +763,19 @@ cors:
   headers: [Content-Type, X-API-Token, X-API-Key, Authorization, If-Match]
   credentials: false
 ```
+
+## HTTP Method Override
+
+Some shared-hosting nginx configs reject `DELETE`, `PATCH`, and `PUT` at the edge with a `405 Method Not Allowed` before the request ever reaches PHP. To work around this, the API accepts an `X-HTTP-Method-Override` header on `POST` requests that rewrites the verb before dispatch:
+
+```bash
+# Equivalent to DELETE /pages/blog/old-post
+curl -X POST https://yoursite.com/api/v1/pages/blog/old-post \
+  -H "X-API-Key: ..." \
+  -H "X-HTTP-Method-Override: DELETE"
+```
+
+Only `DELETE`, `PATCH`, and `PUT` are honored (never `GET`), and the override is opt-in per request — clients that don't need it pay zero cost. Admin-next auto-detects the need on a failed mutation and caches the fallback decision in `sessionStorage`, so subsequent requests in the same session skip straight to the compatible path.
 
 ## Permissions
 
@@ -973,6 +1027,7 @@ The API fires events before and after all write operations, allowing plugins to 
 |-------|------|------------|
 | `onApiSidebarItems` | Sidebar items are collected via `GET /sidebar/items` | `items` (array, modifiable), `user` (UserInterface) |
 | `onApiPluginPageInfo` | Plugin page definition requested via `GET /gpm/plugins/{slug}/page` | `plugin` (string), `definition` (array\|null, modifiable), `user` (UserInterface) |
+| `onApiDashboardWidgets` | Widget registry is collected via `GET /dashboard/widgets` | `widgets` (array, modifiable), `user` (UserInterface) |
 
 ### Using Events in Your Plugin
 
@@ -1170,6 +1225,7 @@ grav-plugin-api/
 │   │   ├── AuthController.php
 │   │   ├── ConfigController.php
 │   │   ├── DashboardController.php
+│   │   ├── DashboardWidgetController.php
 │   │   ├── GpmController.php
 │   │   ├── MediaController.php
 │   │   ├── PagesController.php
