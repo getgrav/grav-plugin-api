@@ -37,6 +37,25 @@ class RateLimitMiddleware
             ];
         }
 
+        // Path-prefix exclusions. Used to keep high-frequency API
+        // surfaces (collab polling, etc.) out of the per-user bucket so a
+        // single typing user doesn't trip the global anti-abuse limit.
+        // Defaults to excluding the sync plugin's endpoints; operators can
+        // override via plugins.api.rate_limit.excluded_paths.
+        $excluded = (array) $this->config->get('plugins.api.rate_limit.excluded_paths', ['/sync/']);
+        $path = $request->getUri()->getPath();
+        foreach ($excluded as $prefix) {
+            if (!is_string($prefix) || $prefix === '') continue;
+            if (str_contains($path, $prefix)) {
+                return [
+                    'limited' => false,
+                    'limit' => $limit,
+                    'remaining' => $limit,
+                    'reset' => time() + $window,
+                ];
+            }
+        }
+
         $identifier = $this->getIdentifier($request);
         $storageDir = $this->getStorageDir();
 

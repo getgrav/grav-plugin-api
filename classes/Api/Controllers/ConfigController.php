@@ -85,13 +85,22 @@ class ConfigController extends AbstractApiController
             throw new ValidationException('Request body must contain configuration values to update.');
         }
 
-        // Deep merge provided values with existing config
-        $merged = is_array($existing)
-            ? array_replace_recursive($existing, $body)
-            : $body;
-
         // Load the blueprint and apply field-type filtering (e.g., commalist → array)
         $blueprint = $this->loadBlueprint($scope);
+
+        // Merge provided values with existing config. Prefer Grav's
+        // blueprint-aware merge — it REPLACES map values at blueprint-defined
+        // leaf fields instead of deep-merging them, which is what we want for
+        // e.g. `type: file` fields whose keys are file paths: when the user
+        // removes a file the client drops that key, and a blind deep-merge
+        // would revive it from $existing. Fall back to array_replace_recursive
+        // only when no blueprint is available (rare — mostly test fixtures).
+        if ($blueprint !== null && is_array($existing)) {
+            $merged = $blueprint->mergeData($existing, $body);
+        } else {
+            $merged = is_array($existing) ? array_replace_recursive($existing, $body) : $body;
+        }
+
         $obj = new Data($merged, $blueprint);
         $obj->filter(true, true);
 
