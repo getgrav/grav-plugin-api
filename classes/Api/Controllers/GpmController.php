@@ -535,6 +535,13 @@ class GpmController extends AbstractApiController
 
     /**
      * POST /gpm/update-all - Update all updatable packages.
+     *
+     * Each package goes through the same dependency validation as the per-package
+     * `update` endpoint: GPM-registered Grav/PHP requirements must be satisfied,
+     * and any plugin-deps that themselves need an update are processed first.
+     * Packages whose requirements aren't met land in `failed[]` with a
+     * toast-friendly message; packages already brought current as a cascade dep
+     * of a prior iteration land in `skipped[]`.
      */
     public function updateAll(ServerRequestInterface $request): ResponseInterface
     {
@@ -543,35 +550,109 @@ class GpmController extends AbstractApiController
         $gpm = $this->getGpm(true);
         $updatable = $gpm->getUpdatable();
 
-        $results = ['updated' => [], 'failed' => []];
+        $results = ['updated' => [], 'failed' => [], 'skipped' => []];
+        $cascadedDeps = [];
 
-        // Update plugins
-        foreach ($updatable['plugins'] ?? [] as $slug => $plugin) {
-            try {
-                $result = GpmService::update($slug, []);
-                if ($result === true) {
-                    $results['updated'][] = $slug;
-                } else {
-                    $results['failed'][] = ['package' => $slug, 'error' => is_string($result) ? $result : 'Unknown error'];
-                }
-            } catch (\Throwable $e) {
-                $results['failed'][] = ['package' => $slug, 'error' => $e->getMessage()];
-            }
+        $packages = [];
+        foreach (array_keys($updatable['plugins'] ?? []) as $slug) {
+            $packages[] = ['slug' => (string) $slug, 'isTheme' => false];
+        }
+        foreach (array_keys($updatable['themes'] ?? []) as $slug) {
+            $packages[] = ['slug' => (string) $slug, 'isTheme' => true];
         }
 
-        // Update themes
-        foreach ($updatable['themes'] ?? [] as $slug => $theme) {
-            try {
-                $result = GpmService::update($slug, ['theme' => true]);
-                if ($result === true) {
-                    $results['updated'][] = $slug;
-                } else {
-                    $results['failed'][] = ['package' => $slug, 'error' => is_string($result) ? $result : 'Unknown error'];
-                }
-            } catch (\Throwable $e) {
-                $results['failed'][] = ['package' => $slug, 'error' => $e->getMessage()];
+        foreach ($packages as ['slug' => $slug, 'isTheme' => $isTheme]) {
+            // A prior iteration may have cascaded this package as a dep.
+            // Re-check against a fresh GPM read so we don't re-update.
+            $freshGpm = $this->getGpm(true);
+            if (!$freshGpm->isUpdatable($slug)) {
+                $results['skipped'][] = ['package' => $slug, 'reason' => 'already up to date (installed as a dependency)'];
+                continue;
             }
+
+            try {
+                $freshGpm->checkPackagesCanBeInstalled([$slug]);
+                $dependencies = $freshGpm->getDependencies([$slug]);
+            } catch (\Throwable $e) {
+                $results['failed'][] = [
+                    'package' => $slug,
+                    'error' => $this->stripGpmColorTags($e->getMessage()),
+                ];
+                continue;
+            }
+
+            $depsToInstall = [];
+            foreach ($dependencies as $depSlug => $action) {
+                if ($action === 'install' || $action === 'update') {
+                    $depsToInstall[] = (string) $depSlug;
+                }
+            }
+
+            $installedDeps = [];
+            $depFailed = false;
+            foreach ($depsToInstall as $depSlug) {
+                try {
+                    $depResult = $this->installPackage($depSlug, ['theme' => false]);
+                } catch (\Throwable $e) {
+                    $results['failed'][] = [
+                        'package' => $slug,
+                        'error' => $this->partialFailureMessage(
+                            sprintf(
+                                "Failed to install dependency '%s': %s",
+                                $depSlug,
+                                $this->stripGpmColorTags($e->getMessage())
+                            ),
+                            $installedDeps
+                        ),
+                    ];
+                    $depFailed = true;
+                    break;
+                }
+                if ($depResult !== true && !is_string($depResult)) {
+                    $results['failed'][] = [
+                        'package' => $slug,
+                        'error' => $this->partialFailureMessage("Failed to install dependency '{$depSlug}'.", $installedDeps),
+                    ];
+                    $depFailed = true;
+                    break;
+                }
+                $installedDeps[] = $depSlug;
+                $cascadedDeps[$depSlug] = true;
+            }
+
+            if ($depFailed) {
+                continue;
+            }
+
+            try {
+                $result = $this->updatePackage($slug, [
+                    'theme' => $isTheme,
+                    'install_deps' => false,
+                ]);
+            } catch (\Throwable $e) {
+                $results['failed'][] = [
+                    'package' => $slug,
+                    'error' => $this->partialFailureMessage(
+                        $this->stripGpmColorTags($e->getMessage()),
+                        $installedDeps
+                    ),
+                ];
+                continue;
+            }
+
+            if ($result !== true && !is_string($result)) {
+                $results['failed'][] = [
+                    'package' => $slug,
+                    'error' => $this->partialFailureMessage("Failed to update '{$slug}'.", $installedDeps),
+                ];
+                continue;
+            }
+
+            $results['updated'][] = $slug;
         }
+
+        // Surface cascaded deps as a separate field so callers can show "also updated as deps: x, y".
+        $results['cascaded_dependencies'] = array_values(array_keys($cascadedDeps));
 
         return ApiResponse::create(
             $results,
@@ -865,10 +946,38 @@ class GpmController extends AbstractApiController
 
     /**
      * Get a GPM instance.
+     *
+     * Protected (not private) so test subclasses can return a mock GPM
+     * without instantiating the real one (which touches the filesystem
+     * and remote GPM repository on construction).
      */
-    private function getGpm(bool $refresh = false): GPM
+    protected function getGpm(bool $refresh = false): GPM
     {
         return new GPM($refresh);
+    }
+
+    /**
+     * Install a package via GpmService. Wrapper exists so test subclasses
+     * can stub the install side-effect without calling the static service
+     * (which performs network downloads and filesystem writes).
+     *
+     * @param array<string, mixed> $options
+     * @return string|bool
+     */
+    protected function installPackage(string $slug, array $options)
+    {
+        return GpmService::install($slug, $options);
+    }
+
+    /**
+     * Update a package via GpmService. See installPackage() for rationale.
+     *
+     * @param array<string, mixed> $options
+     * @return string|bool
+     */
+    protected function updatePackage(string $slug, array $options)
+    {
+        return GpmService::update($slug, $options);
     }
 
     /**
