@@ -1,7 +1,7 @@
 name: API
 slug: api
 type: plugin
-version: 1.0.0-beta.12
+version: 1.0.0-beta.13
 description: RESTful API for Grav CMS. Provides headless access to pages, media, configuration, users, and system management.
 icon: plug
 author:
@@ -18,7 +18,7 @@ compatibility:
 
 dependencies:
   - { name: grav, version: '>=2.0.0-beta.2' }
-  - { name: login, version: '>=3.8.0' }
+  - { name: login, version: '>=3.8.3' }
 
 form:
   validation: loose
