@@ -525,6 +525,25 @@ namespace Grav\Common\Page {
     }
 }
 
+namespace Grav\Common\GPM {
+    if (!class_exists(\Grav\Common\GPM\GPM::class, false)) {
+        /**
+         * Minimal GPM stub. Methods are intentionally non-final and present
+         * here only so PHPUnit's createMock() can produce a mock subclass.
+         * Behavior is supplied per-test via mock expectations.
+         */
+        class GPM
+        {
+            public function __construct(bool $refresh = false, $callback = null) {}
+
+            public function getUpdatable(): array { return []; }
+            public function isUpdatable(string $slug): bool { return false; }
+            public function checkPackagesCanBeInstalled(array $slugs): void {}
+            public function getDependencies(array $slugs): array { return []; }
+        }
+    }
+}
+
 namespace Grav\Common\Data {
     if (!class_exists(\Grav\Common\Data\Data::class, false)) {
         /**
