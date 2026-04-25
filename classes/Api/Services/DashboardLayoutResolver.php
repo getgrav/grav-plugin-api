@@ -74,7 +74,7 @@ class DashboardLayoutResolver
                 'label' => 'ADMIN_NEXT.DASHBOARD.WIDGETS.RECENT_PAGES',
                 'icon' => 'FileText',
                 'sizes' => ['sm', 'md'],
-                'defaultSize' => 'sm',
+                'defaultSize' => 'md',
                 'authorize' => 'api.pages.read',
                 'priority' => 70,
             ],
