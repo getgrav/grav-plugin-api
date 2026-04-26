@@ -356,7 +356,7 @@ $r->addRoute('GET', '/gpm/themes/{slug}/field/{type}', [GpmController::class, 'c
 
         // Blueprints
         $r->addRoute('GET', '/blueprints/pages', [BlueprintController::class, 'pageTypes']);
-        $r->addRoute('GET', '/blueprints/pages/{template}', [BlueprintController::class, 'pageBlueprint']);
+        $r->addRoute('GET', '/blueprints/pages/{template:.+}', [BlueprintController::class, 'pageBlueprint']);
         $r->addRoute('GET', '/blueprints/plugins/{plugin}', [BlueprintController::class, 'pluginBlueprint']);
         $r->addRoute('GET', '/blueprints/plugins/{plugin}/pages/{pageId}', [BlueprintController::class, 'pluginPageBlueprint']);
         $r->addRoute('GET', '/blueprints/themes/{theme}', [BlueprintController::class, 'themeBlueprint']);
