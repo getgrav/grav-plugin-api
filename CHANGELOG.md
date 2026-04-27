@@ -1,3 +1,9 @@
+# v1.0.0-beta.15
+## 04/27/2026
+
+1. [](#bugfix)
+    * **Security: privilege escalation via self-edit (GHSA-r945-h4vm-h736).** `PATCH /users/{username}` allowed any authenticated user with `api.access` to send an `access` payload against their own profile and self-promote to super admin. The self-edit branch only required `api.access` (not `api.users.write`), but the field whitelist still included `access` (and `state`) for everyone — overwriting `access.api.super` / `access.admin.super` on yourself granted full system control and a Twig-template path to RCE. `UsersController::update` now splits the whitelist into self-editable fields (email, fullname, title, language, content_editor, twofa_enabled) and admin-only fields (state, access); a non-manager that sends `access` or `state` in the body now gets a `403 Forbidden` with an explicit "requires the 'api.users.write' permission" message instead of having the field silently land. Managers (super-admin or `api.users.write`) keep full control over both fields, including on their own account. New regression test `UsersControllerUpdatePrivescTest` pins the boundary across five cases: low-priv self-edit of `access` rejected (and access map verified untouched), low-priv self-edit of `state` rejected, low-priv self-edit of plain profile fields succeeds, an admin updates another user's `access` field, and a user holding `api.users.write` self-edits their own `access`. `Grav\Framework\Acl\Permissions` and `Grav\Common\Utils::arrayFlattenDotNotation` were added as minimal stubs in `tests/Stubs/GravStubs.php` so `PermissionResolver` can be exercised in unit tests without the Grav core on the classpath.
+
 # v1.0.0-beta.14
 ## 04/25/2026
 
