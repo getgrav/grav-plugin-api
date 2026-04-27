@@ -221,7 +221,20 @@ class BlueprintController extends AbstractApiController
         $blueprint = new Blueprint($blueprintPath);
         $blueprint->load();
 
-        return ApiResponse::create($this->serializeBlueprint($blueprint, 'account'));
+        $data = $this->serializeBlueprint($blueprint, 'account');
+
+        // Fire event so plugins can extend the user blueprint (e.g. admin2
+        // injects the account-state toggle, since core's account.yaml has
+        // no field for it).
+        $event = new Event([
+            'fields' => $data['fields'],
+            'template' => 'account',
+            'user' => $this->getUser($request),
+        ]);
+        $this->grav->fireEvent('onApiBlueprintResolved', $event);
+        $data['fields'] = $event['fields'];
+
+        return ApiResponse::create($data);
     }
 
     /**
