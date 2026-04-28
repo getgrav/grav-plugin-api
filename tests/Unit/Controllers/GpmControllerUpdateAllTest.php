@@ -22,9 +22,10 @@ use Psr\Http\Message\ServerRequestInterface;
  * getGpm() / installPackage() / updatePackage() as protected methods so a
  * test subclass can inject mocks for these collaborators.
  *
- * Each test uses a fresh GPM mock per call to getGpm() so tests can assert
- * the "re-read between iterations" behavior that lets cascaded deps land in
- * `skipped` rather than `updated` twice.
+ * Each test uses a fresh GPM mock per call to getGpm(); cascade-skip
+ * behavior is asserted via the controller's internal cascadedDeps tracking,
+ * not via per-iteration changes to GPM::isUpdatable() (Grav core's
+ * Remote\Packages static cache makes that mutate-and-recheck unreliable).
  */
 #[CoversClass(GpmController::class)]
 class GpmControllerUpdateAllTest extends TestCase
@@ -249,16 +250,13 @@ class GpmControllerUpdateAllTest extends TestCase
     public function cascades_dependency_update_before_target(): void
     {
         // 'parent' depends on 'child' needing an update.
-        // Both are listed as updatable; child should be installed as a cascade,
-        // and on the second iteration child should report not-updatable -> skipped.
-        $iteration = 0;
-        $factory = function () use (&$iteration): GPM {
-            $iteration++;
-            // After parent's iteration installs child, child becomes not-updatable.
-            $childUpdatable = $iteration <= 1;
+        // Both appear in the initial updatable list. Processing parent first
+        // cascade-installs child; when the loop reaches child it is found in
+        // the cascadedDeps set and reported as skipped.
+        $factory = function (): GPM {
             return $this->makeGpmMock(
                 updatable: ['plugins' => ['parent' => (object) [], 'child' => (object) []]],
-                isUpdatable: ['parent' => true, 'child' => $childUpdatable],
+                isUpdatable: ['parent' => true, 'child' => true],
                 depsBySlug: [
                     'parent' => ['child' => 'update'],
                     'child' => [],
@@ -288,7 +286,7 @@ class GpmControllerUpdateAllTest extends TestCase
         $this->assertSame(['child'], $body['cascaded_dependencies']);
 
         // child appears in the original updatable list, but on its iteration
-        // GPM reports it no longer updatable -> goes into skipped, not updated again.
+        // the cascadedDeps set causes it to be skipped, not updated again.
         $this->assertCount(1, $body['skipped']);
         $this->assertSame('child', $body['skipped'][0]['package']);
         $this->assertSame([], $body['failed']);
