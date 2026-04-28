@@ -10,7 +10,7 @@
 ## 04/28/2026
 
 1. [](#bugfix)
-    * `POST /gpm/update-all` now actually updates packages instead of skipping every one of them. The beta.14 dep-validation rewrite added a per-iteration `isUpdatable($slug)` recheck against a fresh `new GPM(true)`, intended to catch packages that had been brought current as a cascade dep of a prior iteration. But Grav core's `Remote\Packages` extends `CachedCollection` (a process-level static cache), and the *first* `getUpdatable()` call — used to build the work list — runs `getUpdatablePlugins()` which mutates `$plugins[$slug]->version = $local_version` on the remote Package object. Because the second GPM instance sees the same statically-cached remote object, `version_compare(local, remote)` is now equal-not-less, `isUpdatable` returns `false`, and every package the user actually wanted to update lands in `skipped[]` with the misleading "already up to date (installed as a dependency)" reason. The cascade-skip path now reads from the controller's own `$cascadedDeps` set instead of asking GPM again, sidestepping the static-cache poisoning entirely. The per-package `POST /gpm/update` endpoint was never affected (only one GPM call per request before the mutation). Cascade test rewritten to drive skip behavior via `cascadedDeps` rather than per-iteration `isUpdatable` flips.
+    * **Fix: `POST /gpm/update-all` now updates packages instead of skipping all of them.** A regression introduced by beta.14's dep-resolution rewrite tripped a Grav core static-cache quirk and mis-labelled every outdated package as "already up to date (installed as a dependency)". The per-package `POST /gpm/update` endpoint was unaffected and remained a working workaround.
 
 # v1.0.0-beta.15
 ## 04/27/2026
