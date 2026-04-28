@@ -137,8 +137,11 @@ class BlueprintController extends AbstractApiController
         $data = $this->serializeBlueprint($blueprint, $template);
 
         // Fire event to allow plugins to modify the serialized blueprint fields
-        // (e.g., editor-pro overrides editor/markdown field types)
+        // (e.g., editor-pro overrides editor/markdown field types). The
+        // explicit `context` discriminator lets listeners gate behavior to a
+        // specific blueprint family (e.g. ai-translate annotates only pages).
         $event = new Event([
+            'context' => 'page',
             'fields' => $data['fields'],
             'template' => $template,
             'user' => $this->getUser($request),
@@ -170,6 +173,7 @@ class BlueprintController extends AbstractApiController
 
         // Fire event to allow plugins to modify serialized fields
         $event = new Event([
+            'context' => 'plugin',
             'fields' => $data['fields'],
             'plugin' => $pluginName,
             'user' => $this->getUser($request),
@@ -198,7 +202,21 @@ class BlueprintController extends AbstractApiController
         $blueprint = new Blueprint($themePath . '/blueprints.yaml');
         $blueprint->load();
 
-        return ApiResponse::create($this->serializeBlueprint($blueprint, $themeName));
+        $data = $this->serializeBlueprint($blueprint, $themeName);
+
+        // Fire event so plugins can extend / annotate theme blueprints, with
+        // an explicit `context` discriminator so listeners (e.g. ai-translate)
+        // can scope behavior to a specific blueprint family.
+        $event = new Event([
+            'context' => 'theme',
+            'fields' => $data['fields'],
+            'theme' => $themeName,
+            'user' => $this->getUser($request),
+        ]);
+        $this->grav->fireEvent('onApiBlueprintResolved', $event);
+        $data['fields'] = $event['fields'];
+
+        return ApiResponse::create($data);
     }
 
     /**
@@ -227,6 +245,7 @@ class BlueprintController extends AbstractApiController
         // injects the account-state toggle, since core's account.yaml has
         // no field for it).
         $event = new Event([
+            'context' => 'account',
             'fields' => $data['fields'],
             'template' => 'account',
             'user' => $this->getUser($request),
