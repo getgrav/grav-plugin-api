@@ -3,7 +3,7 @@
         'name' => 'getgrav/grav-plugin-api',
         'pretty_version' => 'dev-develop',
         'version' => 'dev-develop',
-        'reference' => 'f335ea71c6d836d4c4e782b0da3a22ea6b4a32f2',
+        'reference' => 'f179d239c922d9cdb80315882b2a0c8ebff871d5',
         'type' => 'grav-plugin',
         'install_path' => __DIR__ . '/../../',
         'aliases' => array(),
@@ -11,9 +11,9 @@
     ),
     'versions' => array(
         'firebase/php-jwt' => array(
-            'pretty_version' => 'v7.0.3',
-            'version' => '7.0.3.0',
-            'reference' => '28aa0694bcfdfa5e2959c394d5a1ee7a5083629e',
+            'pretty_version' => 'v7.0.5',
+            'version' => '7.0.5.0',
+            'reference' => '47ad26bab5e7c70ae8a6f08ed25ff83631121380',
             'type' => 'library',
             'install_path' => __DIR__ . '/../firebase/php-jwt',
             'aliases' => array(),
@@ -22,7 +22,7 @@
         'getgrav/grav-plugin-api' => array(
             'pretty_version' => 'dev-develop',
             'version' => 'dev-develop',
-            'reference' => 'f335ea71c6d836d4c4e782b0da3a22ea6b4a32f2',
+            'reference' => 'f179d239c922d9cdb80315882b2a0c8ebff871d5',
             'type' => 'grav-plugin',
             'install_path' => __DIR__ . '/../../',
             'aliases' => array(),

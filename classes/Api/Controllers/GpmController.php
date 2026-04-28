@@ -562,17 +562,21 @@ class GpmController extends AbstractApiController
         }
 
         foreach ($packages as ['slug' => $slug, 'isTheme' => $isTheme]) {
-            // A prior iteration may have cascaded this package as a dep.
-            // Re-check against a fresh GPM read so we don't re-update.
-            $freshGpm = $this->getGpm(true);
-            if (!$freshGpm->isUpdatable($slug)) {
+            // A prior iteration may have already cascaded this package as a dep.
+            // We can't reuse $gpm->isUpdatable() to detect this: the initial
+            // $gpm->getUpdatable() call above mutates the shared Remote\Package
+            // ::$version (Grav core's CachedCollection holds Remote\Packages
+            // statically, and getUpdatablePlugins() rewrites $version to the
+            // local version on hit). Subsequent isUpdatable() reads then see
+            // remote==local and report "not updatable" for everything.
+            if (isset($cascadedDeps[$slug])) {
                 $results['skipped'][] = ['package' => $slug, 'reason' => 'already up to date (installed as a dependency)'];
                 continue;
             }
 
             try {
-                $freshGpm->checkPackagesCanBeInstalled([$slug]);
-                $dependencies = $freshGpm->getDependencies([$slug]);
+                $gpm->checkPackagesCanBeInstalled([$slug]);
+                $dependencies = $gpm->getDependencies([$slug]);
             } catch (\Throwable $e) {
                 $results['failed'][] = [
                     'package' => $slug,
