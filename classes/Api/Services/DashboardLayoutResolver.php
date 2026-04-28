@@ -74,7 +74,7 @@ class DashboardLayoutResolver
                 'label' => 'ADMIN_NEXT.DASHBOARD.WIDGETS.RECENT_PAGES',
                 'icon' => 'FileText',
                 'sizes' => ['sm', 'md'],
-                'defaultSize' => 'sm',
+                'defaultSize' => 'md',
                 'authorize' => 'api.pages.read',
                 'priority' => 70,
             ],
@@ -161,16 +161,59 @@ class DashboardLayoutResolver
     /**
      * Read this user's saved dashboard layout from their account YAML.
      *
+     * Storage location is the top-level `admin_next.dashboard` key. Older
+     * builds wrote to `state.admin_next.dashboard`, which collided with
+     * Grav's account-state string (`state: enabled` / `state: disabled`)
+     * and caused affected users to render as Disabled in user lists.
+     * `migrateLegacyState()` lifts that legacy data out and restores the
+     * account-state string on first read.
+     *
      * @return array<string, mixed>
      */
     public function userLayout(UserInterface $user): array
     {
-        $state = $user->get('state');
-        if (!is_array($state)) {
+        $this->migrateLegacyState($user);
+
+        $adminNext = $user->get('admin_next');
+        if (!is_array($adminNext)) {
             return [];
         }
-        $layout = $state['admin_next']['dashboard'] ?? [];
+        $layout = $adminNext['dashboard'] ?? [];
         return is_array($layout) ? $layout : [];
+    }
+
+    /**
+     * One-time migration: if `state` was clobbered by an older build with a
+     * map containing `admin_next.dashboard`, lift the dashboard layout out
+     * to the top-level `admin_next.dashboard` key and restore `state` to
+     * the standard `enabled` / `disabled` string.
+     */
+    private function migrateLegacyState(UserInterface $user): bool
+    {
+        $state = $user->get('state');
+        if (!is_array($state)) {
+            return false;
+        }
+
+        $legacyDashboard = $state['admin_next']['dashboard'] ?? null;
+        if (is_array($legacyDashboard)) {
+            $adminNext = $user->get('admin_next');
+            $adminNext = is_array($adminNext) ? $adminNext : [];
+            // New location wins if both are present (shouldn't happen, but
+            // be defensive — the new write path is authoritative).
+            if (!isset($adminNext['dashboard'])) {
+                $adminNext['dashboard'] = $legacyDashboard;
+                $user->set('admin_next', $adminNext);
+            }
+        }
+
+        // Restore the account-state string. If a legacy install ever wrote
+        // an explicit `state.enabled: false`, honor it; otherwise default
+        // to `enabled` since the account exists and was being used.
+        $restored = ($state['enabled'] ?? null) === false ? 'disabled' : 'enabled';
+        $user->set('state', $restored);
+        $user->save();
+        return true;
     }
 
     /**
@@ -257,19 +300,22 @@ class DashboardLayoutResolver
     }
 
     /**
-     * Persist a user's layout to their account YAML under state.admin_next.dashboard.
+     * Persist a user's layout to their account YAML under admin_next.dashboard.
+     *
+     * Note: this used to write to `state.admin_next.dashboard`, which
+     * collided with Grav's `state: enabled|disabled` account-state field.
+     * Legacy data is migrated on read by `migrateLegacyState()`.
      *
      * @param array<string, mixed> $layout
      */
     public function saveUserLayout(UserInterface $user, array $layout): void
     {
-        $state = $user->get('state');
-        if (!is_array($state)) {
-            $state = [];
-        }
-        $state['admin_next'] = is_array($state['admin_next'] ?? null) ? $state['admin_next'] : [];
-        $state['admin_next']['dashboard'] = $this->normalizeLayout($layout);
-        $user->set('state', $state);
+        $this->migrateLegacyState($user);
+
+        $adminNext = $user->get('admin_next');
+        $adminNext = is_array($adminNext) ? $adminNext : [];
+        $adminNext['dashboard'] = $this->normalizeLayout($layout);
+        $user->set('admin_next', $adminNext);
         $user->save();
     }
 

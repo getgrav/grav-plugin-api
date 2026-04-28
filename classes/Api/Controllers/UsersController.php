@@ -194,6 +194,8 @@ class UsersController extends AbstractApiController
 
         // Users can update themselves with just api.access, otherwise need api.users.write
         $isSelf = $currentUser->username === $username;
+        $canManageUsers = $this->isSuperAdmin($currentUser)
+            || $this->hasPermission($currentUser, 'api.users.write');
         if (!$isSelf) {
             $this->requirePermission($request, 'api.users.write');
         } else {
@@ -211,8 +213,23 @@ class UsersController extends AbstractApiController
             throw new ValidationException('Request body must contain fields to update.');
         }
 
-        // Partial update - only update provided fields
-        $allowedFields = ['email', 'fullname', 'title', 'state', 'language', 'content_editor', 'access', 'twofa_enabled'];
+        // Privilege-sensitive fields are gated on api.users.write. Without this
+        // split a self-edit (api.access only) could PATCH `access` and grant
+        // itself api.super / admin.super — see GHSA-r945-h4vm-h736.
+        $selfFields  = ['email', 'fullname', 'title', 'language', 'content_editor', 'twofa_enabled'];
+        $adminFields = ['state', 'access'];
+
+        if (!$canManageUsers) {
+            foreach ($adminFields as $field) {
+                if (array_key_exists($field, $body)) {
+                    throw new ForbiddenException(
+                        "Modifying '{$field}' requires the 'api.users.write' permission."
+                    );
+                }
+            }
+        }
+
+        $allowedFields = $canManageUsers ? array_merge($selfFields, $adminFields) : $selfFields;
         foreach ($allowedFields as $field) {
             if (array_key_exists($field, $body)) {
                 $user->set($field, $body[$field]);

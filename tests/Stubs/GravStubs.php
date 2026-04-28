@@ -544,6 +544,45 @@ namespace Grav\Common\GPM {
     }
 }
 
+namespace Grav\Common {
+    if (!class_exists(\Grav\Common\Utils::class, false)) {
+        /**
+         * Minimal Utils stub. Currently only arrayFlattenDotNotation() is
+         * exercised by unit tests (via PermissionResolver).
+         */
+        class Utils
+        {
+            public static function arrayFlattenDotNotation(array $array, string $prepend = ''): array
+            {
+                $results = [];
+                foreach ($array as $key => $value) {
+                    if (is_array($value) && !empty($value)) {
+                        $results = array_merge($results, self::arrayFlattenDotNotation($value, $prepend . $key . '.'));
+                    } else {
+                        $results[$prepend . $key] = $value;
+                    }
+                }
+                return $results;
+            }
+        }
+    }
+}
+
+namespace Grav\Framework\Acl {
+    if (!class_exists(\Grav\Framework\Acl\Permissions::class, false)) {
+        /**
+         * Minimal Permissions stub so PermissionResolver can be constructed.
+         * Only resolvedMap() touches getInstances(); resolve() reads only the
+         * user's access array, so most unit tests get away with an empty stub.
+         */
+        class Permissions
+        {
+            /** @return array<string, object> */
+            public function getInstances(): array { return []; }
+        }
+    }
+}
+
 namespace Grav\Common\Data {
     if (!class_exists(\Grav\Common\Data\Data::class, false)) {
         /**
