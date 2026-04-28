@@ -1,3 +1,11 @@
+# v1.0.0-beta.17
+## 04/28/2026
+
+1. [](#bugfix)
+    * **Security: privilege escalation via blueprint-upload (GHSA-6xx2-m8wv-756h).** A user with only basic media-upload permission could plant an account file and instantly become a super-admin. The endpoint now restricts where files can land, who can target another user's avatar, and which file types are allowed.
+    * **Security: hardened destination handling on `/blueprint-upload`.** Added pre-locator input validation that rejects path-traversal characters in the `destination` string before it ever reaches Grav's stream resolver.
+    * **Security: path-traversal hardening in GPM endpoints.** `GET /gpm/{plugins,themes}/{slug}/...` (readme, changelog, blueprints, fields, etc.) now validates the `slug` parameter so a `..` slug can no longer reach files outside the package directory.
+
 # v1.0.0-beta.16
 ## 04/28/2026
 
