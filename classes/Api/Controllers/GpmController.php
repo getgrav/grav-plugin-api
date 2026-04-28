@@ -1161,6 +1161,17 @@ class GpmController extends AbstractApiController
      */
     private function resolvePackagePath(string $slug, string $type): string
     {
+        if (
+            $slug === ''
+            || $slug === '.'
+            || $slug === '..'
+            || str_contains($slug, '/')
+            || str_contains($slug, '\\')
+            || str_contains($slug, "\0")
+        ) {
+            throw new ValidationException("Invalid package slug '{$slug}'.");
+        }
+
         $base = $type === 'themes' ? 'themes' : 'plugins';
         $path = $this->grav['locator']->findResource("user://{$base}/{$slug}", true);
 

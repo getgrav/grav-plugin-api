@@ -6,6 +6,7 @@ namespace Grav\Plugin\Api\Controllers;
 
 use Grav\Common\Filesystem\Folder;
 use Grav\Common\Page\Interfaces\PageInterface;
+use Grav\Plugin\Api\Exceptions\ForbiddenException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Psr\Http\Message\ResponseInterface;
@@ -30,6 +31,39 @@ class BlueprintUploadController extends AbstractApiController
 {
     private const MAX_UPLOAD_SIZE = 64 * 1_048_576; // 64 MB
 
+    /**
+     * Image-only allowlist for uploads landing in `user/accounts/` (avatars).
+     *
+     * `user/accounts/` doubles as the directory Grav reads as authoritative
+     * account YAML, so allowing arbitrary extensions there is a privilege
+     * escalation surface (GHSA-6xx2-m8wv-756h: a YAML file dropped here
+     * becomes a fully functional account, including `access.api.super`).
+     * The only legitimate blueprint-upload use case for this directory is
+     * avatars, so the endpoint hard-restricts it to image extensions.
+     */
+    private const ACCOUNTS_IMAGE_EXTENSIONS = [
+        'jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'avif', 'bmp', 'ico',
+    ];
+
+    /**
+     * Per-endpoint extension denylist on top of `security.uploads_dangerous_extensions`.
+     *
+     * Not all of these are "code" in the classic sense, but every one is a
+     * file Grav (or a sibling tool) parses as authoritative configuration if
+     * it lands in the right directory. Keeping them out of any blueprint-
+     * upload target — not just `user/accounts/` — closes a class of bugs
+     * where a future locator/scope edge case unexpectedly resolves into
+     * `user/config/`, `user/env/<x>/config/`, or a plugin's own config dir.
+     */
+    private const FORBIDDEN_EXTENSIONS = [
+        'yaml', 'yml',           // Grav account / config / blueprint
+        'json',                  // generic config / data
+        'twig',                  // template code
+        'env',                   // env files
+        'neon',                  // alt config format
+        'lock',                  // composer/npm lockfiles
+    ];
+
     public function upload(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'api.media.write');
@@ -41,8 +75,10 @@ class BlueprintUploadController extends AbstractApiController
         if ($destination === '') {
             throw new ValidationException('destination is required.');
         }
+        $this->assertSafeDestination($destination);
 
-        $targetDir = $this->resolveDestination($destination, $scope);
+        $targetDir = $this->resolveDestination($destination, $scope, $request);
+        $this->guardConfigBearingTarget($targetDir);
 
         $files = $this->flattenUploadedFiles($request->getUploadedFiles());
         if ($files === []) {
@@ -53,9 +89,11 @@ class BlueprintUploadController extends AbstractApiController
             Folder::create($targetDir);
         }
 
+        $isAccountsDir = $this->classifyTargetDir($targetDir) === 'accounts';
+
         $saved = [];
         foreach ($files as $file) {
-            $saved[] = $this->processUploadedFile($file, $targetDir);
+            $saved[] = $this->processUploadedFile($file, $targetDir, $isAccountsDir);
         }
 
         // Build a response payload describing each saved file in a Grav
@@ -174,6 +212,23 @@ class BlueprintUploadController extends AbstractApiController
         }
 
         $absolute = $this->resolveDeletePath($path);
+        $targetDir = dirname($absolute);
+        $filename = basename($absolute);
+
+        $this->guardConfigBearingTarget($targetDir, $filename);
+
+        // Symmetric to the upload path: deletes targeting `user/accounts/` may
+        // only act on image files (avatars). Without this gate, a holder of
+        // `api.media.write` could `unlink` arbitrary account YAMLs.
+        if ($this->classifyTargetDir($targetDir) === 'accounts') {
+            $extension = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+            if (!in_array($extension, self::ACCOUNTS_IMAGE_EXTENSIONS, true)) {
+                throw new ForbiddenException(
+                    "Deletes under user/accounts/ are restricted to avatar image files."
+                );
+            }
+        }
+        $this->assertSafeExtension($filename, false);
 
         // Idempotent: a file that's already gone is indistinguishable from a
         // file we just deleted, so don't pollute the client with a 404 that
@@ -200,6 +255,35 @@ class BlueprintUploadController extends AbstractApiController
     }
 
     /**
+     * Reject traversal/null-byte destination strings before handing them to
+     * Grav's stream locator. The locator is still responsible for resolving
+     * streams and symlinks, but API input should never contain path-control
+     * segments.
+     */
+    private function assertSafeDestination(string $destination): void
+    {
+        if (str_contains($destination, "\0") || str_contains($destination, '\\')) {
+            throw new ValidationException('Invalid destination.');
+        }
+
+        $path = $destination;
+        if (preg_match('/^(?:self@|@self)(?::(.*))?$/', $destination, $m)) {
+            $path = $m[1] ?? '';
+        } elseif (preg_match('#^[A-Za-z][A-Za-z0-9+.-]*://(.*)$#', $destination, $m)) {
+            $path = $m[1] ?? '';
+        }
+
+        foreach (explode('/', trim($path, '/')) as $segment) {
+            if ($segment === '') {
+                continue;
+            }
+            if ($segment === '.' || $segment === '..') {
+                throw new ValidationException('Traversal not allowed in destination.');
+            }
+        }
+    }
+
+    /**
      * Resolve a blueprint `destination` + `scope` to an absolute filesystem
      * directory.
      *
@@ -211,7 +295,7 @@ class BlueprintUploadController extends AbstractApiController
      * strictly gated: they resolve from the user root and are rejected if
      * they try to escape via `..` or absolute prefixes.
      */
-    private function resolveDestination(string $destination, string $scope): string
+    private function resolveDestination(string $destination, string $scope, ServerRequestInterface $request): string
     {
         /** @var \RocketTheme\Toolbox\ResourceLocator\UniformResourceLocator $locator */
         $locator = $this->grav['locator'];
@@ -223,7 +307,7 @@ class BlueprintUploadController extends AbstractApiController
             if (str_contains($sub, '..')) {
                 throw new ValidationException('Traversal not allowed in self@: subpath.');
             }
-            $base = $this->resolveScopeRoot($scope);
+            $base = $this->resolveScopeRoot($scope, $request);
             if ($base === null) {
                 throw new ValidationException(
                     "Cannot resolve 'self@:' destination: scope '{$scope}' is not a supported owner."
@@ -258,7 +342,7 @@ class BlueprintUploadController extends AbstractApiController
      * to its filesystem root. Returns null for scopes that don't have a
      * natural `self@:` owner (e.g. `config/system`).
      */
-    private function resolveScopeRoot(string $scope): ?string
+    private function resolveScopeRoot(string $scope, ServerRequestInterface $request): ?string
     {
         if ($scope === '') return null;
 
@@ -273,7 +357,7 @@ class BlueprintUploadController extends AbstractApiController
             'plugins' => $this->resolveStreamOrNull($locator, 'plugins://', $name),
             'themes' => $this->resolveStreamOrNull($locator, 'themes://', $name),
             'pages' => $this->resolvePageScope($name),
-            'users' => $name !== '' ? $this->resolveUserScope() : null,
+            'users' => $name !== '' ? $this->resolveUserScope($name, $request) : null,
             default => null,
         };
     }
@@ -299,13 +383,42 @@ class BlueprintUploadController extends AbstractApiController
         return $page?->path() ?: null;
     }
 
-    private function resolveUserScope(): ?string
+    /**
+     * Resolve `users/<username>` scope to the accounts directory.
+     *
+     * Avatars (the only legitimate use case for this scope) live next to the
+     * account YAML in `user/accounts/`, not in a per-user subfolder. Because
+     * this directory is the same one Grav reads as authoritative account
+     * configuration, the scope must be tightly gated:
+     *
+     *   - `<username>` must match the Grav username pattern (no path tricks)
+     *   - The caller must be editing their own account, OR hold
+     *     `api.users.write` (the user-management permission)
+     *
+     * Without this gate, any holder of `api.media.write` could target any
+     * other user's avatar slot — and combined with a directory-classification
+     * miss, that's the GHSA-6xx2-m8wv-756h primitive. Per-extension filtering
+     * happens later in `processUploadedFile()`; this method's job is to stop
+     * cross-user writes at the scope-resolution layer.
+     */
+    private function resolveUserScope(string $name, ServerRequestInterface $request): ?string
     {
+        if (!preg_match('/^[A-Za-z0-9_.-]+$/', $name)) {
+            throw new ValidationException("Invalid users scope: '{$name}'.");
+        }
+
+        $caller = $this->getUser($request);
+        $isSelf = strcasecmp($caller->username, $name) === 0;
+        if (!$isSelf && !$this->isSuperAdmin($caller) && !$this->hasPermission($caller, 'api.users.write')) {
+            throw new ForbiddenException(
+                "The 'users/{$name}' scope requires editing your own account or holding the 'api.users.write' permission."
+            );
+        }
+
         /** @var \RocketTheme\Toolbox\ResourceLocator\UniformResourceLocator $locator */
         $locator = $this->grav['locator'];
         $accounts = $locator->findResource('account://', true, true);
         if (!$accounts) return null;
-        // Avatars and similar live next to the account yaml, not in a per-user folder.
         return is_string($accounts) ? $accounts : null;
     }
 
@@ -381,7 +494,7 @@ class BlueprintUploadController extends AbstractApiController
         return rtrim($base, '/') . '/' . ltrim($relative, '/');
     }
 
-    private function processUploadedFile(UploadedFileInterface $file, string $targetDir): string
+    private function processUploadedFile(UploadedFileInterface $file, string $targetDir, bool $isAccountsDir): string
     {
         if ($file->getError() !== UPLOAD_ERR_OK) {
             throw new ValidationException('File upload failed.');
@@ -397,6 +510,18 @@ class BlueprintUploadController extends AbstractApiController
         $originalName = $file->getClientFilename() ?? 'upload';
         $filename = basename($originalName);
 
+        $this->assertSafeFilename($filename);
+        $this->assertSafeExtension($filename, $isAccountsDir);
+
+        $file->moveTo($targetDir . '/' . $filename);
+        return $filename;
+    }
+
+    /**
+     * Reject filenames that would escape the target dir or hide as a dotfile.
+     */
+    private function assertSafeFilename(string $filename): void
+    {
         if (
             $filename === ''
             || str_contains($filename, '..')
@@ -405,7 +530,21 @@ class BlueprintUploadController extends AbstractApiController
         ) {
             throw new ValidationException("Invalid filename: '{$filename}'.");
         }
+    }
 
+    /**
+     * Apply layered extension policy:
+     *
+     *   1. `security.uploads_dangerous_extensions` (Grav-wide denylist: php, js, exe, ...)
+     *   2. Per-endpoint denylist for known-config formats (yaml, json, twig, ...)
+     *   3. If target is `user/accounts/`, restrict to image extensions only —
+     *      the directory doubles as Grav's authoritative account store, so
+     *      anything non-image is a privesc surface (GHSA-6xx2-m8wv-756h).
+     *
+     * Returns the lowercased extension for callers that want it.
+     */
+    private function assertSafeExtension(string $filename, bool $isAccountsDir): string
+    {
         $extension = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
         if ($extension === '') {
             throw new ValidationException('Uploaded file must have a file extension.');
@@ -416,8 +555,83 @@ class BlueprintUploadController extends AbstractApiController
             throw new ValidationException("File extension '.{$extension}' is not allowed for security reasons.");
         }
 
-        $file->moveTo($targetDir . '/' . $filename);
-        return $filename;
+        if (in_array($extension, self::FORBIDDEN_EXTENSIONS, true)) {
+            throw new ValidationException("File extension '.{$extension}' is not allowed for blueprint uploads.");
+        }
+
+        if ($isAccountsDir && !in_array($extension, self::ACCOUNTS_IMAGE_EXTENSIONS, true)) {
+            throw new ValidationException(
+                "Only image files (" . implode(', ', self::ACCOUNTS_IMAGE_EXTENSIONS) . ") may be uploaded to user/accounts/."
+            );
+        }
+
+        return $extension;
+    }
+
+    /**
+     * Hard-deny writes resolving to directories that Grav reads as
+     * authoritative configuration: `user/config/` and any `user/env/.../config/`.
+     * `user/accounts/` is allowed (avatars) but extension-restricted in
+     * `assertSafeExtension()`.
+     *
+     * `$filename` is optional — pass it for delete-path checks (where we
+     * have the final filename) so the error message can name the target;
+     * for upload checks the per-file extension policy fires later anyway.
+     */
+    private function guardConfigBearingTarget(string $absoluteDir, ?string $filename = null): void
+    {
+        $classification = $this->classifyTargetDir($absoluteDir);
+        if ($classification === 'config' || $classification === 'env') {
+            $where = $filename !== null ? "'{$filename}' under" : 'into';
+            throw new ForbiddenException(
+                "Uploads {$where} the '{$classification}' directory are not allowed via this endpoint."
+            );
+        }
+    }
+
+    /**
+     * Classify a resolved absolute directory against the config-bearing
+     * directories under `user/`. Returns `'accounts'`, `'config'`, `'env'`,
+     * or null for "anything else".
+     *
+     * Uses `realpath` of the nearest existing parent so the classification
+     * survives symlinks (common in dev setups where `user/themes/<x>` points
+     * elsewhere on disk) without requiring the target to already exist.
+     */
+    private function classifyTargetDir(string $absoluteDir): ?string
+    {
+        $userRoot = $this->userRoot();
+        if ($userRoot === null) return null;
+
+        $probe = $absoluteDir;
+        while ($probe !== '' && !file_exists($probe)) {
+            $parent = dirname($probe);
+            if ($parent === $probe) break;
+            $probe = $parent;
+        }
+        $real = realpath($probe !== '' ? $probe : $absoluteDir);
+        if ($real === false) {
+            $real = $absoluteDir;
+        }
+
+        $normalizedTarget = rtrim(str_replace('\\', '/', $absoluteDir), '/');
+        $map = [
+            'accounts' => $userRoot . '/accounts',
+            'config'   => $userRoot . '/config',
+            'env'      => $userRoot . '/env',
+        ];
+        foreach ($map as $label => $forbidden) {
+            $normalizedForbidden = rtrim(str_replace('\\', '/', $forbidden), '/');
+            if (
+                $real === $forbidden
+                || str_starts_with($real, $forbidden . '/')
+                || $normalizedTarget === $normalizedForbidden
+                || str_starts_with($normalizedTarget, $normalizedForbidden . '/')
+            ) {
+                return $label;
+            }
+        }
+        return null;
     }
 
     /**
