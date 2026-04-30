@@ -1,3 +1,9 @@
+# v1.0.0-beta.18
+## 04/30/2026
+
+1. [](#improved)
+    * Page creation and reorder now match the digit width of the parent's existing children — adding into a 3-digit collection stays 3-digit, and reorder no longer renormalizes existing 3- or 4-digit prefixes back to two ([grav-plugin-admin#2492](https://github.com/getgrav/grav-plugin-admin/issues/2492)). New collections fall back to the new `system.pages.order_digits` setting.
+
 # v1.0.0-beta.17
 ## 04/28/2026
 
