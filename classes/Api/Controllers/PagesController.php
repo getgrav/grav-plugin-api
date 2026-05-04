@@ -11,6 +11,7 @@ use Grav\Common\Language\Language;
 use Grav\Common\Language\LanguageCodes;
 use Grav\Common\Page\Interfaces\PageInterface;
 use Grav\Common\Page\Page;
+use Grav\Common\Page\PageOrdering;
 use Grav\Framework\Flex\FlexDirectory;
 use Grav\Plugin\Api\Exceptions\ApiException;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
@@ -299,8 +300,10 @@ class PagesController extends AbstractApiController
                 $parentPath = $this->grav['locator']->findResource('page://', true);
             }
 
-            // Build directory name with optional ordering prefix
-            $dirName = $order !== null ? str_pad((string) $order, 2, '0', STR_PAD_LEFT) . '.' . $slug : $slug;
+            // Build directory name with optional ordering prefix. Width follows
+            // the parent's existing children when present, so adding a page
+            // under a 3-digit collection stays 3-digit.
+            $dirName = $order !== null ? PageOrdering::key($order, $slug, $this->siblingDigits($parentPath)) : $slug;
             $pagePath = $parentPath . '/' . $dirName;
 
             if (is_dir($pagePath)) {
@@ -1139,14 +1142,24 @@ class PagesController extends AbstractApiController
             }
         }
 
-        // Rename directories with new ordering prefixes
+        // Rename directories with new ordering prefixes. Use the widest existing
+        // sibling prefix as the target width so a parent of all-3-digit children
+        // stays 3-digit through reorder; otherwise fall back to system default.
+        $digits = 0;
+        foreach ($childMap as $existingDir) {
+            $w = PageOrdering::digitsFromFolder($existingDir);
+            if ($w !== null && $w > $digits) {
+                $digits = $w;
+            }
+        }
+        $reorderDigits = $digits ?: null;
+
         $tempRenames = [];
         $position = 1;
 
         foreach ($order as $slug) {
             $currentDir = $childMap[$slug];
-            $newPrefix = str_pad((string) $position, 2, '0', STR_PAD_LEFT);
-            $newDir = $newPrefix . '.' . $slug;
+            $newDir = PageOrdering::key($position, $slug, $reorderDigits);
 
             if ($currentDir !== $newDir) {
                 $oldPath = $parentPath . '/' . $currentDir;
@@ -1811,6 +1824,41 @@ class PagesController extends AbstractApiController
     private function clearPagesCache(): void
     {
         $this->grav['cache']->clearCache('standard');
+    }
+
+    /**
+     * Widest existing order-prefix digit width across direct child folders of
+     * $parentPath. Returns null when no children carry a numeric prefix, so
+     * callers fall back to PageOrdering's configured default.
+     *
+     * Single readdir; no Page object instantiation. Safe for hot paths.
+     */
+    private function siblingDigits(string $parentPath): ?int
+    {
+        if (!is_dir($parentPath)) {
+            return null;
+        }
+
+        $max = 0;
+        $dh = @opendir($parentPath);
+        if ($dh === false) {
+            return null;
+        }
+        try {
+            while (($entry = readdir($dh)) !== false) {
+                if ($entry === '.' || $entry === '..' || $entry[0] === '.') {
+                    continue;
+                }
+                $w = PageOrdering::digitsFromFolder($entry);
+                if ($w !== null && $w > $max) {
+                    $max = $w;
+                }
+            }
+        } finally {
+            closedir($dh);
+        }
+
+        return $max ?: null;
     }
 
     /**

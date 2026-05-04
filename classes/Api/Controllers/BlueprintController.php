@@ -366,7 +366,22 @@ class BlueprintController extends AbstractApiController
         $blueprint = new Blueprint($blueprintFile);
         $blueprint->load();
 
-        return ApiResponse::create($this->serializeBlueprint($blueprint, $pageId));
+        $data = $this->serializeBlueprint($blueprint, $pageId);
+
+        // Fire event so plugins (notably flex-objects) can extend plugin
+        // page blueprints — e.g. inject the shared Flex configure tabs
+        // (Caching) when the owning plugin manages a Flex directory.
+        $event = new Event([
+            'context'  => 'plugin-page',
+            'fields'   => $data['fields'],
+            'plugin'   => $plugin,
+            'page_id'  => $pageId,
+            'user'     => $this->getUser($request),
+        ]);
+        $this->grav->fireEvent('onApiBlueprintResolved', $event);
+        $data['fields'] = $event['fields'];
+
+        return ApiResponse::create($data);
     }
 
     /**
