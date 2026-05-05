@@ -305,12 +305,25 @@ class ConfigController extends AbstractApiController
     }
 
     /**
-     * Read the X-Config-Environment header and validate it names a well-formed env.
-     * Empty/missing header → null (base). Invalid name → 400. Missing folder is
-     * reported later by resolveWriteDir with a clearer message.
+     * Where a write should land for this request.
+     *
+     *   header present + non-empty → that env (validated, must exist on disk)
+     *   header present + empty     → explicit base write (opt out of auto-detection)
+     *   header absent              → Grav's currently-active env if it has a
+     *                                config dir on disk; otherwise base
+     *
+     * The auto-detect branch keeps writes consistent with reads: config is
+     * loaded with `user/<active-env>/config` overlaid on `user/config`, so
+     * persisting to base when an env overlay exists lets the env file silently
+     * shadow the write. (See: enabling a plugin that's pinned `enabled: false`
+     * in a hostname-derived env folder.)
      */
     private function resolveTargetEnv(ServerRequestInterface $request): ?string
     {
+        if (!$request->hasHeader('X-Config-Environment')) {
+            return (new EnvironmentService($this->grav))->activeEnvironment();
+        }
+
         $name = trim($request->getHeaderLine('X-Config-Environment'));
         if ($name === '') return null;
 
