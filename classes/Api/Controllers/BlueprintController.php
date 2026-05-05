@@ -563,6 +563,8 @@ class BlueprintController extends AbstractApiController
                 // pagemediaselect / filepicker
                 'preview_images', 'preview_image', 'on_demand', 'folder', 'filter',
                 'self', 'display', 'resize', 'media_picker_field',
+                // colorpicker — opt out of the alpha slider with `alpha: false`.
+                'alpha',
             ];
 
             foreach ($props as $prop) {

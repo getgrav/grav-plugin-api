@@ -77,6 +77,30 @@ class EnvironmentService
         return $names;
     }
 
+    /**
+     * The environment Grav is currently loading config under, if any, AND only
+     * when that env has a config dir on disk. Used by the config-write path so
+     * saves land where reads come from — otherwise an active env overlay can
+     * silently shadow a write to base.
+     *
+     * Returns null when no env is active, the env name is malformed, or the
+     * env has no config dir (in which case base writes are correct anyway).
+     */
+    public function activeEnvironment(): ?string
+    {
+        $uri = $this->grav['uri'] ?? null;
+        if (!is_object($uri) || !method_exists($uri, 'environment')) {
+            return null;
+        }
+
+        $name = $uri->environment();
+        if (!is_string($name) || $name === '' || !self::isValidName($name)) {
+            return null;
+        }
+
+        return $this->envConfigRoot($name) !== null ? $name : null;
+    }
+
     public function envHasOverrides(string $name): bool
     {
         $root = $this->envConfigRoot($name);

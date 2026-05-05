@@ -1,3 +1,9 @@
+# v1.0.0-rc.3
+## 05/05/2026
+
+1. [](#bugfix)
+    * **Config saves now land where Grav loads them.** When an environment overlay was active (e.g. a hostname-derived `user/<host>/config/`), `PATCH /config/{scope}` always wrote to base `user/config/` regardless — so any field already pinned in the env file silently shadowed the write and the change appeared to "succeed but not stick" (classic case: enabling a plugin pinned `enabled: false` in `user/localhost/config/plugins/`). Writes now follow Grav's active environment by default; the `X-Config-Environment` header still wins when set, and an explicitly-empty header opts back into a base write.
+
 # v1.0.0-rc.2
 ## 05/05/2026
 
