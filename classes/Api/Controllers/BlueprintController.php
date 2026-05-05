@@ -5,9 +5,7 @@ declare(strict_types=1);
 namespace Grav\Plugin\Api\Controllers;
 
 use Grav\Common\Data\Blueprint;
-use Grav\Common\Data\Blueprints;
 use Grav\Common\Page\Pages;
-use Grav\Common\Yaml;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
@@ -418,182 +416,32 @@ class BlueprintController extends AbstractApiController
     }
 
     /**
-     * Load page blueprint by reading YAML files directly.
-     * Resolves extends@ by manually merging parent blueprints
-     * to avoid the heavy Blueprint::load() resolution chain that
-     * causes memory exhaustion with deep page blueprint inheritance.
+     * Load a fully-resolved page blueprint via Grav core's standard pipeline.
+     *
+     * Delegates to Pages::blueprints() (= Blueprints::loadFile() → Blueprint::load()->init())
+     * — the same path admin-classic uses. This honors every BlueprintForm
+     * directive (replace@, unset@, replace-<prop>@, ordering@, import@ with
+     * inline insertion, @extends with context, config-default@, etc.), and
+     * fires onBlueprintCreated so plugins can extend the result.
+     *
+     * Earlier versions hand-rolled YAML merging here to dodge a perceived
+     * memory-exhaustion risk in the full pipeline. In practice Grav core
+     * runs this code on every page edit in admin-classic without trouble,
+     * and the hand-rolled path silently dropped most BlueprintForm directives
+     * (see grav-plugin-admin2#3).
      */
     private function loadPageBlueprint(string $template): ?Blueprint
     {
-        // Ensure plugin-contributed blueprint paths are registered on the
-        // `blueprints://pages/` locator stream. Plugins register custom page
-        // templates via the `onGetPageBlueprints` event, which Pages::getTypes()
-        // collects and maps into the stream (see Pages.php). Without this call,
-        // `blueprints://pages/{template}.yaml` only resolves to system blueprints.
-        $this->ensurePageTypesRegistered();
-
-        $merged = $this->resolvePageBlueprintYaml($template, 0);
-
-        // Fallback to 'default' if no template-specific blueprint exists
-        if (!$merged && $template !== 'default') {
-            $merged = $this->resolvePageBlueprintYaml('default', 0);
-        }
-
-        if (!$merged) {
-            return null;
-        }
-
-        // Create a Blueprint from the resolved data
-        $blueprint = new Blueprint();
-        $blueprint->embed('', $merged);
-
-        // Fire onBlueprintCreated so plugins (e.g. seo-magic) can extend page blueprints
         $this->ensurePagesEnabled();
-        $this->grav->fireEvent('onBlueprintCreated', new Event([
-            'blueprint' => $blueprint,
-            'type'      => 'pages/' . $template,
-        ]));
 
-        return $blueprint;
-    }
+        /** @var Pages $pages */
+        $pages = $this->grav['pages'];
 
-    /**
-     * Recursively resolve page blueprint YAML with extends@ support.
-     *
-     * @param string $template Template name to resolve
-     * @param int $depth Recursion depth guard
-     * @param bool $systemOnly If true, only search system blueprints (for extends resolution)
-     */
-    private function resolvePageBlueprintYaml(string $template, int $depth = 0, bool $systemOnly = false): ?array
-    {
-        if ($depth > 5) {
+        try {
+            return $pages->blueprints($template);
+        } catch (\RuntimeException) {
             return null;
         }
-
-        $data = null;
-
-        // Try theme blueprints first (unless resolving an extends, which should use system)
-        if (!$systemOnly) {
-            $themePath = $this->grav['locator']->findResource("theme://blueprints/{$template}.yaml");
-            if ($themePath && file_exists($themePath)) {
-                $data = Yaml::parse(file_get_contents($themePath));
-            }
-        }
-
-        // Try system page blueprints
-        if (!$data) {
-            $systemPath = $this->grav['locator']->findResource("system://blueprints/pages/{$template}.yaml");
-            if ($systemPath && file_exists($systemPath)) {
-                $data = Yaml::parse(file_get_contents($systemPath));
-            }
-        }
-
-        // Try blueprints:// stream which includes plugin paths registered via $features['blueprints']
-        if (!$data && !$systemOnly) {
-            $blueprintsPath = $this->grav['locator']->findResource("blueprints://pages/{$template}.yaml");
-            if ($blueprintsPath && file_exists($blueprintsPath)) {
-                $data = Yaml::parse(file_get_contents($blueprintsPath));
-            }
-        }
-
-        if (!$data || !is_array($data)) {
-            return null;
-        }
-
-        // Resolve extends directive — supports both legacy `extends@:` and
-        // newer `'@extends':` syntax, each of which may be a plain string
-        // (template name) or an array with `type:` and optional `context:`.
-        // Always resolve the parent from system/blueprints stream to avoid self-reference.
-        $extendsDirective = $data['@extends'] ?? $data['extends@'] ?? null;
-        if ($extendsDirective !== null) {
-            unset($data['@extends'], $data['extends@']);
-
-            $parentTemplate = is_array($extendsDirective)
-                ? ($extendsDirective['type'] ?? null)
-                : $extendsDirective;
-
-            if (is_string($parentTemplate) && $parentTemplate !== '') {
-                $parent = $this->resolvePageBlueprintYaml($parentTemplate, $depth + 1, true);
-                if ($parent) {
-                    $data = $this->deepMerge($parent, $data);
-                }
-            }
-        }
-
-        // Resolve import@ directives in fields
-        $data = $this->resolveImports($data);
-
-        return $data;
-    }
-
-    /**
-     * Resolve import@ directives within blueprint data.
-     */
-    private function resolveImports(array $data): array
-    {
-        array_walk_recursive($data, function (&$value, $key) use (&$data) {
-            // handled at field level below
-        });
-
-        // Walk through form fields looking for import@ directives
-        if (isset($data['form']['fields'])) {
-            $data['form']['fields'] = $this->resolveFieldImports($data['form']['fields']);
-        }
-
-        return $data;
-    }
-
-    /**
-     * Recursively resolve import@ in field arrays.
-     */
-    private function resolveFieldImports(array $fields): array
-    {
-        foreach ($fields as $key => &$field) {
-            if (!is_array($field)) continue;
-
-            // Handle import directive — supports both legacy `import@:` and
-            // newer `'@import':` syntax (string or array form).
-            $importDirective = $field['@import'] ?? $field['import@'] ?? null;
-            if ($importDirective !== null) {
-                $type = is_array($importDirective) ? ($importDirective['type'] ?? null) : $importDirective;
-                $context = is_array($importDirective)
-                    ? ($importDirective['context'] ?? 'blueprints://pages')
-                    : 'blueprints://pages';
-
-                if ($type) {
-                    $importPath = $this->grav['locator']->findResource("{$context}/{$type}.yaml");
-                    if ($importPath && file_exists($importPath)) {
-                        $imported = Yaml::parse(file_get_contents($importPath));
-                        if (is_array($imported) && isset($imported['form']['fields'])) {
-                            $field = $this->deepMerge($field, ['fields' => $imported['form']['fields']]);
-                        }
-                    }
-                }
-                unset($field['@import'], $field['import@']);
-            }
-
-            // Recurse into nested fields
-            if (isset($field['fields']) && is_array($field['fields'])) {
-                $field['fields'] = $this->resolveFieldImports($field['fields']);
-            }
-        }
-
-        return $fields;
-    }
-
-    /**
-     * Deep merge arrays, with $override taking precedence.
-     */
-    private function deepMerge(array $base, array $override): array
-    {
-        foreach ($override as $key => $value) {
-            if (isset($base[$key]) && is_array($base[$key]) && is_array($value)) {
-                $base[$key] = $this->deepMerge($base[$key], $value);
-            } else {
-                $base[$key] = $value;
-            }
-        }
-        return $base;
     }
 
     /**
@@ -613,24 +461,6 @@ class BlueprintController extends AbstractApiController
     }
 
     protected bool $pagesEnabled = false;
-
-    /**
-     * Fire onGetPageBlueprints so plugins contribute their blueprint paths
-     * to the `blueprints://pages/` locator stream.
-     */
-    protected function ensurePageTypesRegistered(): void
-    {
-        if ($this->pageTypesRegistered) {
-            return;
-        }
-        $this->pageTypesRegistered = true;
-
-        if (method_exists(Pages::class, 'getTypes')) {
-            Pages::getTypes();
-        }
-    }
-
-    protected bool $pageTypesRegistered = false;
 
     /**
      * Resolve a data-*@ directive by calling the referenced PHP callable.
@@ -730,6 +560,9 @@ class BlueprintController extends AbstractApiController
                 'condition', 'wrapper_classes',
                 'provider', 'translate',
                 'page_field', 'page_template', 'success_msg', 'error_msg',
+                // pagemediaselect / filepicker
+                'preview_images', 'preview_image', 'on_demand', 'folder', 'filter',
+                'self', 'display', 'resize', 'media_picker_field',
             ];
 
             foreach ($props as $prop) {

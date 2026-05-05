@@ -1,3 +1,12 @@
+# v1.0.0-rc.2
+## 05/05/2026
+
+1. [](#bugfix)
+    * **Module-page blueprints (`modular/hero`, `modular/feature`, etc.) now resolve.** `GET /blueprints/pages/{template}` was registered with FastRoute's default placeholder, which doesn't allow slashes — so the embedded `/` in module-page templates 404'd before the controller ran ([grav-plugin-admin2#1](https://github.com/getgrav/grav-plugin-admin2/issues/1)). Route placeholder widened to accept slashes; downstream resolver already handled slashed templates.
+    * **Custom theme page blueprints (replace@, @extends.context, import@, ordering@) now render correctly.** The hand-rolled YAML resolver in `BlueprintController::loadPageBlueprint()` silently dropped `replace@` / `unset@` / `replace-<prop>@` directives, ignored `@extends.context`, and merged `import@` as a map instead of inline-inserting fields — so themes that override fields, switch the parent context, or import partials saw most of their customizations vanish. Resolver now delegates to Grav core's standard `Pages::blueprints()` pipeline (`Blueprint::load()->init()`), the same path admin-classic uses, which honors every BlueprintForm directive ([grav-plugin-admin2#3](https://github.com/getgrav/grav-plugin-admin2/issues/3)).
+    * **`pagemediaselect` / `filepicker` field properties now round-trip.** Blueprint serializer's field-property whitelist was missing `preview_images`, `preview_image`, `on_demand`, `folder`, `filter`, `self`, `display`, `resize`, and `media_picker_field`, so themes that configured those props on a media picker saw them silently stripped from the API response.
+    * **Folders prefixed `00.` now sort to the top of the page tree.** Default-sort branch in `PagesController::indexViaDefaultSort()` bucketed pages by `if ($page->order())`, but Flex's `Page::order()` returns `(int) 0` for `00.` — so `00.sections` landed in the "unordered" bucket and sorted alphabetically after every numbered sibling instead of first ([grav-plugin-admin2#5](https://github.com/getgrav/grav-plugin-admin2/issues/5)). Bucket check changed to `!== false` (the actual sentinel for unordered folders).
+
 # v1.0.0-rc.1
 ## 05/04/2026
 
