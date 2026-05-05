@@ -1708,14 +1708,16 @@ class PagesController extends AbstractApiController
             $ordered = [];
             $unordered = [];
             foreach ($items as $page) {
-                if ($page->order()) {
+                // Flex pages return false for unordered folders and an int (incl. 0 for "00.")
+                // for ordered ones — so test for false explicitly, not truthiness.
+                if ($page->order() !== false) {
                     $ordered[] = $page;
                 } else {
                     $unordered[] = $page;
                 }
             }
             usort($ordered, function ($a, $b) {
-                return ($a->order() ?: '0') <=> ($b->order() ?: '0');
+                return (int) $a->order() <=> (int) $b->order();
             });
             usort($unordered, function ($a, $b) {
                 return strcasecmp($a->slug() ?? '', $b->slug() ?? '');
