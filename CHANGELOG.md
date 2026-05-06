@@ -1,3 +1,9 @@
+# v1.0.0-rc.4
+## 05/06/2026
+
+1. [](#improved)
+    * **`POST /gpm/upgrade` now emits a `grav:update` invalidation header** alongside `gpm:update`, so admin clients can refresh cached version info (e.g. the sidebar `Grav v…` label) after a Grav core self-upgrade without waiting for a full page reload.
+
 # v1.0.0-rc.3
 ## 05/05/2026
 

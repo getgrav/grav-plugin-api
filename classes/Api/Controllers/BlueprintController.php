@@ -357,6 +357,16 @@ class BlueprintController extends AbstractApiController
 
         $blueprintFile = $pluginPath . '/admin/blueprints/' . basename($pageId) . '.yaml';
 
+        // Fallback: when the dedicated admin/blueprints/{pageId}.yaml is missing
+        // and the page id matches the plugin slug, treat the plugin's main
+        // blueprints.yaml as the page blueprint. Lets plugins whose admin-next
+        // settings page is just the existing plugin form skip maintaining a
+        // duplicate YAML — algolia-pro keeps its dedicated page blueprint, but
+        // simpler plugins (git-sync) reuse the one they already have.
+        if (!file_exists($blueprintFile) && $pageId === $plugin && file_exists($pluginPath . '/blueprints.yaml')) {
+            $blueprintFile = $pluginPath . '/blueprints.yaml';
+        }
+
         if (!file_exists($blueprintFile)) {
             throw new NotFoundException("Page blueprint '{$pageId}' not found for plugin '{$plugin}'.");
         }

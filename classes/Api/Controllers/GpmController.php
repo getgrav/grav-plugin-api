@@ -710,7 +710,7 @@ class GpmController extends AbstractApiController
                 'new_version' => $gravInfo->getVersion(),
             ],
             200,
-            $this->invalidationHeaders(['gpm:update']),
+            $this->invalidationHeaders(['grav:update', 'gpm:update']),
         );
     }
 
