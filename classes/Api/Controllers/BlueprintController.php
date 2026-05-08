@@ -9,12 +9,20 @@ use Grav\Common\Page\Pages;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
+use Grav\Plugin\Api\Services\DisabledPluginLangIndex;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use RocketTheme\Toolbox\Event\Event;
 
 class BlueprintController extends AbstractApiController
 {
+    private ?DisabledPluginLangIndex $disabledLangIndex = null;
+
+    private function disabledLangIndex(): DisabledPluginLangIndex
+    {
+        return $this->disabledLangIndex ??= new DisabledPluginLangIndex($this->grav);
+    }
+
     /**
      * Whitelist of callable patterns allowed by the resolve endpoint.
      * Only static methods from known Grav namespaces are permitted.
@@ -302,10 +310,24 @@ class BlueprintController extends AbstractApiController
     }
 
     /**
-     * Translate a permission label string.
+     * Translate a blueprint / permission label string.
      *
-     * Tries PLUGIN_ADMIN.KEY first (admin plugin), then PLUGIN_API.KEY (API plugin fallback),
-     * then falls back to a human-readable version derived from the permission name.
+     * Lookup order, ICU-first:
+     *   1. `ICU.<key>` — admin2's authoritative namespace (Grav 2 convention).
+     *   2. `<key>` — flat lookup, for legacy plugins that ship PLUGIN_ADMIN.*
+     *      under the Grav 1 convention (form, login, flex-objects, etc.).
+     *   3. `PLUGIN_API.<last-segment>` — last-resort api-plugin namespace.
+     *   4. Humanizer over the key itself.
+     *
+     * ICU is checked first by design: admin classic's plugin folder may still
+     * be present in dev installs (disabled, mid-migration) and Grav core's
+     * `flattenByLang()` reads every plugin's lang files regardless of enabled
+     * state. Without the ICU-first order, admin classic's flat values would
+     * shadow admin2's ICU ports — a per-key drift that's hard to spot. Putting
+     * ICU first makes admin2 the source of truth for any key it ships, and
+     * lets the flat lookup serve as a transition fallback for keys admin2
+     * hasn't ported (or that legitimate 3rd-party plugins ship under
+     * PLUGIN_ADMIN.* for shared-vocabulary labels).
      */
     protected function translateLabel(string $label): string
     {
@@ -313,9 +335,20 @@ class BlueprintController extends AbstractApiController
 
         // If it looks like a language key (e.g. PLUGIN_ADMIN.ACCESS_SITE), try to translate
         if (str_contains($label, '.') && strtoupper($label) === $label) {
-            $translated = $lang->translate($label);
-            if ($translated !== $label) {
-                return $translated;
+            $icuKey = 'ICU.' . $label;
+            $icuTranslated = $lang->translate($icuKey);
+            if ($icuTranslated !== $icuKey) {
+                return $icuTranslated;
+            }
+
+            // Skip the flat lookup if the only source for this key is a disabled
+            // plugin — a disabled plugin shouldn't influence what admin2 renders.
+            $currentLang = $lang->getLanguage() ?: 'en';
+            if (!$this->disabledLangIndex()->isDisabledOnly($label, $currentLang)) {
+                $translated = $lang->translate($label);
+                if ($translated !== $label) {
+                    return $translated;
+                }
             }
 
             // Try API plugin namespace as fallback

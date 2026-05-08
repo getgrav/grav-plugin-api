@@ -1,3 +1,11 @@
+# v1.0.0-rc.5
+## 05/08/2026
+
+1. [](#improved)
+    * **Blueprint label resolver now prefers `ICU.<key>` over the flat `<key>`.** Admin2 ships its canonical `PLUGIN_ADMIN.*` vocabulary under the ICU namespace; checking ICU first guarantees admin2 wins for every key it ships, even when admin classic (or any plugin still using the Grav 1 flat convention) is also present. The flat lookup remains as a transition fallback for keys admin2 doesn't ship — but only for keys contributed by *enabled* plugins (see below).
+    * **Disabled plugins no longer influence translations.** Grav core's `flattenByLang()` reads every plugin's lang yaml regardless of enabled state, so a disabled plugin (most painfully, admin classic mid-migration on a Grav 2 site) used to leak its strings into both the `/translations/{lang}` payload served to admin2 and the server-side blueprint label resolver. Both code paths now consult a new `DisabledPluginLangIndex` service that returns the keys contributed exclusively by disabled plugins; those keys are stripped from the response and skipped in `translateLabel()`. Keys also shipped by an enabled plugin stay — the enabled plugin owns them.
+    * **`/translations/{lang}` shadow-strips flat duplicates.** When the same key exists under both `<key>` and `ICU.<key>`, only the ICU side is sent to admin2. Admin2's client-side `t()` already preferred ICU, but stripping flat duplicates at the source shrinks the payload and removes ambiguity for any caller that might bypass the ICU-first lookup.
+
 # v1.0.0-rc.4
 ## 05/06/2026
 

@@ -8,6 +8,7 @@ use Grav\Common\Backup\Backups;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
+use Grav\Plugin\Api\Services\DisabledPluginLangIndex;
 use Grav\Plugin\Api\Services\EnvironmentService;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -427,6 +428,32 @@ class SystemController extends AbstractApiController
             $translations = $languages->flattenByLang($lang);
         } catch (\Throwable) {
             $translations = [];
+        }
+
+        // Strip strings contributed only by disabled plugins. Grav core's
+        // `flattenByLang()` reads every plugin's lang yaml regardless of enabled
+        // state — fine for the legacy admin, broken for admin2: a disabled plugin
+        // would still influence what admin2 renders. The service walks each
+        // plugin's lang yaml to determine provenance and returns keys unique to
+        // disabled plugins. Keys also shipped by enabled sources stay.
+        if (is_array($translations)) {
+            $disabledIndex = new DisabledPluginLangIndex($this->grav);
+            foreach ($disabledIndex->disabledOnlyKeys($lang) as $key) {
+                unset($translations[$key]);
+            }
+        }
+
+        // Drop flat `<key>` entries when an `ICU.<key>` shadow exists. Admin2 ships
+        // the canonical PLUGIN_ADMIN.* vocabulary under ICU; if a 3rd-party plugin
+        // still using the Grav 1 flat convention is also installed, its values
+        // would otherwise leak into the dictionary served to the client. Keeping
+        // only the ICU side guarantees admin2 is the source of truth.
+        if (is_array($translations)) {
+            foreach (array_keys($translations) as $key) {
+                if (is_string($key) && !str_starts_with($key, 'ICU.') && isset($translations['ICU.' . $key])) {
+                    unset($translations[$key]);
+                }
+            }
         }
 
         // Filter by prefix if requested
