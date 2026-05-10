@@ -230,7 +230,10 @@ class BlueprintController extends AbstractApiController
      */
     public function userBlueprint(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, 'api.users.read');
+        // The user blueprint is just the form schema, not user data — every
+        // authenticated user needs it to render their own profile form, even
+        // those without api.users.read.
+        $this->requirePermission($request, 'api.access');
 
         $blueprintPath = $this->grav['locator']->findResource('blueprints://user/account.yaml');
 

@@ -483,11 +483,45 @@ class SystemController extends AbstractApiController
         $gpm = $this->grav['plugins'];
 
         foreach ($gpm as $plugin) {
-            $blueprint = $plugin->getBlueprint();
+            $name = $plugin->name;
+            // Plugin::getBlueprint() asserts the plugin's metadata is in
+            // the Plugins manager. On Grav 2.0-rc.2 a number of registered
+            // plugin instances have no companion entry there (login, form,
+            // error, several first-party + side-car plugins), and the
+            // assert blows up for the whole /system/info request. Fall
+            // back to a read-from-disk path so partial info still ships.
+            $bpName = null;
+            $bpVersion = null;
+            if ($gpm->get($name) !== null) {
+                try {
+                    $blueprint = $plugin->getBlueprint();
+                    $bpName = $blueprint->get('name');
+                    $bpVersion = $blueprint->get('version');
+                } catch (\Throwable $e) {
+                    // Defensive: even past the null check, blueprint
+                    // hydration can throw on malformed yaml. Treat as
+                    // metadata-unavailable.
+                }
+            } else {
+                // Direct file read — bypasses Plugin::loadBlueprint() entirely.
+                $file = GRAV_ROOT . "/user/plugins/{$name}/blueprints.yaml";
+                if (is_file($file)) {
+                    try {
+                        $raw = \Symfony\Component\Yaml\Yaml::parseFile($file);
+                        if (is_array($raw)) {
+                            $bpName = $raw['name'] ?? null;
+                            $bpVersion = $raw['version'] ?? null;
+                        }
+                    } catch (\Throwable $e) {
+                        // ignore — leave metadata blank
+                    }
+                }
+            }
+
             $plugins[] = [
-                'name' => $blueprint->get('name') ?? $plugin->name,
-                'version' => $blueprint->get('version') ?? '0.0.0',
-                'enabled' => $this->config->get("plugins.{$plugin->name}.enabled", false),
+                'name' => $bpName ?? $name,
+                'version' => $bpVersion ?? '0.0.0',
+                'enabled' => $this->config->get("plugins.{$name}.enabled", false),
             ];
         }
 
