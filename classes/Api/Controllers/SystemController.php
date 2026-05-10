@@ -200,6 +200,25 @@ class SystemController extends AbstractApiController
         ]);
     }
 
+    /**
+     * GET /system/logs/files — list log files registered for the admin viewer.
+     *
+     * Seeds with grav.log / email.log / scheduler.log, then fires
+     * onApiLogFiles so plugins can append their own. The file names returned
+     * here are the only values accepted by GET /system/logs?file=...
+     */
+    public function logFiles(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.system.read');
+
+        $files = $this->getRegisteredLogFiles();
+
+        return ApiResponse::create([
+            'files'   => array_values($files),
+            'default' => 'grav.log',
+        ]);
+    }
+
     public function logs(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'api.system.read');
@@ -209,7 +228,18 @@ class SystemController extends AbstractApiController
         $levelFilter = $query['level'] ?? null;
         $search = $query['search'] ?? null;
 
-        $logFile = $this->grav['locator']->findResource('log://grav.log');
+        // Validate ?file= against the registered whitelist. Without this an
+        // attacker could read any file the locator can resolve.
+        $registered = $this->getRegisteredLogFiles();
+        $allowed = array_column($registered, 'file');
+        $requested = $query['file'] ?? 'grav.log';
+        if (!in_array($requested, $allowed, true)) {
+            throw new ValidationException('Unknown log file: ' . $requested, [
+                ['field' => 'file', 'message' => 'Must be one of: ' . implode(', ', $allowed)],
+            ]);
+        }
+
+        $logFile = $this->grav['locator']->findResource('log://' . $requested);
         if (!$logFile || !file_exists($logFile)) {
             return ApiResponse::paginated([], 0, $pagination['page'], $pagination['per_page'], $this->getApiBaseUrl() . '/system/logs');
         }
@@ -271,6 +301,53 @@ class SystemController extends AbstractApiController
         $paged = array_slice($entries, $pagination['offset'], $pagination['limit']);
 
         return ApiResponse::paginated($paged, $total, $pagination['page'], $pagination['per_page'], $this->getApiBaseUrl() . '/system/logs');
+    }
+
+    /**
+     * Build the list of log files available to the admin viewer.
+     *
+     * Seeded with the core logs Grav writes itself, then plugins can append
+     * via onApiLogFiles. Result is deduped by `file` (first wins) so plugins
+     * cannot shadow core log labels.
+     *
+     * @return array<int, array{file: string, label: string}>
+     */
+    private function getRegisteredLogFiles(): array
+    {
+        $files = [
+            ['file' => 'grav.log',      'label' => 'Grav System Log'],
+            ['file' => 'email.log',     'label' => 'Email Log'],
+            ['file' => 'scheduler.log', 'label' => 'Scheduler Log'],
+        ];
+
+        $event = $this->fireEvent('onApiLogFiles', ['files' => $files]);
+        $merged = $event['files'] ?? $files;
+
+        // Dedupe by file name; first occurrence wins so core entries above
+        // are preserved even if a plugin tries to re-register the same name.
+        $seen = [];
+        $result = [];
+        foreach ($merged as $entry) {
+            if (!is_array($entry) || empty($entry['file'])) {
+                continue;
+            }
+            $name = (string) $entry['file'];
+            if (isset($seen[$name])) {
+                continue;
+            }
+            // Strip path components defensively — log names must be simple
+            // basenames so they resolve through the log:// stream.
+            if ($name !== basename($name)) {
+                continue;
+            }
+            $seen[$name] = true;
+            $result[] = [
+                'file'  => $name,
+                'label' => (string) ($entry['label'] ?? $name),
+            ];
+        }
+
+        return $result;
     }
 
     public function backup(ServerRequestInterface $request): ResponseInterface

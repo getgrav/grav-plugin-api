@@ -370,6 +370,7 @@ $r->addRoute('GET', '/gpm/themes/{slug}/field/{type}', [GpmController::class, 'c
         $r->addRoute('POST', '/system/environments', [SystemController::class, 'createEnvironment']);
         $r->addRoute('GET', '/system/info', [SystemController::class, 'info']);
         $r->addRoute('DELETE', '/cache', [SystemController::class, 'clearCache']);
+        $r->addRoute('GET', '/system/logs/files', [SystemController::class, 'logFiles']);
         $r->addRoute('GET', '/system/logs', [SystemController::class, 'logs']);
         $r->addRoute('POST', '/system/backup', [SystemController::class, 'backup']);
         $r->addRoute('GET', '/system/backups', [SystemController::class, 'backups']);
