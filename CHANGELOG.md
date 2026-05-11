@@ -7,6 +7,8 @@
 1. [](#improved)
     * **Self-service paths on `/users` no longer require `api.users.read`.** A caller can fetch their own row (`GET /users/{me}`) and the user-form schema (`GET /blueprints/users`) with just `api.access` — symmetric with what `PATCH /users/{me}` already permitted. The blueprint endpoint is just the form definition with no per-user data leak; the show endpoint still requires `api.users.read` for anyone else's account.
     * **`GET /users` auto-filters to self for restricted callers.** Without `api.users.read` the listing endpoint used to 403 outright; it now returns a single-row paginated envelope containing only the caller's own user. Admins (super or `api.users.read`) still get the full listing as before.
+1. [](#bugfix)
+    * **API plugin now activates and dispatches correctly on Grav installs mounted at a subpath.** Both the activation check in `setup()` and the path-stripping in `ApiRouter::dispatch()` were comparing against the raw request path, which on a subpath install starts with the base — so `/<base>/api/...` requests fell through to a page-not-found 404. Both code paths now strip the base before testing the api prefix.
 
 # v1.0.0-rc.5
 ## 05/08/2026

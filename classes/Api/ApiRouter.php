@@ -168,6 +168,15 @@ class ApiRouter extends ProcessorBase
         // Use Grav's route (base-path-stripped) not the raw URI
         $route = $request->getAttribute('route');
         $gravPath = $route ? $route->getRoute() : $request->getUri()->getPath();
+
+        // On subpath installs (e.g. /sync-testing/grav-c) the PSR-7 URI
+        // path includes Grav's base; strip it so substr below cleanly peels
+        // off `$basePath` to leave just the route path.
+        $gravBase = rtrim((string)$this->container['uri']->rootUrl(false), '/');
+        if ($gravBase !== '' && str_starts_with($gravPath, $gravBase)) {
+            $gravPath = substr($gravPath, strlen($gravBase)) ?: '/';
+        }
+
         $routePath = substr($gravPath, strlen($basePath)) ?: '/';
 
         // Ensure leading slash
