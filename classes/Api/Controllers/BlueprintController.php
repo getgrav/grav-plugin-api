@@ -596,7 +596,7 @@ class BlueprintController extends AbstractApiController
                 'minlength', 'maxlength', 'min', 'max', 'step',
                 'rows', 'cols', 'multiple', 'yaml',
                 'markdown', 'prepend', 'append', 'underline',
-                'options', 'selectize', 'value_only',
+                'options', 'selectize', 'value_only', 'create',
                 'destination', 'accept',
                 'use', 'key', 'controls', 'collapsed',
                 'show_all', 'show_modular', 'show_root', 'show_slug',
