@@ -11,7 +11,6 @@ use Grav\Plugin\Api\Exceptions\ForbiddenException;
 use Grav\Plugin\Api\Exceptions\TooManyRequestsException;
 use Grav\Plugin\Api\Exceptions\UnauthorizedException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
-use Grav\Plugin\Api\PermissionResolver;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Grav\Plugin\Api\Serializers\UserSerializer;
 use Grav\Plugin\Login\Login;
@@ -34,25 +33,59 @@ class AuthController extends AbstractApiController
 
         $this->enforceLoginRateLimit($username);
 
-        /** @var UserCollectionInterface $accounts */
-        $accounts = $this->grav['accounts'];
-        $user = $accounts->load($username);
+        // Route through the Login plugin when available so the full
+        // onUserLoginAuthenticate / onUserLoginAuthorize / onUserLogin chain
+        // fires. This is what lets LDAP (and any other auth plugin that
+        // subscribes to onUserLoginAuthenticate at higher priority) validate
+        // the credentials and map groups to access levels. Falls back to the
+        // legacy User::authenticate() path on sites without the Login plugin.
+        if (class_exists(Login::class) && isset($this->grav['login'])) {
+            /** @var Login $login */
+            $login = $this->grav['login'];
+            $event = $login->login(
+                ['username' => $username, 'password' => $password],
+                ['admin' => true, 'twofa' => false],
+                ['authorize' => 'admin.login', 'return_event' => true]
+            );
+            $user = $event->getUser();
 
-        // Delegate to User::authenticate() so the core trait's plaintext-password
-        // fallback fires (auto-hashes a yaml-declared `password:` field on first
-        // successful login, then saves — same behavior admin-classic and the Login
-        // plugin have always had).
-        if (!$user->exists() || !$user->authenticate($password)) {
-            $this->fireEvent('onApiUserLoginFailure', [
-                'username' => $username,
-                'reason' => 'password',
-                'ip' => $this->getRequestIp($request),
-            ]);
-            throw new UnauthorizedException('Invalid username or password.');
+            if (!$user || !$user->authenticated) {
+                $this->fireEvent('onApiUserLoginFailure', [
+                    'username' => $username,
+                    'reason' => 'password',
+                    'ip' => $this->getRequestIp($request),
+                ]);
+                throw new UnauthorizedException('Invalid username or password.');
+            }
+        } else {
+            /** @var UserCollectionInterface $accounts */
+            $accounts = $this->grav['accounts'];
+            $user = $accounts->load($username);
+
+            // Delegate to User::authenticate() so the core trait's plaintext-password
+            // fallback fires (auto-hashes a yaml-declared `password:` field on first
+            // successful login, then saves — same behavior admin-classic and the Login
+            // plugin have always had).
+            if (!$user->exists() || !$user->authenticate($password)) {
+                $this->fireEvent('onApiUserLoginFailure', [
+                    'username' => $username,
+                    'reason' => 'password',
+                    'ip' => $this->getRequestIp($request),
+                ]);
+                throw new UnauthorizedException('Invalid username or password.');
+            }
         }
 
-        // Verify user has API access (direct access check, not authorize())
-        if (!$this->isSuperAdmin($user) && !$this->hasPermission($user, 'api.access')) {
+        // Gate API access AFTER the event chain has run, so any onUserLogin
+        // handlers (LDAP group→access mapping, etc.) have had a chance to
+        // populate the user's access matrix. Mirrors admin-classic's
+        // `admin.login` gate but additionally accepts `api.access` for users
+        // who are API-only and shouldn't be granted full admin entry.
+        if (
+            !$this->isSuperAdmin($user)
+            && !$user->authorize('admin.login')
+            && !$this->hasPermission($user, 'api.access')
+        ) {
             $this->fireEvent('onApiUserLoginFailure', [
                 'username' => $username,
                 'reason' => 'no_api_access',

@@ -222,7 +222,7 @@ class ConfigController extends AbstractApiController
 
             $blueprints = new Blueprints();
             return $blueprints->get($blueprintKey);
-        } catch (\Exception $e) {
+        } catch (\Exception) {
             // If blueprint can't be loaded, save without filtering
             return null;
         }
@@ -351,7 +351,7 @@ class ConfigController extends AbstractApiController
      */
     private function redactSensitiveFields(array $data): array
     {
-        $sensitiveKeys = ['jwt_secret', 'secret', 'password', 'hashed_password', 'api_key', 'private_key'];
+        $sensitiveKeys = ['jwt_secret', 'secret', 'salt', 'password', 'hashed_password', 'api_key', 'private_key'];
 
         array_walk_recursive($data, function (&$value, $key) use ($sensitiveKeys) {
             if (is_string($value) && in_array($key, $sensitiveKeys, true)) {
