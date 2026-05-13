@@ -37,15 +37,25 @@ class AuthController extends AbstractApiController
         // onUserLoginAuthenticate / onUserLoginAuthorize / onUserLogin chain
         // fires. This is what lets LDAP (and any other auth plugin that
         // subscribes to onUserLoginAuthenticate at higher priority) validate
-        // the credentials and map groups to access levels. Falls back to the
-        // legacy User::authenticate() path on sites without the Login plugin.
+        // the credentials and map groups to access levels.
+        //
+        // `authorize` is passed as `[]` rather than `admin.login`: the API
+        // plugin runs its own permission gate further down that handles both
+        // legacy and Flex users correctly (admin.super, api.access, etc.).
+        // Letting the Login plugin gate on `admin.login` here breaks logins
+        // on regular (non-flex) accounts whose legacy User::authorize() lacks
+        // an admin.super fallback — even super admins are denied unless they
+        // also have an explicit access.admin.login: true.
+        //
+        // Falls back to the legacy User::authenticate() path on sites without
+        // the Login plugin.
         if (class_exists(Login::class) && isset($this->grav['login'])) {
             /** @var Login $login */
             $login = $this->grav['login'];
             $event = $login->login(
                 ['username' => $username, 'password' => $password],
                 ['admin' => true, 'twofa' => false],
-                ['authorize' => 'admin.login', 'return_event' => true]
+                ['authorize' => [], 'return_event' => true]
             );
             $user = $event->getUser();
 
