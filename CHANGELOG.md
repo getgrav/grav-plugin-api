@@ -1,5 +1,5 @@
 # v1.0.0-rc.6
-## 05/11/2026
+## 05/13/2026
 
 1. [](#new)
     * **Plugin log files now show up in the admin Logs viewer.** A new `onApiLogFiles` event lets plugins register their own log file alongside the core `grav.log` / `email.log` / `scheduler.log` set, and `GET /system/logs` accepts a `?file=` query to pick which one to read. A companion `GET /system/logs/files` endpoint returns the registered list so the admin can populate a selector. File names are whitelisted by the registered set to prevent path traversal.
