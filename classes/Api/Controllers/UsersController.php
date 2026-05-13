@@ -27,13 +27,41 @@ class UsersController extends AbstractApiController
 
     public function index(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, 'api.users.read');
+        // Without api.users.read a caller can still see *their own* row —
+        // we auto-filter the listing to self rather than 403 the request.
+        // Anything beyond that requires api.users.read.
+        $currentUser = $this->getUser($request);
+        $canSeeAll = $this->isSuperAdmin($currentUser)
+            || $this->hasPermission($currentUser, 'api.users.read');
+
+        if (!$canSeeAll) {
+            return $this->indexSelfOnly($request, $currentUser);
+        }
 
         $directory = $this->getFlexDirectory('user-accounts');
         if ($directory) {
             return $this->indexViaFlex($request, $directory);
         }
         return $this->indexViaAccounts($request);
+    }
+
+    /**
+     * Single-row "listing" for callers without api.users.read. Matches the
+     * paginated envelope of the full listing so the client doesn't need a
+     * special-case branch.
+     */
+    private function indexSelfOnly(ServerRequestInterface $request, UserInterface $currentUser): ResponseInterface
+    {
+        $pagination = $this->getPagination($request);
+        $data = [$this->serializeUser($currentUser)];
+
+        return ApiResponse::paginated(
+            data: $data,
+            total: 1,
+            page: $pagination['page'],
+            perPage: $pagination['per_page'],
+            baseUrl: $this->getApiBaseUrl() . '/users',
+        );
     }
 
     /**
@@ -114,9 +142,17 @@ class UsersController extends AbstractApiController
 
     public function show(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, 'api.users.read');
-
         $username = $this->getRouteParam($request, 'username');
+        // Self-access mirrors update(): a user can fetch their own record
+        // with just api.access. Otherwise api.users.read is required to see
+        // someone else's account.
+        $currentUser = $this->getUser($request);
+        if ($currentUser->username !== $username) {
+            $this->requirePermission($request, 'api.users.read');
+        } else {
+            $this->requirePermission($request, 'api.access');
+        }
+
         $user = $this->loadUserOrFail($username);
 
         $data = $this->serializeUser($user);

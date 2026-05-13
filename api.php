@@ -63,6 +63,14 @@ class ApiPlugin extends Plugin
         $uri = $this->grav['uri'];
         $currentPath = $uri->path();
 
+        // On subpath installs (e.g. /sync-testing/grav-c) $uri->path() may
+        // include Grav's base; strip it before testing the api prefix so
+        // the plugin still activates and the api router gets installed.
+        $gravBase = rtrim((string)$uri->rootUrl(false), '/');
+        if ($gravBase !== '' && str_starts_with($currentPath, $gravBase)) {
+            $currentPath = substr($currentPath, strlen($gravBase)) ?: '/';
+        }
+
         if (str_starts_with($currentPath, $this->base)) {
             $this->active = true;
         }

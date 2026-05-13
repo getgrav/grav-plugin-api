@@ -230,7 +230,10 @@ class BlueprintController extends AbstractApiController
      */
     public function userBlueprint(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, 'api.users.read');
+        // The user blueprint is just the form schema, not user data — every
+        // authenticated user needs it to render their own profile form, even
+        // those without api.users.read.
+        $this->requirePermission($request, 'api.access');
 
         $blueprintPath = $this->grav['locator']->findResource('blueprints://user/account.yaml');
 
@@ -530,9 +533,12 @@ class BlueprintController extends AbstractApiController
                 }
 
                 if (class_exists($class) && method_exists($class, $method)) {
-                    // pageTypes() needs a type arg; default to standard for blueprint serialization
+                    // pageTypes() needs a type arg. Use the current serialization
+                    // context (modular if we're serializing a `modular/*` blueprint,
+                    // standard otherwise) so the template selector gets the right
+                    // list baked in.
                     if ($method === 'pageTypes') {
-                        $result = $class::$method('standard');
+                        $result = $class::$method($this->pageTypeContext);
                     } else {
                         $result = $class::$method();
                     }
@@ -549,10 +555,23 @@ class BlueprintController extends AbstractApiController
     /**
      * Serialize a Blueprint object into a JSON-friendly structure.
      */
+    /**
+     * Page-type context for the current serialization pass. Read by
+     * resolveDataDirective() when expanding `Pages::pageTypes` so a modular
+     * template's blueprint gets the modular template list instead of the
+     * default 'standard' list.
+     */
+    private string $pageTypeContext = 'standard';
+
     protected function serializeBlueprint(Blueprint $blueprint, string $name): array
     {
         $form = $blueprint->form();
         $fields = $blueprint->fields();
+
+        // Modular page templates live under `modular/` (e.g. `modular/hero`).
+        // Track this so Pages::pageTypes resolves to the modular list for the
+        // template field instead of the standard list.
+        $this->pageTypeContext = str_starts_with($name, 'modular/') ? 'modular' : 'standard';
 
         return [
             'name' => $name,
@@ -593,7 +612,7 @@ class BlueprintController extends AbstractApiController
                 'minlength', 'maxlength', 'min', 'max', 'step',
                 'rows', 'cols', 'multiple', 'yaml',
                 'markdown', 'prepend', 'append', 'underline',
-                'options', 'selectize', 'value_only',
+                'options', 'selectize', 'value_only', 'create',
                 'destination', 'accept',
                 'use', 'key', 'controls', 'collapsed',
                 'show_all', 'show_modular', 'show_root', 'show_slug',
@@ -632,13 +651,15 @@ class BlueprintController extends AbstractApiController
                 }
             }
 
-            // Resolve data-options@ directives (dynamic options from PHP callables)
+            // Resolve data-options@ directives (dynamic options from PHP callables).
+            // Grav core's Blueprint::dynamicData() may have already populated
+            // $serialized['options'] using a stateless call; we replace it with
+            // our resolution because we have page-type context for pageTypes.
             if (isset($field['data-options@'])) {
                 $directive = $field['data-options@'];
                 $resolved = $this->resolveDataDirective($directive);
                 if ($resolved !== null && count($resolved) > 0) {
-                    $existing = $serialized['options'] ?? [];
-                    $serialized['options'] = is_array($existing) ? $existing + $resolved : $resolved;
+                    $serialized['options'] = $resolved;
                 } else {
                     // Include the directive reference so client can resolve via /data/resolve
                     $serialized['data_options'] = is_string($directive) ? $directive : ($directive[0] ?? null);

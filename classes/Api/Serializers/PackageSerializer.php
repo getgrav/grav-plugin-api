@@ -57,6 +57,26 @@ class PackageSerializer implements SerializerInterface
             $data['dependencies'] = $resource->dependencies;
         }
 
+        // Include compatibility metadata. Grav core resolves
+        // `compatibility.grav` / `compatibility.api` (and infers grav from the
+        // dependencies array as a fallback). Any keys core doesn't currently
+        // resolve (e.g. a future `compatibility.php`) come straight from the
+        // blueprint via the `compatibility_raw` fallback below.
+        $compatibility = $this->normalizeCompatibility($resource->compatibility ?? null);
+        $rawCompat = is_object($resource) && method_exists($resource, 'toArray')
+            ? ($resource->toArray()['compatibility'] ?? null)
+            : null;
+        if (is_array($rawCompat)) {
+            foreach ($rawCompat as $key => $value) {
+                if (!isset($compatibility[$key])) {
+                    $compatibility[$key] = is_array($value) ? array_map('strval', $value) : (string) $value;
+                }
+            }
+        }
+        if (!empty($compatibility)) {
+            $data['compatibility'] = $compatibility;
+        }
+
         // Include keywords/tags
         if (!empty($resource->keywords)) {
             $data['keywords'] = $resource->keywords;
@@ -159,6 +179,32 @@ class PackageSerializer implements SerializerInterface
             self::$parsedown->setBreaksEnabled(false);
         }
         return self::$parsedown->text($markdown);
+    }
+
+    /**
+     * Normalize Grav's resolved compatibility array into a stable client shape.
+     * Strips empty keys so consumers don't render `Grav: ` with nothing after.
+     *
+     * @param mixed $compatibility
+     * @return array<string, mixed>
+     */
+    private function normalizeCompatibility($compatibility): array
+    {
+        if (!is_array($compatibility)) {
+            return [];
+        }
+        $out = [];
+        foreach ($compatibility as $key => $value) {
+            if (is_array($value)) {
+                $value = array_values(array_filter(array_map('strval', $value), 'strlen'));
+                if (!empty($value)) {
+                    $out[(string) $key] = $value;
+                }
+            } elseif ($value !== null && $value !== '') {
+                $out[(string) $key] = (string) $value;
+            }
+        }
+        return $out;
     }
 
     private function isSymlinked(object $resource, array $options): bool

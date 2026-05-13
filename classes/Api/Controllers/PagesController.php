@@ -300,6 +300,13 @@ class PagesController extends AbstractApiController
                 $parentPath = $this->grav['locator']->findResource('page://', true);
             }
 
+            // Resolve `order: "auto"` against existing siblings: if any sibling
+            // carries a numeric prefix, assign the next number; otherwise leave
+            // the new page unprefixed. Mirrors admin-classic's add-page flow.
+            if (is_string($order) && strtolower($order) === 'auto') {
+                $order = $this->nextOrderInParent($parentPath);
+            }
+
             // Build directory name with optional ordering prefix. Width follows
             // the parent's existing children when present, so adding a page
             // under a 3-digit collection stays 3-digit.
@@ -1826,6 +1833,43 @@ class PagesController extends AbstractApiController
     private function clearPagesCache(): void
     {
         $this->grav['cache']->clearCache('standard');
+    }
+
+    /**
+     * Resolve `order: "auto"` for a new page. Returns highest existing numeric
+     * prefix among direct children + 1, or null when no sibling carries a
+     * numeric prefix (so the new page stays unprefixed).
+     */
+    private function nextOrderInParent(string $parentPath): ?int
+    {
+        if (!is_dir($parentPath)) {
+            return null;
+        }
+
+        $highest = 0;
+        $hasNumeric = false;
+        $dh = @opendir($parentPath);
+        if ($dh === false) {
+            return null;
+        }
+        try {
+            while (($entry = readdir($dh)) !== false) {
+                if ($entry === '.' || $entry === '..' || $entry[0] === '.') {
+                    continue;
+                }
+                [$o] = PageOrdering::parse($entry);
+                if ($o !== null) {
+                    $hasNumeric = true;
+                    if ($o > $highest) {
+                        $highest = $o;
+                    }
+                }
+            }
+        } finally {
+            closedir($dh);
+        }
+
+        return $hasNumeric ? $highest + 1 : null;
     }
 
     /**

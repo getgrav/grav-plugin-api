@@ -442,8 +442,9 @@ paths:
       description: |
         Create a new page at the given route. The parent page must already
         exist (except when creating top-level pages). Supply an optional
-        `order` to create an ordered (visible) page. Include `lang` in the
-        body to create the page in a specific language.
+        `order` to create an ordered (visible) page, or pass `"auto"` to let
+        the server pick the next free prefix based on existing siblings.
+        Include `lang` in the body to create the page in a specific language.
       requestBody:
         required: true
         content:
@@ -5821,12 +5822,19 @@ components:
               category: [blog]
               tag: [new]
         order:
-          type: integer
+          oneOf:
+            - type: integer
+            - type: string
+              enum: [auto]
           nullable: true
           description: |
-            Numeric ordering prefix. When set, creates a visible (ordered)
-            page directory (e.g. `03.my-new-post`). When `null`, creates an
-            unordered page.
+            Numeric ordering prefix. When set to an integer, creates a visible
+            (ordered) page directory (e.g. `03.my-new-post`). When `null`,
+            creates an unordered page. Pass the string `"auto"` to mirror the
+            admin-classic add-page behavior: the API scans the parent's direct
+            children and assigns the next available number when any sibling
+            already uses numeric prefixes; otherwise the new page is created
+            without a numeric prefix.
           example: 3
         lang:
           type: string
