@@ -20,6 +20,7 @@ use Grav\Plugin\Api\Controllers\GpmController;
 use Grav\Plugin\Api\Controllers\MediaController;
 use Grav\Plugin\Api\Controllers\SchedulerController;
 use Grav\Plugin\Api\Controllers\PagesController;
+use Grav\Plugin\Api\Controllers\PreferencesController;
 use Grav\Plugin\Api\Controllers\ReportsController;
 use Grav\Plugin\Api\Controllers\MenubarController;
 use Grav\Plugin\Api\Controllers\PasswordPolicyController;
@@ -340,6 +341,15 @@ $r->addRoute('GET', '/gpm/themes/{slug}/field/{type}', [GpmController::class, 'c
         $r->addRoute('GET', '/dashboard/widgets', [DashboardWidgetController::class, 'widgets']);
         $r->addRoute('PATCH', '/dashboard/layout', [DashboardWidgetController::class, 'saveUserLayout']);
         $r->addRoute('PATCH', '/dashboard/site-layout', [DashboardWidgetController::class, 'saveSiteLayout']);
+
+        // Admin-next UI preferences (site defaults + per-user overrides + branding)
+        $r->addRoute('GET', '/admin-next/preferences', [PreferencesController::class, 'show']);
+        $r->addRoute('PATCH', '/admin-next/preferences/user', [PreferencesController::class, 'saveUser']);
+        $r->addRoute('DELETE', '/admin-next/preferences/user', [PreferencesController::class, 'resetUser']);
+        $r->addRoute('PATCH', '/admin-next/preferences/site', [PreferencesController::class, 'saveSite']);
+        $r->addRoute('PATCH', '/admin-next/branding', [PreferencesController::class, 'saveBranding']);
+        $r->addRoute('POST', '/admin-next/branding/logo', [PreferencesController::class, 'uploadLogo']);
+        $r->addRoute('DELETE', '/admin-next/branding/logo', [PreferencesController::class, 'deleteLogo']);
 
         // Scheduler
         $r->addRoute('GET', '/scheduler/jobs', [SchedulerController::class, 'jobs']);

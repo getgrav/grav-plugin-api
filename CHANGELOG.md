@@ -1,3 +1,9 @@
+# v1.0.0-rc.7
+## 05/14/2026
+
+1. [](#new)
+    * **New `/admin-next/preferences` endpoint family for admin2 UI settings.** `GET /admin-next/preferences` returns a single resolved payload of branding, site defaults, the caller's overrides, and the merged effective values. `PATCH /admin-next/preferences/user` saves the current user's overrides (debounced from the SPA); `DELETE` clears them. `PATCH /admin-next/preferences/site` writes site-wide defaults (super-admin only) and routes Tier B keys (overridable per-user) to `user/config/admin-next.yaml > ui.defaults` and Tier A2 keys (site-only behavioral — auto-save, real-time collab, menubar links) to `ui.settings`. `PATCH /admin-next/branding` and `POST/DELETE /admin-next/branding/logo` handle the site logo (mode/text plus light/dark image uploads stored under `user://media/admin-next/`). The new `PreferencesResolver` service in `classes/Api/Services/` mirrors the dashboard-layout pattern: built-in defaults overlaid with site values overlaid with per-user overrides, all schema-validated on write.
+
 # v1.0.0-rc.6
 ## 05/13/2026
 
