@@ -10,17 +10,67 @@ use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Grav\Plugin\Api\Services\DisabledPluginLangIndex;
+use Grav\Plugin\Api\Services\PreferencesResolver;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use RocketTheme\Toolbox\Event\Event;
+use Throwable;
 
 class BlueprintController extends AbstractApiController
 {
     private ?DisabledPluginLangIndex $disabledLangIndex = null;
 
+    /**
+     * Language fallback chain used when translating blueprint labels for the
+     * current request — typically [$userAdminLanguage, 'en']. Resolved lazily
+     * via {@see resolveBlueprintLanguages()} and cached on the instance, so
+     * the per-request preference lookup runs at most once per blueprint
+     * payload regardless of how many labels need translating.
+     *
+     * @var array<int, string>|null
+     */
+    private ?array $blueprintLanguages = null;
+
     private function disabledLangIndex(): DisabledPluginLangIndex
     {
         return $this->disabledLangIndex ??= new DisabledPluginLangIndex($this->grav);
+    }
+
+    /**
+     * Resolve the language chain for blueprint label translation. Prefers the
+     * authenticated user's `adminLanguage` preference (which the SPA picks),
+     * with 'en' as a fallback so any keys not yet translated still come
+     * through in English instead of being humanized.
+     *
+     * Why this is needed: Grav's `Language::translate()` falls back to the
+     * site's active content language when called with no `$languages` hint —
+     * that's typically 'en' even for an admin user who has selected Hebrew
+     * for their UI. The dict endpoint (`/translations/{lang}`) already
+     * accepts an explicit language, so admin-next's client-side i18n works,
+     * but blueprint labels are pre-resolved server-side here.
+     *
+     * @return array<int, string>
+     */
+    private function resolveBlueprintLanguages(ServerRequestInterface $request): array
+    {
+        if ($this->blueprintLanguages !== null) {
+            return $this->blueprintLanguages;
+        }
+
+        $lang = 'en';
+        try {
+            $user = $this->getUser($request);
+            $resolver = new PreferencesResolver($this->grav, $this->config);
+            $effective = $resolver->resolve($user, false)['effective'] ?? [];
+            $candidate = $effective['adminLanguage'] ?? null;
+            if (is_string($candidate) && $candidate !== '') {
+                $lang = $candidate;
+            }
+        } catch (Throwable) {
+            // Unauthenticated or resolver failure — fall back to English.
+        }
+
+        return $this->blueprintLanguages = $lang === 'en' ? ['en'] : [$lang, 'en'];
     }
 
     /**
@@ -110,6 +160,7 @@ class BlueprintController extends AbstractApiController
     public function pageTypes(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'api.pages.read');
+        $this->resolveBlueprintLanguages($request);
         $this->ensurePagesEnabled();
 
         // `?modular=true` returns modular templates (those whose Twig template
@@ -139,6 +190,7 @@ class BlueprintController extends AbstractApiController
     public function pageBlueprint(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'api.pages.read');
+        $this->resolveBlueprintLanguages($request);
 
         $template = $this->getRouteParam($request, 'template');
 
@@ -172,6 +224,7 @@ class BlueprintController extends AbstractApiController
     public function pluginBlueprint(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'api.config.read');
+        $this->resolveBlueprintLanguages($request);
 
         $pluginName = $this->getRouteParam($request, 'plugin');
         $pluginPath = $this->grav['locator']->findResource("plugin://{$pluginName}");
@@ -204,6 +257,7 @@ class BlueprintController extends AbstractApiController
     public function themeBlueprint(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'api.config.read');
+        $this->resolveBlueprintLanguages($request);
 
         $themeName = $this->getRouteParam($request, 'theme');
         $themesPath = $this->grav['locator']->findResource('themes://');
@@ -242,6 +296,7 @@ class BlueprintController extends AbstractApiController
         // authenticated user needs it to render their own profile form, even
         // those without api.users.read.
         $this->requirePermission($request, 'api.access');
+        $this->resolveBlueprintLanguages($request);
 
         $blueprintPath = $this->grav['locator']->findResource('blueprints://user/account.yaml');
 
@@ -279,6 +334,7 @@ class BlueprintController extends AbstractApiController
     public function permissionsBlueprint(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'api.users.read');
+        $this->resolveBlueprintLanguages($request);
 
         /** @var \Grav\Framework\Acl\Permissions $permissions */
         $permissions = $this->grav['permissions'];
@@ -343,20 +399,27 @@ class BlueprintController extends AbstractApiController
     protected function translateLabel(string $label): string
     {
         $lang = $this->grav['language'];
+        // Use the per-request language chain (set by serializeBlueprint /
+        // pageTypes / etc.) so labels resolve against the user's chosen
+        // admin language, not the site's default content language. Falls
+        // back to no override when no endpoint primed the chain — that
+        // preserves Grav's normal lookup behaviour for any non-blueprint
+        // caller (e.g. test code) that calls translateLabel() directly.
+        $languages = $this->blueprintLanguages;
+        $primary = $languages[0] ?? ($lang->getLanguage() ?: 'en');
 
         // If it looks like a language key (e.g. PLUGIN_ADMIN.ACCESS_SITE), try to translate
         if (str_contains($label, '.') && strtoupper($label) === $label) {
             $icuKey = 'ICU.' . $label;
-            $icuTranslated = $lang->translate($icuKey);
+            $icuTranslated = $lang->translate($icuKey, $languages);
             if ($icuTranslated !== $icuKey) {
                 return $icuTranslated;
             }
 
             // Skip the flat lookup if the only source for this key is a disabled
             // plugin — a disabled plugin shouldn't influence what admin2 renders.
-            $currentLang = $lang->getLanguage() ?: 'en';
-            if (!$this->disabledLangIndex()->isDisabledOnly($label, $currentLang)) {
-                $translated = $lang->translate($label);
+            if (!$this->disabledLangIndex()->isDisabledOnly($label, $primary)) {
+                $translated = $lang->translate($label, $languages);
                 if ($translated !== $label) {
                     return $translated;
                 }
@@ -364,7 +427,7 @@ class BlueprintController extends AbstractApiController
 
             // Try API plugin namespace as fallback
             $key = substr($label, strrpos($label, '.') + 1);
-            $apiTranslated = $lang->translate('PLUGIN_API.' . $key);
+            $apiTranslated = $lang->translate('PLUGIN_API.' . $key, $languages);
             if ($apiTranslated !== 'PLUGIN_API.' . $key) {
                 return $apiTranslated;
             }
@@ -389,6 +452,7 @@ class BlueprintController extends AbstractApiController
     public function pluginPageBlueprint(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'api.config.read');
+        $this->resolveBlueprintLanguages($request);
 
         $plugin = $this->getRouteParam($request, 'plugin');
         $pageId = $this->getRouteParam($request, 'pageId');
@@ -442,6 +506,7 @@ class BlueprintController extends AbstractApiController
     public function configBlueprint(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'api.config.read');
+        $this->resolveBlueprintLanguages($request);
 
         $scope = $this->getRouteParam($request, 'scope');
         $validScopes = ['system', 'site', 'media', 'security', 'scheduler', 'backups'];
