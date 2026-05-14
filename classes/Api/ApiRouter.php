@@ -399,6 +399,10 @@ $r->addRoute('GET', '/gpm/themes/{slug}/field/{type}', [GpmController::class, 'c
         // Translations
         $r->addRoute('GET', '/translations/{lang}', [SystemController::class, 'translations']);
 
+        // Admin UI languages (locales the admin itself can be rendered in,
+        // as opposed to /languages which lists site content languages).
+        $r->addRoute('GET', '/admin/languages', [SystemController::class, 'adminLanguages']);
+
         // Menubar
         $r->addRoute('GET', '/menubar/items', [MenubarController::class, 'items']);
         $r->addRoute('POST', '/menubar/actions/{plugin}/{action}', [MenubarController::class, 'executeAction']);

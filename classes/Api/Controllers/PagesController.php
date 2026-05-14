@@ -286,9 +286,27 @@ class PagesController extends AbstractApiController
             $header = $body['header'] ?? [];
             $order = $body['order'] ?? null;
 
+            // `kind` mirrors classic admin's three-way split:
+            //   - 'page'   (default): folder + <template>.md inside (current behaviour)
+            //   - 'folder': folder only, no .md file written — useful as a
+            //               routing/grouping container
+            //   - 'module': folder for a modular sub-page; the slug is prefixed
+            //               with `_` (per Grav's modular convention) unless the
+            //               caller already supplied that prefix
+            $kind = strtolower((string) ($body['kind'] ?? 'page'));
+            if (!in_array($kind, ['page', 'folder', 'module'], true)) {
+                throw new ValidationException("Invalid 'kind' value: must be one of page, folder, module.");
+            }
+
             // Ensure parent exists
             $parentRoute = dirname($route);
             $slug = basename($route);
+
+            // Modular sub-page convention: folder name starts with `_`.
+            if ($kind === 'module' && !str_starts_with($slug, '_')) {
+                $slug = '_' . $slug;
+                $route = ($parentRoute === '/' ? '' : $parentRoute) . '/' . $slug;
+            }
 
             if ($parentRoute !== '/') {
                 $parent = $this->grav['pages']->find($parentRoute);
@@ -335,18 +353,29 @@ class PagesController extends AbstractApiController
                 'data' => $body,
             ]);
 
-            // Build filename with language extension if applicable
-            $filename = $this->buildPageFilename($template, $lang);
+            if ($kind === 'folder') {
+                // Folder-only page: create the directory with no .md inside.
+                // Grav treats such folders as routing/grouping containers.
+                if (!is_dir($pagePath)) {
+                    if (!@mkdir($pagePath, 0775, true) && !is_dir($pagePath)) {
+                        throw new \RuntimeException("Failed to create folder at: {$pagePath}");
+                    }
+                }
+                $page = null;
+            } else {
+                // Build filename with language extension if applicable
+                $filename = $this->buildPageFilename($template, $lang);
 
-            $page = new Page();
-            $page->filePath($pagePath . '/' . $filename);
-            $page->header((object) $header);
-            $page->rawMarkdown($content);
+                $page = new Page();
+                $page->filePath($pagePath . '/' . $filename);
+                $page->header((object) $header);
+                $page->rawMarkdown($content);
 
-            // Allow plugins to modify the page before save (e.g. SEO Magic, mega-frontmatter)
-            $this->fireAdminEvent('onAdminSave', ['object' => &$page, 'page' => &$page]);
+                // Allow plugins to modify the page before save (e.g. SEO Magic, mega-frontmatter)
+                $this->fireAdminEvent('onAdminSave', ['object' => &$page, 'page' => &$page]);
 
-            $page->save();
+                $page->save();
+            }
 
             $this->clearPagesCache();
 
@@ -354,10 +383,18 @@ class PagesController extends AbstractApiController
             $this->enablePages(true);
             $newPage = $this->grav['pages']->find($route);
 
-            $this->fireAdminEvent('onAdminAfterSave', ['object' => $newPage ?? $page, 'page' => $newPage ?? $page]);
-            $this->fireEvent('onApiPageCreated', ['page' => $newPage ?? $page, 'route' => $route, 'lang' => $lang]);
+            $resolved = $newPage ?? $page;
+            if ($resolved !== null) {
+                $this->fireAdminEvent('onAdminAfterSave', ['object' => $resolved, 'page' => $resolved]);
+                $this->fireEvent('onApiPageCreated', ['page' => $resolved, 'route' => $route, 'lang' => $lang]);
+            }
 
-            $data = $this->serializer->serialize($newPage ?? $page);
+            // Folder-only pages (no .md) may not surface as a Page object after
+            // re-init in every theme/setup. Return a minimal payload in that
+            // case rather than 500-ing on the serializer.
+            $data = $resolved !== null
+                ? $this->serializer->serialize($resolved)
+                : ['route' => $route, 'kind' => $kind];
             $location = $this->getApiBaseUrl() . '/pages' . $route;
 
             return ApiResponse::created(
@@ -1972,12 +2009,20 @@ class PagesController extends AbstractApiController
 
     /**
      * Build the page filename with optional language extension.
-     * e.g., "default.md" or "default.fr.md"
+     * e.g., "default.md" or "default.fr.md".
+     *
+     * Templates may be namespaced with a directory prefix (e.g. modular
+     * templates come back from Grav core as `modular/hero`). Only the basename
+     * is used for the on-disk filename — the directory prefix is purely for
+     * template lookup. Without this, a modular sub-page would write a file at
+     * `<folder>/modular/hero.md` rather than the expected `<folder>/hero.md`.
      */
     private function buildPageFilename(string $template, ?string $lang): string
     {
+        $base = basename($template);
+
         if ($lang === null || !$this->isMultiLangEnabled()) {
-            return $template . '.md';
+            return $base . '.md';
         }
 
         /** @var Language $language */
@@ -1989,10 +2034,10 @@ class PagesController extends AbstractApiController
         $includeDefault = $this->grav['config']->get('system.languages.include_default_lang_file_extension', true);
 
         if ($lang === $default && !$includeDefault) {
-            return $template . '.md';
+            return $base . '.md';
         }
 
-        return $template . '.' . $lang . '.md';
+        return $base . '.' . $lang . '.md';
     }
 
     /**

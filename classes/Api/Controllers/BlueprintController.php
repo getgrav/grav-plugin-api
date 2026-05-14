@@ -112,7 +112,15 @@ class BlueprintController extends AbstractApiController
         $this->requirePermission($request, 'api.pages.read');
         $this->ensurePagesEnabled();
 
-        $types = Pages::types();
+        // `?modular=true` returns modular templates (those whose Twig template
+        // file is prefixed with `_`, intended as sub-pages of a modular parent)
+        // instead of regular page templates. Mirrors the split classic admin
+        // makes between "Add Page" and "Add Module".
+        $params = $request->getQueryParams();
+        $modular = isset($params['modular'])
+            && in_array(strtolower((string) $params['modular']), ['1', 'true', 'yes'], true);
+
+        $types = $modular ? Pages::modularTypes() : Pages::types();
         $result = [];
 
         foreach ($types as $type => $label) {

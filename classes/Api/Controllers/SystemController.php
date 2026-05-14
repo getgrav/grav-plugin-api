@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Grav\Plugin\Api\Controllers;
 
 use Grav\Common\Backup\Backups;
+use Grav\Common\Language\LanguageCodes;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
@@ -491,10 +492,13 @@ class SystemController extends AbstractApiController
         /** @var \Grav\Common\Language\Language $language */
         $language = $this->grav['language'];
 
-        // Validate language code
-        $available = $language->getLanguages();
-        if (!empty($available) && !in_array($lang, $available, true)) {
-            // Fall back to default language if requested one isn't available
+        // Validate language code shape only — admin UI languages are a
+        // different concept from site content languages, so we DO NOT gate
+        // on $language->getLanguages() (which lists languages configured in
+        // system.yaml for site content). Any plugin shipping a `languages/
+        // <lang>.yaml` should be loadable here, even if the site itself only
+        // serves English content.
+        if (!is_string($lang) || !preg_match('/^[a-zA-Z]{2,3}(-[a-zA-Z]{2,4})?$/', $lang)) {
             $lang = $language->getDefault() ?: 'en';
         }
 
@@ -548,9 +552,46 @@ class SystemController extends AbstractApiController
 
         return ApiResponse::create([
             'lang' => $lang,
+            'dir' => LanguageCodes::getOrientation($lang),
             'count' => count($translations),
             'checksum' => $checksum,
             'strings' => $translations,
+        ]);
+    }
+
+    /**
+     * GET /admin/languages - Locales the admin UI itself can be rendered in.
+     *
+     * Distinct from GET /languages, which returns *site content* languages
+     * configured in system.yaml. This endpoint returns locales for which a
+     * translation file exists in the admin2 plugin's languages directory —
+     * i.e. languages a user can pick for their admin interface.
+     */
+    public function adminLanguages(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.system.read');
+
+        $dir = GRAV_ROOT . '/user/plugins/admin2/languages';
+        $languages = [];
+
+        if (is_dir($dir)) {
+            foreach (glob($dir . '/*.yaml') ?: [] as $file) {
+                $code = basename($file, '.yaml');
+                $languages[] = [
+                    'code' => $code,
+                    'name' => LanguageCodes::getName($code) ?: $code,
+                    'native_name' => LanguageCodes::getNativeName($code) ?: $code,
+                    'rtl' => LanguageCodes::isRtl($code),
+                ];
+            }
+        }
+
+        // Stable sort by native name so the dropdown order doesn't depend on
+        // filesystem readdir order.
+        usort($languages, fn($a, $b) => strcmp($a['native_name'], $b['native_name']));
+
+        return ApiResponse::create([
+            'languages' => $languages,
         ]);
     }
 
