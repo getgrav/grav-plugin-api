@@ -54,6 +54,12 @@ class ApiRouter extends ProcessorBase
 
     protected Config $config;
 
+    /** @var array<int,string>|null Cached public-route prefixes after plugin contributions. */
+    protected ?array $publicPrefixes = null;
+
+    /** @var array<int,string>|null Cached public-route exact paths after plugin contributions. */
+    protected ?array $publicExact = null;
+
     public function __construct(Grav $container, Config $config)
     {
         parent::__construct($container);
@@ -93,6 +99,21 @@ class ApiRouter extends ProcessorBase
             $publicExact = [
                 $apiBase . '/ping',
             ];
+
+            // Let plugins contribute additional public routes. The event fires once and
+            // its result is cached on this ApiRouter instance.
+            if ($this->publicPrefixes === null) {
+                $event = new Event([
+                    'api_base' => $apiBase,
+                    'prefixes' => $publicPrefixes,
+                    'exact'    => $publicExact,
+                ]);
+                $this->container->fireEvent('onApiCollectPublicRoutes', $event);
+                $this->publicPrefixes = (array) $event['prefixes'];
+                $this->publicExact    = (array) $event['exact'];
+            }
+            $publicPrefixes = $this->publicPrefixes;
+            $publicExact    = $this->publicExact;
 
             $isPublic = in_array($routePath, $publicExact, true);
             if (!$isPublic) {
