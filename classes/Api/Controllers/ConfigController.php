@@ -85,6 +85,7 @@ class ConfigController extends AbstractApiController
             throw new ValidationException('Request body must contain configuration values to update.');
         }
 
+
         // Load the blueprint and apply field-type filtering (e.g., commalist → array)
         $blueprint = $this->loadBlueprint($scope);
 
@@ -157,8 +158,7 @@ class ConfigController extends AbstractApiController
     private function configEtagData(string $configKey): array
     {
         $data = $this->config->get($configKey);
-        $data = is_array($data) ? $data : ['value' => $data];
-        return $this->redactSensitiveFields($data);
+        return is_array($data) ? $data : ['value' => $data];
     }
 
     /**
@@ -346,19 +346,4 @@ class ConfigController extends AbstractApiController
         };
     }
 
-    /**
-     * Redact sensitive fields from config output.
-     */
-    private function redactSensitiveFields(array $data): array
-    {
-        $sensitiveKeys = ['jwt_secret', 'secret', 'salt', 'password', 'hashed_password', 'api_key', 'private_key'];
-
-        array_walk_recursive($data, function (&$value, $key) use ($sensitiveKeys) {
-            if (is_string($value) && in_array($key, $sensitiveKeys, true)) {
-                $value = '********';
-            }
-        });
-
-        return $data;
-    }
 }
