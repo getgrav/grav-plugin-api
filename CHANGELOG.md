@@ -1,5 +1,5 @@
 # v1.0.0-rc.8
-## 05/14/2026
+## 05/17/2026
 
 1. [](#new)
     * **New `GET /admin/languages` endpoint.** Enumerates `user/plugins/admin2/languages/*.yaml` and returns each available admin UI locale with its native name and RTL flag. Distinct from `GET /languages` (which lists *site content* languages from `system.yaml`) — the admin UI language and site content language are different concepts and shouldn't be conflated.
