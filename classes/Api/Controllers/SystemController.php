@@ -499,8 +499,11 @@ class SystemController extends AbstractApiController
         // <lang>.yaml` should be loadable here, even if the site itself only
         // serves English content.
         if (!is_string($lang) || !preg_match('/^[a-zA-Z]{2,3}(-[a-zA-Z]{2,4})?$/', $lang)) {
-            $lang = $language->getDefault() ?: 'en';
+            $lang = $language->getDefault() ?: 'en-US';
         }
+        // Coerce legacy short codes to their BCP 47 canonical form so a request
+        // for `/translations/en` resolves to admin2's `en-US.yaml`.
+        $lang = self::normalizeLangCode($lang);
 
         /** @var \Grav\Common\Config\Languages $languages */
         $languages = $this->grav['languages'];
@@ -678,5 +681,47 @@ class SystemController extends AbstractApiController
         }
 
         return $themes;
+    }
+
+    /**
+     * Map a raw lang code (`en`, `fr`, `zh-hans`) to its BCP 47 canonical form
+     * (`en-US`, `fr-FR`, `zh-Hans`). Admin2 + admin-next standardize on BCP 47
+     * for their UI surfaces, so any short or lowercase variant arriving on the
+     * wire is coerced here before disk lookup. Anything not in the alias map
+     * (or already in canonical region/script casing) passes through.
+     */
+    private static function normalizeLangCode(string $code): string
+    {
+        static $aliases = [
+            'en'      => 'en-US',
+            'ar'      => 'ar-SA',
+            'cs'      => 'cs-CZ',
+            'de'      => 'de-DE',
+            'es'      => 'es-ES',
+            'es-mx'   => 'es-MX',
+            'fi'      => 'fi-FI',
+            'fr'      => 'fr-FR',
+            'fr-ca'   => 'fr-CA',
+            'he'      => 'he-IL',
+            'it'      => 'it-IT',
+            'nl'      => 'nl-NL',
+            'pt'      => 'pt-PT',
+            'ru'      => 'ru-RU',
+            'sv'      => 'sv-SE',
+            'uk'      => 'uk-UA',
+            'zh-hans' => 'zh-Hans',
+            'zh-hant' => 'zh-Hant',
+        ];
+        $key = strtolower(str_replace('_', '-', trim($code)));
+        if (isset($aliases[$key])) {
+            return $aliases[$key];
+        }
+        if (preg_match('/^([a-z]{2,3})-([a-z0-9]{2,4})$/i', $code, $m)) {
+            $tag = strlen($m[2]) === 4
+                ? ucfirst(strtolower($m[2]))
+                : strtoupper($m[2]);
+            return strtolower($m[1]) . '-' . $tag;
+        }
+        return $code;
     }
 }
