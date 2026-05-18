@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Grav\Plugin\Api\Controllers;
 
 use Grav\Common\Backup\Backups;
+use Grav\Common\Language\LanguageCodes;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
@@ -491,12 +492,18 @@ class SystemController extends AbstractApiController
         /** @var \Grav\Common\Language\Language $language */
         $language = $this->grav['language'];
 
-        // Validate language code
-        $available = $language->getLanguages();
-        if (!empty($available) && !in_array($lang, $available, true)) {
-            // Fall back to default language if requested one isn't available
-            $lang = $language->getDefault() ?: 'en';
+        // Validate language code shape only — admin UI languages are a
+        // different concept from site content languages, so we DO NOT gate
+        // on $language->getLanguages() (which lists languages configured in
+        // system.yaml for site content). Any plugin shipping a `languages/
+        // <lang>.yaml` should be loadable here, even if the site itself only
+        // serves English content.
+        if (!is_string($lang) || !preg_match('/^[a-zA-Z]{2,3}(-[a-zA-Z]{2,4})?$/', $lang)) {
+            $lang = $language->getDefault() ?: 'en-US';
         }
+        // Coerce legacy short codes to their BCP 47 canonical form so a request
+        // for `/translations/en` resolves to admin2's `en-US.yaml`.
+        $lang = self::normalizeLangCode($lang);
 
         /** @var \Grav\Common\Config\Languages $languages */
         $languages = $this->grav['languages'];
@@ -548,9 +555,46 @@ class SystemController extends AbstractApiController
 
         return ApiResponse::create([
             'lang' => $lang,
+            'dir' => LanguageCodes::getOrientation($lang),
             'count' => count($translations),
             'checksum' => $checksum,
             'strings' => $translations,
+        ]);
+    }
+
+    /**
+     * GET /admin/languages - Locales the admin UI itself can be rendered in.
+     *
+     * Distinct from GET /languages, which returns *site content* languages
+     * configured in system.yaml. This endpoint returns locales for which a
+     * translation file exists in the admin2 plugin's languages directory —
+     * i.e. languages a user can pick for their admin interface.
+     */
+    public function adminLanguages(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.system.read');
+
+        $dir = GRAV_ROOT . '/user/plugins/admin2/languages';
+        $languages = [];
+
+        if (is_dir($dir)) {
+            foreach (glob($dir . '/*.yaml') ?: [] as $file) {
+                $code = basename($file, '.yaml');
+                $languages[] = [
+                    'code' => $code,
+                    'name' => LanguageCodes::getName($code) ?: $code,
+                    'native_name' => LanguageCodes::getNativeName($code) ?: $code,
+                    'rtl' => LanguageCodes::isRtl($code),
+                ];
+            }
+        }
+
+        // Stable sort by native name so the dropdown order doesn't depend on
+        // filesystem readdir order.
+        usort($languages, fn($a, $b) => strcmp($a['native_name'], $b['native_name']));
+
+        return ApiResponse::create([
+            'languages' => $languages,
         ]);
     }
 
@@ -637,5 +681,47 @@ class SystemController extends AbstractApiController
         }
 
         return $themes;
+    }
+
+    /**
+     * Map a raw lang code (`en`, `fr`, `zh-hans`) to its BCP 47 canonical form
+     * (`en-US`, `fr-FR`, `zh-Hans`). Admin2 + admin-next standardize on BCP 47
+     * for their UI surfaces, so any short or lowercase variant arriving on the
+     * wire is coerced here before disk lookup. Anything not in the alias map
+     * (or already in canonical region/script casing) passes through.
+     */
+    private static function normalizeLangCode(string $code): string
+    {
+        static $aliases = [
+            'en'      => 'en-US',
+            'ar'      => 'ar-SA',
+            'cs'      => 'cs-CZ',
+            'de'      => 'de-DE',
+            'es'      => 'es-ES',
+            'es-mx'   => 'es-MX',
+            'fi'      => 'fi-FI',
+            'fr'      => 'fr-FR',
+            'fr-ca'   => 'fr-CA',
+            'he'      => 'he-IL',
+            'it'      => 'it-IT',
+            'nl'      => 'nl-NL',
+            'pt'      => 'pt-PT',
+            'ru'      => 'ru-RU',
+            'sv'      => 'sv-SE',
+            'uk'      => 'uk-UA',
+            'zh-hans' => 'zh-Hans',
+            'zh-hant' => 'zh-Hant',
+        ];
+        $key = strtolower(str_replace('_', '-', trim($code)));
+        if (isset($aliases[$key])) {
+            return $aliases[$key];
+        }
+        if (preg_match('/^([a-z]{2,3})-([a-z0-9]{2,4})$/i', $code, $m)) {
+            $tag = strlen($m[2]) === 4
+                ? ucfirst(strtolower($m[2]))
+                : strtoupper($m[2]);
+            return strtolower($m[1]) . '-' . $tag;
+        }
+        return $code;
     }
 }

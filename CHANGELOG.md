@@ -1,3 +1,16 @@
+# v1.0.0-rc.8
+## 05/17/2026
+
+1. [](#new)
+    * **New `GET /admin/languages` endpoint.** Enumerates `user/plugins/admin2/languages/*.yaml` and returns each available admin UI locale with its native name and RTL flag. Distinct from `GET /languages` (which lists *site content* languages from `system.yaml`) — the admin UI language and site content language are different concepts and shouldn't be conflated.
+    * **`POST /pages` now accepts a `kind` parameter.** Mirrors classic admin's three-way add-page split: `page` (default — folder + `<template>.md`, unchanged behaviour), `folder` (creates the folder only, no `.md` file), or `module` (a modular sub-page — the slug is automatically prefixed with `_` per Grav's modular-folder convention). Validation rejects any other value.
+    * **`GET /blueprints/pages` now accepts `?modular=true`.** Returns `Pages::modularTypes()` instead of `Pages::types()` so the admin can populate a Module-specific template picker (the four `modular/*` templates a theme provides, rather than every standard template).
+    * **`GET /translations/{lang}` now returns `dir: 'rtl'|'ltr'`.** Lets admin2 set `<html dir>` and `window.__GRAV_I18N.dir` from the same payload it's already fetching, avoiding a second roundtrip on every locale switch.
+1. [](#bugfix)
+    * **`GET /translations/{lang}` no longer silently falls back to the default language when the requested locale isn't a *site content* language.** The validation was gating on `$language->getLanguages()` (the list configured under `system.languages.supported`), so a request for Hebrew on an English-only site quietly returned English strings. Admin UI translations and site content languages are independent — the endpoint now validates only the shape of the lang code and lets `Languages::flattenByLang()` decide whether the strings exist.
+    * **Blueprint labels now translate against the user's admin language, not the site default.** Every `/blueprints/*` endpoint (pages, plugins, themes, users, permissions, config, plugin pages, page types) used to call `$lang->translate()` with no language hint, so labels resolved against Grav's globally-active content language. The same admin-next user could see their topbar nav in Hebrew (those come from `/translations/he` which knows the language) and the System config page still in English (those come pre-resolved here). `BlueprintController` now reads each request's authenticated user, resolves their effective `adminLanguage` via `PreferencesResolver`, and passes `[$adminLanguage, 'en']` as the language fallback chain on every translate call. Falls back cleanly to English when no user is attached.
+    * **Modular templates now save with the correct on-disk filename.** `POST /pages` with template `modular/hero` was writing `<folder>/modular/hero.md` (creating a nested `modular/` subdirectory inside the new page folder); it now correctly writes `<folder>/hero.md`. The `modular/` prefix in the template key is purely for template resolution, never part of the filename.
+
 # v1.0.0-rc.7
 ## 05/14/2026
 
