@@ -1,3 +1,9 @@
+# v1.0.0-rc.9
+## 05/18/2026
+
+1. [](#new)
+    * Page show, create, and update endpoints now enforce the new `security.twig_content.*` gates. Requests that try to enable Twig on a page without permission, or to load a page that already has Twig enabled when the current user can't edit it, return a 403 with a stable reason code so the admin UI can render the right toast. Requires grav ≥ 2.0.0-rc.4.
+
 # v1.0.0-rc.8
 ## 05/17/2026
 

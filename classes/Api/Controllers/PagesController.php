@@ -13,8 +13,10 @@ use Grav\Common\Page\Interfaces\PageInterface;
 use Grav\Common\Page\Page;
 use Grav\Common\Page\PageOrdering;
 use Grav\Framework\Flex\FlexDirectory;
+use Grav\Common\User\Interfaces\UserInterface;
 use Grav\Plugin\Api\Exceptions\ApiException;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
+use Grav\Plugin\Api\Exceptions\TwigContentForbiddenException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\FlexBackend;
 use Grav\Plugin\Api\Response\ApiResponse;
@@ -241,6 +243,12 @@ class PagesController extends AbstractApiController
             $route = $this->getRouteParam($request, 'route');
             $page = $this->findPageOrFail('/' . $route);
 
+            // If the page already has process.twig:true, the same gate that
+            // governs writes also governs reading the full record. Returning
+            // the editor view to a user who can't save it is misleading; let
+            // Admin Next show the toast on the show() failure instead.
+            $this->guardTwigContent($page, [], $this->getUser($request));
+
             $query = $request->getQueryParams();
             $summary = filter_var($query['summary'] ?? false, FILTER_VALIDATE_BOOLEAN);
             $options = [
@@ -337,6 +345,11 @@ class PagesController extends AbstractApiController
 
             // Build header with title
             $header = array_merge(['title' => $title], $header);
+
+            // Enforce security.twig_content.* gate before any plugin event can
+            // mutate the header — reject the create up-front if the request
+            // wants process.twig:true and the user isn't allowed.
+            $this->guardTwigContent(null, $header, $this->getUser($request));
 
             // Fire before event — plugins can modify $header/$content or throw to cancel
             $this->fireEvent('onApiBeforePageCreate', [
@@ -447,6 +460,12 @@ class PagesController extends AbstractApiController
             $this->validateEtag($request, $this->generateEtag($currentData));
 
             $body = $this->getRequestBody($request);
+
+            // Enforce security.twig_content.* gate against the incoming header
+            // and the existing page state, before any plugin event can mutate
+            // either. Covers two cases: user tries to flip process.twig:true,
+            // or user tries to edit a page that already has it on.
+            $this->guardTwigContent($page, (array) ($body['header'] ?? []), $this->getUser($request));
 
             // Fire before event — plugins can modify $body or throw to cancel
             $this->fireEvent('onApiBeforePageUpdate', ['page' => $page, 'data' => &$body]);
@@ -2103,5 +2122,60 @@ class PagesController extends AbstractApiController
             }
         }
         return $data;
+    }
+
+    /**
+     * Enforce the `security.twig_content.*` gate when a request touches a page
+     * with `process: { twig: true }` (either incoming, existing, or both).
+     *
+     * Three rejection cases:
+     *   - REASON_DISABLED       — site-wide gate is off; nobody can save twig:true.
+     *   - REASON_PAGE_FORBIDDEN — page already has twig:true and the user can't edit it.
+     *   - REASON_FORBIDDEN      — user is trying to enable twig but lacks permission.
+     *
+     * The `admin.pages_twig` permission is deliberately named outside the
+     * `admin.pages` hierarchy so granting `admin.pages` does NOT implicitly
+     * grant twig-toggle (the Flex ACL walks parent prefixes).
+     */
+    private function guardTwigContent(?PageInterface $existingPage, array $incomingHeader, UserInterface $user): void
+    {
+        $existingTwig = false;
+        if ($existingPage !== null) {
+            $existingHeader = (array) $existingPage->header();
+            $existingTwig = (bool) (($existingHeader['process']['twig'] ?? false));
+        }
+
+        $incomingTwig = null;
+        if (array_key_exists('process', $incomingHeader) && is_array($incomingHeader['process'])
+            && array_key_exists('twig', $incomingHeader['process'])) {
+            $incomingTwig = (bool) $incomingHeader['process']['twig'];
+        }
+
+        $touchesTwig = $existingTwig || $incomingTwig === true;
+        if (!$touchesTwig) {
+            return;
+        }
+
+        $config = $this->grav['config'];
+
+        if ((bool) $config->get('security.twig_content.process_enabled', false) === false) {
+            throw new TwigContentForbiddenException(TwigContentForbiddenException::REASON_DISABLED);
+        }
+
+        $editorEnabled = (bool) $config->get('security.twig_content.editor_enabled', false);
+        if ($editorEnabled) {
+            return;
+        }
+
+        if ($this->isSuperAdmin($user) || $this->hasPermission($user, 'admin.pages_twig')) {
+            return;
+        }
+
+        // Distinguish between "you can't edit this twig page" and "you can't
+        // enable twig" so the UI can render the right toast.
+        $reason = $existingTwig
+            ? TwigContentForbiddenException::REASON_PAGE_FORBIDDEN
+            : TwigContentForbiddenException::REASON_FORBIDDEN;
+        throw new TwigContentForbiddenException($reason);
     }
 }
