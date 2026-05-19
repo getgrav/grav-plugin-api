@@ -1,5 +1,5 @@
 # v1.0.0-rc.9
-## 05/18/2026
+## 05/19/2026
 
 1. [](#new)
     * Page show, create, and update endpoints now enforce the new `security.twig_content.*` gates. Requests that try to enable Twig on a page without permission, or to load a page that already has Twig enabled when the current user can't edit it, return a 403 with a stable reason code so the admin UI can render the right toast. Requires grav ≥ 2.0.0-rc.4.
@@ -9,6 +9,7 @@
     * **`POST /pages/reorganize` rejects batches where a destination parent is also being moved.** Mid-batch, Phase 2 renames every page to a temp directory under its captured destination path; if the destination parent itself is in the operation list, its on-disk path moves out from under any earlier op that already landed in it, and Phase 3's rename then fails with the confusing `rename(...): No such file or directory`. The endpoint now walks the ancestor chain of every op's destination during validation and throws a clear `ValidationException` naming the conflicting op, so the rollback path keeps disk state intact and the client sees something actionable.
     * **`POST /pages/reorganize` defensively strips leading dots from page slugs.** Mirrors the sanitization the single-page `/move` endpoint already applies. Without this, a page whose slug somehow started with `.` (e.g. inherited from an earlier corrupted folder) would get rebuilt into another double-dot folder on the next batch operation.
     * **Page listings now serve the real frontmatter title instead of a slug-humanized fallback.** The flex-indexed `PageObject` returned by `GET /pages` doesn't materialize the page header in memory, so `$page->title()` and `->menu()` were silently falling back to `ucfirst(slug)` — pages named `contact-us` with a real `title: "Contact Us"` in their `.md` showed up as `"Contact-us"`. `PageSerializer` already re-parses the frontmatter from disk when the in-memory header is empty; it now also reads `title` and `menu` out of that parsed array in preference to the page-object accessors.
+    * **`POST /menubar/actions/{plugin}/{action}` returns HTTP 200 when a handler ran and reported a domain-level failure**, instead of HTTP 400 with the failure embedded in the body. The action result envelope (`{ status, message }`) already differentiates success from failure, so the admin client's `result.status` toast branch handles both — but on 400 the client's generic error handler was looking for `detail`/`title` fields that aren't part of the menubar envelope, leaving the error toast blank. HTTP 4xx is now reserved for the genuine API error of "no plugin registered for that action" (returns 404). Visible symptom this fixes: clicking the Cloudflare purge button with bad credentials used to surface an empty red toast instead of "Cloudflare purge failed: Authentication error".
 
 # v1.0.0-rc.8
 ## 05/17/2026
