@@ -620,7 +620,20 @@ class PagesController extends AbstractApiController
 
         $newParentRoute = '/' . trim($body['parent'], '/');
         $newSlug = ltrim($body['slug'] ?? $page->slug(), '.');
-        $newOrder = array_key_exists('order', $body) ? $body['order'] : $page->order();
+        // $page->order() returns the matched prefix INCLUDING the trailing
+        // dot (e.g. '04.'), not a plain number. Concatenating that with the
+        // dot in $dirName produces double-dot folder names like
+        // '04..slug' — which then makes Grav read the slug as '.slug'.
+        // Normalize to an int (or null when no prefix exists) so the
+        // body['order'] contract and the fallback agree on shape.
+        if (array_key_exists('order', $body)) {
+            $newOrder = $body['order'];
+        } else {
+            $currentOrder = $page->order();
+            $newOrder = ($currentOrder === false || $currentOrder === '' || $currentOrder === null)
+                ? null
+                : (int) rtrim((string) $currentOrder, '.');
+        }
 
         // Resolve new parent path
         if ($newParentRoute === '/') {
@@ -1460,13 +1473,47 @@ class PagesController extends AbstractApiController
             $resolved[] = [
                 'route' => $route,
                 'page' => $page,
-                'slug' => $page->slug(),
+                // Strip leading dots so pages whose slug somehow starts with
+                // '.' don't get rebuilt into '04..slug' style folders.
+                // Matches the sanitization the single-page /move endpoint
+                // already applies.
+                'slug' => ltrim($page->slug(), '.'),
                 'oldPath' => $page->path(),
                 'currentParentRoute' => $currentParentRoute,
                 'newParentRoute' => $newParentRoute,
                 'newParentPath' => $newParentPath,
                 'position' => $position,
             ];
+        }
+
+        // Reject any op whose destination parent is itself being moved in
+        // this batch. Otherwise Phase 2 would rename the parent mid-batch,
+        // making Phase 3's rename($tempPath, $finalPath) fail because the
+        // captured newParentPath no longer exists on disk. Asking the
+        // client to drop these ops produces a clear error instead of the
+        // confusing "No such file or directory" surface.
+        $movedRoutes = [];
+        foreach ($resolved as $op) {
+            $movedRoutes[$op['route']] = true;
+        }
+        foreach ($resolved as $index => $op) {
+            $parentRoute = $op['newParentRoute'];
+            // The parent itself, or any ancestor of it, being moved is
+            // unsafe — its on-disk path won't match newParentPath after
+            // Phase 2 renames.
+            $check = $parentRoute;
+            while ($check !== '/' && $check !== '') {
+                if (isset($movedRoutes[$check])) {
+                    throw new ValidationException(
+                        "Operation index {$index} targets parent '{$parentRoute}', but '{$check}' is also being moved in the same batch. Reorganize the parent first, or drop one of the ops."
+                    );
+                }
+                $check = dirname($check);
+                if ($check === '.') {
+                    $check = '/';
+                    break;
+                }
+            }
         }
 
         $this->fireEvent('onApiBeforePagesReorganize', ['operations' => $resolved]);

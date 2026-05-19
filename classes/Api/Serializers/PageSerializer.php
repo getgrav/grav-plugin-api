@@ -79,6 +79,15 @@ class PageSerializer implements SerializerInterface
             }
         }
 
+        // For flex-indexed PageObject listings the in-memory header is empty
+        // (we re-parsed the .md file into $headerArr above). $resource->title()
+        // and ->menu() in that mode fall back to a slug-derived label
+        // ("Contact-us") even when the frontmatter has a real title.
+        // Prefer the parsed-header value so the listing reads the same as
+        // the detail endpoint.
+        $headerTitle = $headerArr['title'] ?? null;
+        $headerMenu = $headerArr['menu'] ?? null;
+
         $data = [
             'route' => $resource->route(),
             // Structural route — for the home page, route() returns the
@@ -86,8 +95,8 @@ class PageSerializer implements SerializerInterface
             // '/home'. Clients editing/finding pages should prefer this.
             'raw_route' => $resource->rawRoute(),
             'slug' => $resource->slug(),
-            'title' => $resource->title(),
-            'menu' => $resource->menu(),
+            'title' => is_string($headerTitle) && $headerTitle !== '' ? $headerTitle : $resource->title(),
+            'menu' => is_string($headerMenu) && $headerMenu !== '' ? $headerMenu : (is_string($headerTitle) && $headerTitle !== '' ? $headerTitle : $resource->menu()),
             'template' => $resource->template(),
             'language' => $resource->language(),
             'header' => $headerArr,
