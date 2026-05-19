@@ -136,9 +136,79 @@ class EnvironmentService
         return $configDir;
     }
 
+    /**
+     * Delete an env folder (user/env/<name>/) and everything under it.
+     *
+     * Refuses to act on legacy user/<name>/ layouts (Grav 1.6 fallback) because
+     * those directory names overlap freely with user-managed paths, so removing
+     * them carries too much blast radius. Operators must clean those up by hand.
+     * Refuses to delete the env Grav resolved for the current request so the
+     * running session can't have its config yanked out from under it.
+     *
+     * Throws \InvalidArgumentException on validation failures and \RuntimeException
+     * on filesystem failures.
+     */
+    public function deleteEnvironment(string $name): void
+    {
+        if (!self::isValidName($name)) {
+            throw new \InvalidArgumentException("Invalid environment name '{$name}'.");
+        }
+        if ($name === $this->activeEnvironment()) {
+            throw new \InvalidArgumentException(
+                "Cannot delete environment '{$name}': it is the active environment for this request."
+            );
+        }
+
+        $userRoot = $this->userRoot();
+        if ($userRoot === null) {
+            throw new \RuntimeException('user:// path not resolvable.');
+        }
+
+        $modernDir = $userRoot . '/env/' . $name;
+        $legacyDir = $userRoot . '/' . $name;
+        if (!is_dir($modernDir)) {
+            if (is_dir($legacyDir) && is_dir($legacyDir . '/config')) {
+                throw new \InvalidArgumentException(
+                    "Environment '{$name}' uses the legacy user/{$name}/ layout. "
+                    . "Remove it manually so unrelated files are not deleted."
+                );
+            }
+            throw new \InvalidArgumentException("Environment '{$name}' does not exist.");
+        }
+
+        // Guard against symlink escape: the resolved path must still live under
+        // user/env/. If something has replaced user/env/<name>/ with a symlink
+        // pointing elsewhere, we refuse rather than recursively delete outside
+        // the user tree.
+        $real = realpath($modernDir);
+        $envRootReal = realpath($userRoot . '/env');
+        if ($real === false || $envRootReal === false || !str_starts_with($real, $envRootReal . DIRECTORY_SEPARATOR)) {
+            throw new \RuntimeException("Refusing to delete '{$modernDir}': path resolves outside user/env/.");
+        }
+
+        self::rmrf($real);
+    }
+
     public static function isValidName(string $name): bool
     {
         return $name !== '' && (bool)preg_match('/^[a-z0-9][a-z0-9._-]*$/i', $name);
+    }
+
+    private static function rmrf(string $dir): void
+    {
+        $iter = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::CHILD_FIRST,
+        );
+        foreach ($iter as $entry) {
+            /** @var \SplFileInfo $entry */
+            if ($entry->isDir() && !$entry->isLink()) {
+                rmdir($entry->getPathname());
+            } else {
+                unlink($entry->getPathname());
+            }
+        }
+        rmdir($dir);
     }
 
     private function userRoot(): ?string

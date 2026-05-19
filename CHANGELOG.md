@@ -3,6 +3,7 @@
 
 1. [](#new)
     * Page show, create, and update endpoints now enforce the new `security.twig_content.*` gates. Requests that try to enable Twig on a page without permission, or to load a page that already has Twig enabled when the current user can't edit it, return a 403 with a stable reason code so the admin UI can render the right toast. Requires grav ≥ 2.0.0-rc.4.
+    * **New `DELETE /system/environments/{name}` endpoint.** Removes the `user/env/<name>/` folder and everything under it after validating the name, refusing to delete the request's currently active environment, refusing to act on legacy `user/<name>/config/` layouts (those overlap with user-managed paths and must be cleaned up by hand), and guarding against symlink escape via a realpath boundary check.
 
 # v1.0.0-rc.8
 ## 05/17/2026

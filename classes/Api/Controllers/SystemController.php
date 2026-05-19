@@ -87,6 +87,29 @@ class SystemController extends AbstractApiController
         ], 201, ['X-Invalidates' => 'system:environments']);
     }
 
+    /**
+     * DELETE /system/environments/{name} — remove a user/env/<name>/ folder.
+     *
+     * Refuses to delete the env that Grav resolved for the current request, and
+     * refuses to act on legacy user/<name>/ layouts. See EnvironmentService for
+     * the full safety rules.
+     */
+    public function deleteEnvironment(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.config.write');
+
+        $name = (string) $this->getRouteParam($request, 'name');
+
+        $envService = new EnvironmentService($this->grav);
+        try {
+            $envService->deleteEnvironment($name);
+        } catch (\InvalidArgumentException $e) {
+            throw new ValidationException($e->getMessage());
+        }
+
+        return ApiResponse::noContent(['X-Invalidates' => 'system:environments']);
+    }
+
     public function info(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'api.system.read');
