@@ -30,6 +30,24 @@ class SessionAuthenticator implements AuthenticatorInterface
             $user = $session->user ?? null;
 
             if ($user && $user->exists() && $user->authorized) {
+                // Session stores a serialized user snapshot whose `access` map
+                // is frozen at the moment of login. Admin permission changes
+                // wouldn't take effect until the session is destroyed. Refresh
+                // `access` from disk so an operator's grant/revoke is honored
+                // on the next API request without forcing a re-login.
+                $username = (string) $user->get('username');
+                if ($username !== '') {
+                    try {
+                        $fresh = $this->grav['accounts']->load($username);
+                        if ($fresh->exists()) {
+                            $user->set('access', $fresh->get('access'));
+                            $user->set('groups', $fresh->get('groups'));
+                        }
+                    } catch (Throwable) {
+                        // Disk reload failed — fall through with stale access
+                        // rather than denying a legitimately authenticated user.
+                    }
+                }
                 return $user;
             }
         } catch (Throwable) {
