@@ -329,6 +329,99 @@ class BlueprintController extends AbstractApiController
     }
 
     /**
+     * GET /blueprints/groups - User group edit blueprint (user/group.yaml).
+     */
+    public function groupBlueprint(ServerRequestInterface $request): ResponseInterface
+    {
+        return $this->loadGroupBlueprint($request, 'group', 'group');
+    }
+
+    /**
+     * GET /blueprints/groups/new - User group creation blueprint (user/group_new.yaml).
+     */
+    public function groupNewBlueprint(ServerRequestInterface $request): ResponseInterface
+    {
+        return $this->loadGroupBlueprint($request, 'group_new', 'group_new');
+    }
+
+    private function loadGroupBlueprint(
+        ServerRequestInterface $request,
+        string $name,
+        string $context,
+    ): ResponseInterface {
+        $this->requirePermission($request, 'api.users.read');
+        $this->resolveBlueprintLanguages($request);
+
+        $path = $this->grav['locator']->findResource("blueprints://user/{$name}.yaml")
+            ?: $this->grav['locator']->findResource("system://blueprints/user/{$name}.yaml");
+
+        if (!$path) {
+            throw new NotFoundException("Group blueprint '{$name}' not found.");
+        }
+
+        $blueprint = new Blueprint($path);
+        $blueprint->load();
+
+        $data = $this->serializeBlueprint($blueprint, $name);
+
+        $event = new Event([
+            'context' => $context,
+            'fields' => $data['fields'],
+            'template' => $name,
+            'user' => $this->getUser($request),
+        ]);
+        $this->grav->fireEvent('onApiBlueprintResolved', $event);
+        $data['fields'] = $event['fields'];
+
+        return ApiResponse::create($data);
+    }
+
+    /**
+     * GET /blueprints/config/accounts - Flex accounts configuration blueprint
+     * (the form behind the "Configuration" tab on the Users page).
+     *
+     * Delegates to FlexDirectory::getDirectoryBlueprint() — the same code path
+     * admin-classic uses. That loads blueprints://flex/shared/configure.yaml
+     * (the Caching tab) as the base and embeds the user-accounts blueprint's
+     * `blueprints.configure.fields` (Compatibility tab via import@) as sibling
+     * tabs. Reimplementing this by hand would silently drop the Caching tab
+     * (the shared form isn't reachable from the user-accounts blueprint alone).
+     */
+    public function accountsConfigBlueprint(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.config.read');
+        $this->resolveBlueprintLanguages($request);
+
+        $flex = $this->grav['flex_objects'] ?? null;
+        if (!$flex) {
+            throw new NotFoundException('Flex Objects is not available — Accounts configuration requires it.');
+        }
+
+        $directory = $flex->getDirectory('user-accounts');
+        if (!$directory) {
+            throw new NotFoundException('user-accounts flex directory is not registered.');
+        }
+
+        $blueprint = $directory->getDirectoryBlueprint();
+
+        $data = $this->serializeBlueprint($blueprint, 'accounts');
+        if (empty($data['title'])) {
+            $data['title'] = 'Accounts Configuration';
+        }
+
+        $event = new Event([
+            'context' => 'config',
+            'fields' => $data['fields'],
+            'template' => 'accounts',
+            'user' => $this->getUser($request),
+        ]);
+        $this->grav->fireEvent('onApiBlueprintResolved', $event);
+        $data['fields'] = $event['fields'];
+
+        return ApiResponse::create($data);
+    }
+
+    /**
      * GET /blueprints/users/permissions - Get all registered permission actions.
      */
     public function permissionsBlueprint(ServerRequestInterface $request): ResponseInterface

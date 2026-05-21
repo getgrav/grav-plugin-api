@@ -35,6 +35,7 @@ class PreferencesResolver
     private const VALID_EDITOR_MODE = ['normal', 'expert'];
     private const VALID_LOGO_MODE = ['default', 'text', 'custom'];
     private const VALID_PAGES_VIEW_MODE = ['tree', 'list', 'miller'];
+    private const VALID_ACCOUNTS_VIEW_MODE = ['cards', 'table'];
 
     public function __construct(
         private readonly Grav $grav,
@@ -58,6 +59,10 @@ class PreferencesResolver
             'adminLanguage' => 'en',
             'pagesPerPage' => 20,
             'pagesViewMode' => 'tree',
+            'usersViewMode' => 'cards',
+            'groupsViewMode' => 'cards',
+            'pluginsViewMode' => 'cards',
+            'themesViewMode' => 'cards',
         ];
     }
 
@@ -396,6 +401,7 @@ class PreferencesResolver
             'adminLanguage' => is_string($value) && $value !== '' ? substr($value, 0, 32) : null,
             'pagesPerPage' => is_numeric($value) ? max(1, min(200, (int) $value)) : null,
             'pagesViewMode' => is_string($value) && in_array($value, self::VALID_PAGES_VIEW_MODE, true) ? $value : null,
+            'usersViewMode', 'groupsViewMode', 'pluginsViewMode', 'themesViewMode' => is_string($value) && in_array($value, self::VALID_ACCOUNTS_VIEW_MODE, true) ? $value : null,
             default => null,
         };
     }

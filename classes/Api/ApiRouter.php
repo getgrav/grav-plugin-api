@@ -31,6 +31,8 @@ use Grav\Plugin\Api\Controllers\FloatingWidgetController;
 use Grav\Plugin\Api\Controllers\ContextPanelController;
 use Grav\Plugin\Api\Controllers\SystemController;
 use Grav\Plugin\Api\Controllers\UsersController;
+use Grav\Plugin\Api\Controllers\GroupsController;
+use Grav\Plugin\Api\Controllers\AccountsConfigController;
 use Grav\Plugin\Api\Controllers\WebhookController;
 use Grav\Plugin\Api\Exceptions\ApiException;
 use Grav\Plugin\Api\Middleware\AuthMiddleware;
@@ -306,6 +308,11 @@ class ApiRouter extends ProcessorBase
 
         // Config
         $r->addRoute('GET', '/config', [ConfigController::class, 'index']);
+        // Static config routes must be registered BEFORE the variable
+        // /config/{scope:.+} route below — FastRoute rejects statics that
+        // would be shadowed by an earlier-defined variable on the same path.
+        $r->addRoute('GET',   '/config/accounts', [AccountsConfigController::class, 'show']);
+        $r->addRoute('PATCH', '/config/accounts', [AccountsConfigController::class, 'update']);
         $r->addRoute('GET', '/config/{scope:.+}', [ConfigController::class, 'show']);
         $r->addRoute('PATCH', '/config/{scope:.+}', [ConfigController::class, 'update']);
 
@@ -323,6 +330,13 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('GET', '/users/{username}/api-keys', [UsersController::class, 'apiKeys']);
         $r->addRoute('POST', '/users/{username}/api-keys', [UsersController::class, 'createApiKey']);
         $r->addRoute('DELETE', '/users/{username}/api-keys/{keyId}', [UsersController::class, 'deleteApiKey']);
+
+        // Groups
+        $r->addRoute('GET',    '/groups',         [GroupsController::class, 'index']);
+        $r->addRoute('POST',   '/groups',         [GroupsController::class, 'create']);
+        $r->addRoute('GET',    '/groups/{name}',  [GroupsController::class, 'show']);
+        $r->addRoute('PATCH',  '/groups/{name}',  [GroupsController::class, 'update']);
+        $r->addRoute('DELETE', '/groups/{name}',  [GroupsController::class, 'delete']);
 
         // Custom fields discovery (all plugins/themes)
         $r->addRoute('GET', '/custom-fields', [GpmController::class, 'allCustomFields']);
@@ -402,12 +416,16 @@ $r->addRoute('GET', '/gpm/themes/{slug}/field/{type}', [GpmController::class, 'c
         $r->addRoute('GET', '/blueprints/themes/{theme}', [BlueprintController::class, 'themeBlueprint']);
         $r->addRoute('GET', '/blueprints/users', [BlueprintController::class, 'userBlueprint']);
         $r->addRoute('GET', '/blueprints/users/permissions', [BlueprintController::class, 'permissionsBlueprint']);
+        $r->addRoute('GET', '/blueprints/groups', [BlueprintController::class, 'groupBlueprint']);
+        $r->addRoute('GET', '/blueprints/groups/new', [BlueprintController::class, 'groupNewBlueprint']);
+        $r->addRoute('GET', '/blueprints/config/accounts', [BlueprintController::class, 'accountsConfigBlueprint']);
         $r->addRoute('GET', '/blueprints/config/{scope}', [BlueprintController::class, 'configBlueprint']);
 
         // System
         $r->addRoute('GET', '/ping', [SystemController::class, 'ping']);
         $r->addRoute('GET', '/system/environments', [SystemController::class, 'environments']);
         $r->addRoute('POST', '/system/environments', [SystemController::class, 'createEnvironment']);
+        $r->addRoute('DELETE', '/system/environments/{name}', [SystemController::class, 'deleteEnvironment']);
         $r->addRoute('GET', '/system/info', [SystemController::class, 'info']);
         $r->addRoute('DELETE', '/cache', [SystemController::class, 'clearCache']);
         $r->addRoute('GET', '/system/logs/files', [SystemController::class, 'logFiles']);

@@ -52,6 +52,7 @@ class MenubarController extends AbstractApiController
         $action = $this->getRouteParam($request, 'action');
         $body = $this->getRequestBody($request);
 
+        $sentinel = "__no_handler_{$plugin}_{$action}__";
         $event = new Event([
             'plugin' => $plugin,
             'action' => $action,
@@ -59,15 +60,22 @@ class MenubarController extends AbstractApiController
             'user' => $this->getUser($request),
             'result' => [
                 'status' => 'error',
-                'message' => "No handler registered for action '{$plugin}/{$action}'.",
+                'message' => $sentinel,
             ],
         ]);
 
         $this->grav->fireEvent('onApiMenubarAction', $event);
 
         $result = $event['result'];
-        $status = ($result['status'] ?? 'error') === 'success' ? 200 : 400;
 
-        return ApiResponse::create($result, $status);
+        // Distinguish "no plugin registered for this action" from a handler
+        // that ran and reported a domain-level failure (e.g. auth error from
+        // Cloudflare). The former is a 404; the latter is a successful API
+        // call that the client will toast as an error based on result.status.
+        if (($result['message'] ?? null) === $sentinel) {
+            throw new NotFoundException("No handler registered for action '{$plugin}/{$action}'.");
+        }
+
+        return ApiResponse::create($result, 200);
     }
 }

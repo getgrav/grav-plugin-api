@@ -13,8 +13,10 @@ use Grav\Common\Page\Interfaces\PageInterface;
 use Grav\Common\Page\Page;
 use Grav\Common\Page\PageOrdering;
 use Grav\Framework\Flex\FlexDirectory;
+use Grav\Common\User\Interfaces\UserInterface;
 use Grav\Plugin\Api\Exceptions\ApiException;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
+use Grav\Plugin\Api\Exceptions\TwigContentForbiddenException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\FlexBackend;
 use Grav\Plugin\Api\Response\ApiResponse;
@@ -241,6 +243,12 @@ class PagesController extends AbstractApiController
             $route = $this->getRouteParam($request, 'route');
             $page = $this->findPageOrFail('/' . $route);
 
+            // If the page already has process.twig:true, the same gate that
+            // governs writes also governs reading the full record. Returning
+            // the editor view to a user who can't save it is misleading; let
+            // Admin Next show the toast on the show() failure instead.
+            $this->guardTwigContent($page, [], $this->getUser($request));
+
             $query = $request->getQueryParams();
             $summary = filter_var($query['summary'] ?? false, FILTER_VALIDATE_BOOLEAN);
             $options = [
@@ -337,6 +345,11 @@ class PagesController extends AbstractApiController
 
             // Build header with title
             $header = array_merge(['title' => $title], $header);
+
+            // Enforce security.twig_content.* gate before any plugin event can
+            // mutate the header — reject the create up-front if the request
+            // wants process.twig:true and the user isn't allowed.
+            $this->guardTwigContent(null, $header, $this->getUser($request));
 
             // Fire before event — plugins can modify $header/$content or throw to cancel
             $this->fireEvent('onApiBeforePageCreate', [
@@ -447,6 +460,12 @@ class PagesController extends AbstractApiController
             $this->validateEtag($request, $this->generateEtag($currentData));
 
             $body = $this->getRequestBody($request);
+
+            // Enforce security.twig_content.* gate against the incoming header
+            // and the existing page state, before any plugin event can mutate
+            // either. Covers two cases: user tries to flip process.twig:true,
+            // or user tries to edit a page that already has it on.
+            $this->guardTwigContent($page, (array) ($body['header'] ?? []), $this->getUser($request));
 
             // Fire before event — plugins can modify $body or throw to cancel
             $this->fireEvent('onApiBeforePageUpdate', ['page' => $page, 'data' => &$body]);
@@ -601,7 +620,20 @@ class PagesController extends AbstractApiController
 
         $newParentRoute = '/' . trim($body['parent'], '/');
         $newSlug = ltrim($body['slug'] ?? $page->slug(), '.');
-        $newOrder = array_key_exists('order', $body) ? $body['order'] : $page->order();
+        // $page->order() returns the matched prefix INCLUDING the trailing
+        // dot (e.g. '04.'), not a plain number. Concatenating that with the
+        // dot in $dirName produces double-dot folder names like
+        // '04..slug' — which then makes Grav read the slug as '.slug'.
+        // Normalize to an int (or null when no prefix exists) so the
+        // body['order'] contract and the fallback agree on shape.
+        if (array_key_exists('order', $body)) {
+            $newOrder = $body['order'];
+        } else {
+            $currentOrder = $page->order();
+            $newOrder = ($currentOrder === false || $currentOrder === '' || $currentOrder === null)
+                ? null
+                : (int) rtrim((string) $currentOrder, '.');
+        }
 
         // Resolve new parent path
         if ($newParentRoute === '/') {
@@ -1438,16 +1470,69 @@ class PagesController extends AbstractApiController
                 }
             }
 
+            // Whether this op actually causes a path rename on disk. Position-
+            // unchanged + parent-unchanged ops are no-ops at the filesystem
+            // level — clients (e.g. the tree-view drag handler) emit them
+            // when renumbering all siblings of a drop target, even for
+            // siblings whose position didn't actually shift. Tracking these
+            // as "moved" below would falsely flag conflicts when one of those
+            // no-op siblings happens to be the source parent of another op.
+            $currentOrder = (int) $page->order();
+            $parentChanged = $newParentRoute !== $currentParentRoute;
+            $positionChanged = $position !== null && $position !== $currentOrder;
+            $actuallyMoves = $parentChanged || $positionChanged;
+
             $resolved[] = [
                 'route' => $route,
                 'page' => $page,
-                'slug' => $page->slug(),
+                // Strip leading dots so pages whose slug somehow starts with
+                // '.' don't get rebuilt into '04..slug' style folders.
+                // Matches the sanitization the single-page /move endpoint
+                // already applies.
+                'slug' => ltrim($page->slug(), '.'),
                 'oldPath' => $page->path(),
                 'currentParentRoute' => $currentParentRoute,
                 'newParentRoute' => $newParentRoute,
                 'newParentPath' => $newParentPath,
                 'position' => $position,
+                'actuallyMoves' => $actuallyMoves,
             ];
+        }
+
+        // Reject any op whose destination parent is itself being moved in
+        // this batch. Otherwise Phase 2 would rename the parent mid-batch,
+        // making Phase 3's rename($tempPath, $finalPath) fail because the
+        // captured newParentPath no longer exists on disk. Asking the
+        // client to drop these ops produces a clear error instead of the
+        // confusing "No such file or directory" surface.
+        //
+        // Only routes that actually rename on disk participate — a no-op
+        // renumber (position unchanged, parent unchanged) leaves the folder
+        // path intact, so it cannot invalidate a sibling op's newParentPath.
+        $movedRoutes = [];
+        foreach ($resolved as $op) {
+            if ($op['actuallyMoves']) {
+                $movedRoutes[$op['route']] = true;
+            }
+        }
+        foreach ($resolved as $index => $op) {
+            $parentRoute = $op['newParentRoute'];
+            // The parent itself, or any ancestor of it, being moved is
+            // unsafe — its on-disk path won't match newParentPath after
+            // Phase 2 renames.
+            $check = $parentRoute;
+            while ($check !== '/' && $check !== '') {
+                if (isset($movedRoutes[$check])) {
+                    throw new ValidationException(
+                        "Operation index {$index} targets parent '{$parentRoute}', but '{$check}' is also being moved in the same batch. Reorganize the parent first, or drop one of the ops."
+                    );
+                }
+                $check = dirname($check);
+                if ($check === '.') {
+                    $check = '/';
+                    break;
+                }
+            }
         }
 
         $this->fireEvent('onApiBeforePagesReorganize', ['operations' => $resolved]);
@@ -2103,5 +2188,60 @@ class PagesController extends AbstractApiController
             }
         }
         return $data;
+    }
+
+    /**
+     * Enforce the `security.twig_content.*` gate when a request touches a page
+     * with `process: { twig: true }` (either incoming, existing, or both).
+     *
+     * Three rejection cases:
+     *   - REASON_DISABLED       — site-wide gate is off; nobody can save twig:true.
+     *   - REASON_PAGE_FORBIDDEN — page already has twig:true and the user can't edit it.
+     *   - REASON_FORBIDDEN      — user is trying to enable twig but lacks permission.
+     *
+     * The `admin.pages_twig` permission is deliberately named outside the
+     * `admin.pages` hierarchy so granting `admin.pages` does NOT implicitly
+     * grant twig-toggle (the Flex ACL walks parent prefixes).
+     */
+    private function guardTwigContent(?PageInterface $existingPage, array $incomingHeader, UserInterface $user): void
+    {
+        $existingTwig = false;
+        if ($existingPage !== null) {
+            $existingHeader = (array) $existingPage->header();
+            $existingTwig = (bool) (($existingHeader['process']['twig'] ?? false));
+        }
+
+        $incomingTwig = null;
+        if (array_key_exists('process', $incomingHeader) && is_array($incomingHeader['process'])
+            && array_key_exists('twig', $incomingHeader['process'])) {
+            $incomingTwig = (bool) $incomingHeader['process']['twig'];
+        }
+
+        $touchesTwig = $existingTwig || $incomingTwig === true;
+        if (!$touchesTwig) {
+            return;
+        }
+
+        $config = $this->grav['config'];
+
+        if ((bool) $config->get('security.twig_content.process_enabled', false) === false) {
+            throw new TwigContentForbiddenException(TwigContentForbiddenException::REASON_DISABLED);
+        }
+
+        $editorEnabled = (bool) $config->get('security.twig_content.editor_enabled', false);
+        if ($editorEnabled) {
+            return;
+        }
+
+        if ($this->isSuperAdmin($user) || $this->hasPermission($user, 'admin.pages_twig')) {
+            return;
+        }
+
+        // Distinguish between "you can't edit this twig page" and "you can't
+        // enable twig" so the UI can render the right toast.
+        $reason = $existingTwig
+            ? TwigContentForbiddenException::REASON_PAGE_FORBIDDEN
+            : TwigContentForbiddenException::REASON_FORBIDDEN;
+        throw new TwigContentForbiddenException($reason);
     }
 }
