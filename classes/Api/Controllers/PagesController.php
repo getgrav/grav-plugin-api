@@ -1470,6 +1470,18 @@ class PagesController extends AbstractApiController
                 }
             }
 
+            // Whether this op actually causes a path rename on disk. Position-
+            // unchanged + parent-unchanged ops are no-ops at the filesystem
+            // level — clients (e.g. the tree-view drag handler) emit them
+            // when renumbering all siblings of a drop target, even for
+            // siblings whose position didn't actually shift. Tracking these
+            // as "moved" below would falsely flag conflicts when one of those
+            // no-op siblings happens to be the source parent of another op.
+            $currentOrder = (int) $page->order();
+            $parentChanged = $newParentRoute !== $currentParentRoute;
+            $positionChanged = $position !== null && $position !== $currentOrder;
+            $actuallyMoves = $parentChanged || $positionChanged;
+
             $resolved[] = [
                 'route' => $route,
                 'page' => $page,
@@ -1483,6 +1495,7 @@ class PagesController extends AbstractApiController
                 'newParentRoute' => $newParentRoute,
                 'newParentPath' => $newParentPath,
                 'position' => $position,
+                'actuallyMoves' => $actuallyMoves,
             ];
         }
 
@@ -1492,9 +1505,15 @@ class PagesController extends AbstractApiController
         // captured newParentPath no longer exists on disk. Asking the
         // client to drop these ops produces a clear error instead of the
         // confusing "No such file or directory" surface.
+        //
+        // Only routes that actually rename on disk participate — a no-op
+        // renumber (position unchanged, parent unchanged) leaves the folder
+        // path intact, so it cannot invalidate a sibling op's newParentPath.
         $movedRoutes = [];
         foreach ($resolved as $op) {
-            $movedRoutes[$op['route']] = true;
+            if ($op['actuallyMoves']) {
+                $movedRoutes[$op['route']] = true;
+            }
         }
         foreach ($resolved as $index => $op) {
             $parentRoute = $op['newParentRoute'];
