@@ -38,16 +38,22 @@ class ApiResponse
         int $status = 200,
         array $headers = [],
         array $extraMeta = [],
+        ?int $locatedAtIndex = null,
     ): ResponseInterface {
         $totalPages = $perPage > 0 ? (int) ceil($total / $perPage) : 1;
 
+        $pagination = [
+            'page' => $page,
+            'per_page' => $perPage,
+            'total' => $total,
+            'total_pages' => $totalPages,
+        ];
+        if ($locatedAtIndex !== null) {
+            $pagination['located_at_index'] = $locatedAtIndex;
+        }
+
         $meta = [
-            'pagination' => [
-                'page' => $page,
-                'per_page' => $perPage,
-                'total' => $total,
-                'total_pages' => $totalPages,
-            ],
+            'pagination' => $pagination,
         ];
 
         if ($extraMeta !== []) {
