@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace Grav\Plugin\Api\Controllers;
 
 use Grav\Common\Filesystem\Folder;
-use Grav\Common\Page\Interfaces\PageInterface;
 use Grav\Plugin\Api\Exceptions\ForbiddenException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
+use Grav\Plugin\Api\Services\BlueprintPathResolver;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\UploadedFileInterface;
@@ -64,6 +64,13 @@ class BlueprintUploadController extends AbstractApiController
         'lock',                  // composer/npm lockfiles
     ];
 
+    private ?BlueprintPathResolver $resolver = null;
+
+    private function resolver(): BlueprintPathResolver
+    {
+        return $this->resolver ??= new BlueprintPathResolver($this->grav);
+    }
+
     public function upload(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'api.media.write');
@@ -75,9 +82,9 @@ class BlueprintUploadController extends AbstractApiController
         if ($destination === '') {
             throw new ValidationException('destination is required.');
         }
-        $this->assertSafeDestination($destination);
+        $this->resolver()->assertSafe($destination);
 
-        $targetDir = $this->resolveDestination($destination, $scope, $request);
+        $targetDir = $this->resolver()->resolve($destination, $scope, $this->getUser($request));
         $this->guardConfigBearingTarget($targetDir);
 
         $files = $this->flattenUploadedFiles($request->getUploadedFiles());
@@ -89,7 +96,7 @@ class BlueprintUploadController extends AbstractApiController
             Folder::create($targetDir);
         }
 
-        $isAccountsDir = $this->classifyTargetDir($targetDir) === 'accounts';
+        $isAccountsDir = $this->resolver()->classifyTargetDir($targetDir) === 'accounts';
 
         $saved = [];
         foreach ($files as $file) {
@@ -103,7 +110,7 @@ class BlueprintUploadController extends AbstractApiController
         // symlinked theme/plugin folders round-trip through a later delete
         // cleanly.
         $response = [];
-        $logicalParent = $this->logicalParent($destination, $scope);
+        $logicalParent = $this->resolver()->logicalParent($destination, $scope);
         foreach ($saved as $filename) {
             $absolute = $targetDir . '/' . $filename;
             $logical = $logicalParent !== null
@@ -123,77 +130,12 @@ class BlueprintUploadController extends AbstractApiController
     }
 
     /**
-     * Compute the Grav-root-relative directory path that a given destination
-     * logically lives at, independent of any symlink resolution.
-     *
-     * For `theme://images/logo` with the active theme being `quark2`, the
-     * logical parent is `themes/quark2/images/logo` — even if `user/themes/
-     * quark2` is a symlink to a dev checkout elsewhere on disk. This matches
-     * what a user would type if asked "where should this file live inside
-     * the Grav install?" and gives us a stable identifier for deletes.
-     *
-     * Returns null only when the destination can't be mapped to a logical
-     * location under `user/` (e.g. a foreign stream with no user-scoped
-     * equivalent); callers should fall back to the realpath form.
-     */
-    private function logicalParent(string $destination, string $scope): ?string
-    {
-        // self@:sub — resolve relative to scope owner
-        if (preg_match('/^(?:self@|@self)(?::(.*))?$/', $destination, $m)) {
-            $sub = ltrim($m[1] ?? '', '/');
-            [$type, $name] = array_pad(explode('/', $scope, 2), 2, '');
-            $parent = match ($type) {
-                'plugins' => $name ? "plugins/{$name}" : null,
-                'themes' => $name ? "themes/{$name}" : null,
-                'users' => 'accounts',
-                'pages' => $name ? "pages/{$name}" : null,
-                default => null,
-            };
-            if ($parent === null) return null;
-            return $sub === '' ? $parent : $parent . '/' . $sub;
-        }
-
-        // Known Grav streams that map 1:1 to user/ subdirs.
-        $streamMap = [
-            'user://' => '',
-            'theme://' => $this->activeThemeDir(),
-            'themes://' => 'themes',
-            'plugins://' => 'plugins',
-            'account://' => 'accounts',
-            'image://' => 'images',
-            'asset://' => 'assets',
-            'page://' => 'pages',
-        ];
-        foreach ($streamMap as $prefix => $replace) {
-            if ($replace !== null && str_starts_with($destination, $prefix)) {
-                $rest = substr($destination, strlen($prefix));
-                $rest = ltrim($rest, '/');
-                $parts = array_filter([$replace, $rest], static fn($p) => $p !== '' && $p !== null);
-                return implode('/', $parts);
-            }
-        }
-
-        // Plain relative path — treated as user-rooted already.
-        if (!str_starts_with($destination, '/') && !str_contains($destination, '..')) {
-            return trim($destination, '/');
-        }
-
-        return null;
-    }
-
-    private function activeThemeDir(): ?string
-    {
-        $theme = (string)($this->config->get('system.pages.theme') ?? '');
-        return $theme === '' ? null : 'themes/' . $theme;
-    }
-
-    /**
      * Last-resort relative path: strip user-root prefix when we can, otherwise
      * surface the absolute path so at least the server knows what it wrote.
      */
     private function fallbackRelative(string $absolute): string
     {
-        $userRoot = $this->userRoot();
+        $userRoot = $this->resolver()->userRoot();
         if ($userRoot !== null && str_starts_with($absolute, $userRoot . '/')) {
             return 'user/' . substr($absolute, strlen($userRoot) + 1);
         }
@@ -220,7 +162,7 @@ class BlueprintUploadController extends AbstractApiController
         // Symmetric to the upload path: deletes targeting `user/accounts/` may
         // only act on image files (avatars). Without this gate, a holder of
         // `api.media.write` could `unlink` arbitrary account YAMLs.
-        if ($this->classifyTargetDir($targetDir) === 'accounts') {
+        if ($this->resolver()->classifyTargetDir($targetDir) === 'accounts') {
             $extension = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
             if (!in_array($extension, self::ACCOUNTS_IMAGE_EXTENSIONS, true)) {
                 throw new ForbiddenException(
@@ -255,174 +197,6 @@ class BlueprintUploadController extends AbstractApiController
     }
 
     /**
-     * Reject traversal/null-byte destination strings before handing them to
-     * Grav's stream locator. The locator is still responsible for resolving
-     * streams and symlinks, but API input should never contain path-control
-     * segments.
-     */
-    private function assertSafeDestination(string $destination): void
-    {
-        if (str_contains($destination, "\0") || str_contains($destination, '\\')) {
-            throw new ValidationException('Invalid destination.');
-        }
-
-        $path = $destination;
-        if (preg_match('/^(?:self@|@self)(?::(.*))?$/', $destination, $m)) {
-            $path = $m[1] ?? '';
-        } elseif (preg_match('#^[A-Za-z][A-Za-z0-9+.-]*://(.*)$#', $destination, $m)) {
-            $path = $m[1] ?? '';
-        }
-
-        foreach (explode('/', trim($path, '/')) as $segment) {
-            if ($segment === '') {
-                continue;
-            }
-            if ($segment === '.' || $segment === '..') {
-                throw new ValidationException('Traversal not allowed in destination.');
-            }
-        }
-    }
-
-    /**
-     * Resolve a blueprint `destination` + `scope` to an absolute filesystem
-     * directory.
-     *
-     * Streams and `self@:` owner roots are trusted as-is — Grav's resource
-     * locator is the authority on what those paths point at, and enforcing a
-     * "must stay under user/" check against the resolved realpath breaks
-     * perfectly valid setups where plugins/themes live in development
-     * symlinks that land outside `user/`. Plain relative paths are still
-     * strictly gated: they resolve from the user root and are rejected if
-     * they try to escape via `..` or absolute prefixes.
-     */
-    private function resolveDestination(string $destination, string $scope, ServerRequestInterface $request): string
-    {
-        /** @var \RocketTheme\Toolbox\ResourceLocator\UniformResourceLocator $locator */
-        $locator = $this->grav['locator'];
-
-        // `self@:subpath` or `@self:subpath` — relative to the blueprint owner.
-        $selfMatch = preg_match('/^(?:self@|@self)(?::(.*))?$/', $destination, $m);
-        if ($selfMatch) {
-            $sub = $m[1] ?? '';
-            if (str_contains($sub, '..')) {
-                throw new ValidationException('Traversal not allowed in self@: subpath.');
-            }
-            $base = $this->resolveScopeRoot($scope, $request);
-            if ($base === null) {
-                throw new ValidationException(
-                    "Cannot resolve 'self@:' destination: scope '{$scope}' is not a supported owner."
-                );
-            }
-            return $sub === '' ? $base : $base . '/' . ltrim($sub, '/');
-        }
-
-        // Grav stream — user://, theme://, account://, etc. The locator
-        // decides where these point; trust its resolution.
-        if ($locator->isStream($destination)) {
-            $resolved = $locator->findResource($destination, true, true);
-            if ($resolved === false || !is_string($resolved)) {
-                throw new ValidationException("Destination stream not resolvable: '{$destination}'.");
-            }
-            return $resolved;
-        }
-
-        // Plain path — must be relative to user root and stay inside it.
-        if (str_starts_with($destination, '/') || str_contains($destination, '..')) {
-            throw new ValidationException('Absolute or traversal paths are not allowed in destination.');
-        }
-        $userRoot = $this->userRoot();
-        if ($userRoot === null) {
-            throw new ValidationException('User root is not available.');
-        }
-        return $this->assertInsideUserRoot($userRoot . '/' . $destination);
-    }
-
-    /**
-     * Map a scope (plugins/<slug>, themes/<slug>, pages/<route>, users/<username>)
-     * to its filesystem root. Returns null for scopes that don't have a
-     * natural `self@:` owner (e.g. `config/system`).
-     */
-    private function resolveScopeRoot(string $scope, ServerRequestInterface $request): ?string
-    {
-        if ($scope === '') return null;
-
-        $parts = explode('/', $scope, 2);
-        $type = $parts[0];
-        $name = $parts[1] ?? '';
-
-        /** @var \RocketTheme\Toolbox\ResourceLocator\UniformResourceLocator $locator */
-        $locator = $this->grav['locator'];
-
-        return match ($type) {
-            'plugins' => $this->resolveStreamOrNull($locator, 'plugins://', $name),
-            'themes' => $this->resolveStreamOrNull($locator, 'themes://', $name),
-            'pages' => $this->resolvePageScope($name),
-            'users' => $name !== '' ? $this->resolveUserScope($name, $request) : null,
-            default => null,
-        };
-    }
-
-    private function resolveStreamOrNull($locator, string $stream, string $name): ?string
-    {
-        if ($name === '') return null;
-        $resolved = $locator->findResource($stream . $name, true, true);
-        return is_string($resolved) ? $resolved : null;
-    }
-
-    private function resolvePageScope(string $route): ?string
-    {
-        if ($route === '') return null;
-
-        $pages = $this->grav['pages'];
-        if (method_exists($pages, 'enablePages')) {
-            $pages->enablePages();
-        }
-
-        /** @var PageInterface|null $page */
-        $page = $pages->find('/' . ltrim($route, '/'));
-        return $page?->path() ?: null;
-    }
-
-    /**
-     * Resolve `users/<username>` scope to the accounts directory.
-     *
-     * Avatars (the only legitimate use case for this scope) live next to the
-     * account YAML in `user/accounts/`, not in a per-user subfolder. Because
-     * this directory is the same one Grav reads as authoritative account
-     * configuration, the scope must be tightly gated:
-     *
-     *   - `<username>` must match the Grav username pattern (no path tricks)
-     *   - The caller must be editing their own account, OR hold
-     *     `api.users.write` (the user-management permission)
-     *
-     * Without this gate, any holder of `api.media.write` could target any
-     * other user's avatar slot — and combined with a directory-classification
-     * miss, that's the GHSA-6xx2-m8wv-756h primitive. Per-extension filtering
-     * happens later in `processUploadedFile()`; this method's job is to stop
-     * cross-user writes at the scope-resolution layer.
-     */
-    private function resolveUserScope(string $name, ServerRequestInterface $request): ?string
-    {
-        if (!preg_match('/^[A-Za-z0-9_.-]+$/', $name)) {
-            throw new ValidationException("Invalid users scope: '{$name}'.");
-        }
-
-        $caller = $this->getUser($request);
-        $isSelf = strcasecmp($caller->username, $name) === 0;
-        if (!$isSelf && !$this->isSuperAdmin($caller) && !$this->hasPermission($caller, 'api.users.write')) {
-            throw new ForbiddenException(
-                "The 'users/{$name}' scope requires editing your own account or holding the 'api.users.write' permission."
-            );
-        }
-
-        /** @var \RocketTheme\Toolbox\ResourceLocator\UniformResourceLocator $locator */
-        $locator = $this->grav['locator'];
-        $accounts = $locator->findResource('account://', true, true);
-        if (!$accounts) return null;
-        return is_string($accounts) ? $accounts : null;
-    }
-
-    /**
      * Resolve the `path` for a delete request.
      *
      * Clients send the same logical path we returned on upload (e.g.
@@ -449,42 +223,12 @@ class BlueprintUploadController extends AbstractApiController
             throw new ValidationException('Traversal or null bytes not allowed in path.');
         }
 
-        $userRoot = $this->userRoot();
+        $userRoot = $this->resolver()->userRoot();
         if ($userRoot === null) {
             throw new ValidationException('User root is not available.');
         }
 
         return $userRoot . '/' . $path;
-    }
-
-    private function assertInsideUserRoot(string $path): string
-    {
-        $userRoot = $this->userRoot();
-        if ($userRoot === null) {
-            throw new ValidationException('User root is not available.');
-        }
-        // If the path doesn't exist yet, validate the nearest existing parent.
-        $probe = $path;
-        while ($probe !== '' && !file_exists($probe)) {
-            $parent = dirname($probe);
-            if ($parent === $probe) break;
-            $probe = $parent;
-        }
-        $real = realpath($probe !== '' ? $probe : $userRoot);
-        if ($real === false || (!str_starts_with($real, $userRoot . '/') && $real !== $userRoot)) {
-            throw new ValidationException('Destination escapes the user directory.');
-        }
-        return rtrim($path, '/');
-    }
-
-    private function userRoot(): ?string
-    {
-        /** @var \RocketTheme\Toolbox\ResourceLocator\UniformResourceLocator $locator */
-        $locator = $this->grav['locator'];
-        $root = $locator->findResource('user://', true, true);
-        if ($root === false || !is_string($root)) return null;
-        $real = realpath($root);
-        return $real === false ? null : $real;
     }
 
     private function buildPublicUrl(string $relative): ?string
@@ -580,58 +324,13 @@ class BlueprintUploadController extends AbstractApiController
      */
     private function guardConfigBearingTarget(string $absoluteDir, ?string $filename = null): void
     {
-        $classification = $this->classifyTargetDir($absoluteDir);
+        $classification = $this->resolver()->classifyTargetDir($absoluteDir);
         if ($classification === 'config' || $classification === 'env') {
             $where = $filename !== null ? "'{$filename}' under" : 'into';
             throw new ForbiddenException(
                 "Uploads {$where} the '{$classification}' directory are not allowed via this endpoint."
             );
         }
-    }
-
-    /**
-     * Classify a resolved absolute directory against the config-bearing
-     * directories under `user/`. Returns `'accounts'`, `'config'`, `'env'`,
-     * or null for "anything else".
-     *
-     * Uses `realpath` of the nearest existing parent so the classification
-     * survives symlinks (common in dev setups where `user/themes/<x>` points
-     * elsewhere on disk) without requiring the target to already exist.
-     */
-    private function classifyTargetDir(string $absoluteDir): ?string
-    {
-        $userRoot = $this->userRoot();
-        if ($userRoot === null) return null;
-
-        $probe = $absoluteDir;
-        while ($probe !== '' && !file_exists($probe)) {
-            $parent = dirname($probe);
-            if ($parent === $probe) break;
-            $probe = $parent;
-        }
-        $real = realpath($probe !== '' ? $probe : $absoluteDir);
-        if ($real === false) {
-            $real = $absoluteDir;
-        }
-
-        $normalizedTarget = rtrim(str_replace('\\', '/', $absoluteDir), '/');
-        $map = [
-            'accounts' => $userRoot . '/accounts',
-            'config'   => $userRoot . '/config',
-            'env'      => $userRoot . '/env',
-        ];
-        foreach ($map as $label => $forbidden) {
-            $normalizedForbidden = rtrim(str_replace('\\', '/', $forbidden), '/');
-            if (
-                $real === $forbidden
-                || str_starts_with($real, $forbidden . '/')
-                || $normalizedTarget === $normalizedForbidden
-                || str_starts_with($normalizedTarget, $normalizedForbidden . '/')
-            ) {
-                return $label;
-            }
-        }
-        return null;
     }
 
     /**

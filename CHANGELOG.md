@@ -1,7 +1,8 @@
 # v1.0.0-rc.10
-## 05/22/2026
+## 05/23/2026
 
 1. [](#new)
+    * New `GET /blueprint-files` endpoint browses any Grav stream (`user://media`, `theme://images`, `account://`, …), `self@:` scope token, or relative path under `user/`, so file-picker blueprint fields can list arbitrary folders the way admin-classic always could.
     * New `?locate=/some/route` parameter on `GET /pages` returns the page-of-results that contains a given route in one round trip, so the admin can jump straight to a deep child of a long folder without walking the listing.
 2. [](#bugfix)
     * Listing a folder with more than 100 children no longer silently drops the rest — the per-request cap default is now 1000 (raise it further via `plugins.api.pagination.max_per_page` if you need to). Fixes [getgrav/grav#4096](https://github.com/getgrav/grav/issues/4096).

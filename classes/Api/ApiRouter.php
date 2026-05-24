@@ -12,6 +12,7 @@ use Grav\Common\Processors\ProcessorBase;
 use Grav\Framework\Psr7\Response;
 use Grav\Plugin\Api\Controllers\AuthController;
 use Grav\Plugin\Api\Controllers\BlueprintController;
+use Grav\Plugin\Api\Controllers\BlueprintFilesController;
 use Grav\Plugin\Api\Controllers\BlueprintUploadController;
 use Grav\Plugin\Api\Controllers\ConfigController;
 use Grav\Plugin\Api\Controllers\DashboardController;
@@ -293,6 +294,10 @@ class ApiRouter extends ProcessorBase
         // custom file fields that specify `destination:` in their blueprint).
         $r->addRoute('POST', '/blueprint-upload', [BlueprintUploadController::class, 'upload']);
         $r->addRoute('DELETE', '/blueprint-upload', [BlueprintUploadController::class, 'delete']);
+
+        // Read-only browse for blueprint `folder:` fields (filepicker, mediapicker, …)
+        // — any Grav stream, `self@:` token, or relative path under user/.
+        $r->addRoute('GET', '/blueprint-files', [BlueprintFilesController::class, 'list']);
 
         // Site-level media
         $r->addRoute('GET', '/media', [MediaController::class, 'siteMedia']);
