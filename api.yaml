@@ -50,7 +50,7 @@ flex_backend:
 
 pagination:
   default_per_page: 20
-  max_per_page: 100
+  max_per_page: 1000
 
 popularity:
   enabled: true

@@ -150,6 +150,7 @@ class PagesController extends AbstractApiController
         }
 
         $total = count($items);
+        $locatedAt = $this->applyLocate($items, $pagination, $query['locate'] ?? null);
         $slice = array_slice($items, $pagination['offset'], $pagination['limit']);
 
         $includeTranslations = filter_var(
@@ -173,6 +174,7 @@ class PagesController extends AbstractApiController
             page: $pagination['page'],
             perPage: $pagination['per_page'],
             baseUrl: $this->getApiBaseUrl() . '/pages',
+            locatedAtIndex: $locatedAt,
         );
     }
 
@@ -203,6 +205,7 @@ class PagesController extends AbstractApiController
         $allPages = $this->sortPages($allPages, $sortField, $sortOrder);
 
         $total = count($allPages);
+        $locatedAt = $this->applyLocate($allPages, $pagination, $request->getQueryParams()['locate'] ?? null);
         $slice = array_slice($allPages, $pagination['offset'], $pagination['limit']);
 
         $includeTranslations = filter_var(
@@ -226,6 +229,7 @@ class PagesController extends AbstractApiController
             page: $pagination['page'],
             perPage: $pagination['per_page'],
             baseUrl: $this->getApiBaseUrl() . '/pages',
+            locatedAtIndex: $locatedAt,
         );
     }
 
@@ -1855,6 +1859,7 @@ class PagesController extends AbstractApiController
         }
 
         $total = count($items);
+        $locatedAt = $this->applyLocate($items, $pagination, $request->getQueryParams()['locate'] ?? null);
         $slice = array_slice($items, $pagination['offset'], $pagination['limit']);
 
         $includeTranslations = filter_var(
@@ -1876,7 +1881,39 @@ class PagesController extends AbstractApiController
             page: $pagination['page'],
             perPage: $pagination['per_page'],
             baseUrl: $this->getApiBaseUrl() . '/pages',
+            locatedAtIndex: $locatedAt,
         );
+    }
+
+    /**
+     * If `$locateRoute` is set, find that page's index in the (already-sorted)
+     * $items list and rewrite $pagination to point at the chunk containing it.
+     * Returns the absolute index of the located page, or null if not found /
+     * not requested. Locate takes precedence over any explicit `page` param —
+     * the contract is "give me the chunk holding this route".
+     *
+     * @param list<PageInterface> $items
+     * @param array{page:int,per_page:int,offset:int,limit:int} $pagination
+     */
+    private function applyLocate(array $items, array &$pagination, ?string $locateRoute): ?int
+    {
+        if ($locateRoute === null || $locateRoute === '') {
+            return null;
+        }
+        $needle = '/' . trim($locateRoute, '/');
+        foreach ($items as $idx => $page) {
+            if (!$page instanceof PageInterface) {
+                continue;
+            }
+            if ($page->route() === $needle || $page->rawRoute() === $needle) {
+                $perPage = $pagination['per_page'];
+                $newPage = $perPage > 0 ? ((int) floor($idx / $perPage)) + 1 : 1;
+                $pagination['page'] = $newPage;
+                $pagination['offset'] = ($newPage - 1) * $perPage;
+                return $idx;
+            }
+        }
+        return null;
     }
 
     /**

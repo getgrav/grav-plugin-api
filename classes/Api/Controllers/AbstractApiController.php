@@ -120,7 +120,7 @@ abstract class AbstractApiController
     {
         $query = $request->getQueryParams();
         $defaultPerPage = $this->config->get('plugins.api.pagination.default_per_page', 20);
-        $maxPerPage = $this->config->get('plugins.api.pagination.max_per_page', 100);
+        $maxPerPage = $this->config->get('plugins.api.pagination.max_per_page', 1000);
 
         $page = max(1, (int) ($query['page'] ?? 1));
         $perPage = min($maxPerPage, max(1, (int) ($query['per_page'] ?? $defaultPerPage)));
