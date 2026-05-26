@@ -1,3 +1,9 @@
+# v1.0.0-rc.11
+## 05/26/2026
+
+1. [](#bugfix)
+    * **Hebrew and Arabic admin language responses are correctly marked right-to-left again**, restoring the RTL admin shell that broke after the BCP-47 language code switch.
+
 # v1.0.0-rc.10
 ## 05/26/2026
 
