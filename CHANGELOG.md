@@ -1,5 +1,5 @@
 # v1.0.0-rc.10
-## 05/23/2026
+## 05/26/2026
 
 1. [](#new)
     * New `GET /blueprint-files` endpoint browses any Grav stream (`user://media`, `theme://images`, `account://`, …), `self@:` scope token, or relative path under `user/`, so file-picker blueprint fields can list arbitrary folders the way admin-classic always could.
