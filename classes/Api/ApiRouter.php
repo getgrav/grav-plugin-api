@@ -194,6 +194,17 @@ class ApiRouter extends ProcessorBase
         $route = $request->getAttribute('route');
         $gravPath = $route ? $route->getRoute() : $request->getUri()->getPath();
 
+        // Grav's Uri::init strips trailing extensions that match a registered
+        // page type (e.g. .md, .txt, .html) before the route is built. Without
+        // this re-attach, `DELETE /api/v1/media/notes.txt` would arrive as
+        // `/media/notes` and 404.
+        if ($route) {
+            $extension = (string)$route->getExtension();
+            if ($extension !== '' && !str_ends_with($gravPath, '.' . $extension)) {
+                $gravPath .= '.' . $extension;
+            }
+        }
+
         // On subpath installs (e.g. /sync-testing/grav-c) the PSR-7 URI
         // path includes Grav's base; strip it so substr below cleanly peels
         // off `$basePath` to leave just the route path.
@@ -229,6 +240,16 @@ class ApiRouter extends ProcessorBase
         [$controllerClass, $method] = $handler;
 
         $controller = new $controllerClass($this->container, $this->config);
+
+        // Grav builds route paths from parse_url() which does not decode
+        // percent-escaped octets, so captured params still contain raw %xx
+        // sequences (e.g. "imäge1.png" arrives as "im%C3%A4ge1.png").
+        // Decode once here so every controller sees real filenames.
+        $vars = array_map(
+            static fn($v) => is_string($v) ? rawurldecode($v) : $v,
+            $vars
+        );
+
         $request = $request->withAttribute('route_params', $vars);
 
         return $controller->$method($request);

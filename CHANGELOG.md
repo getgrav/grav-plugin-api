@@ -1,8 +1,10 @@
 # v1.0.0-rc.11
-## 05/26/2026
+## 05/27/2026
 
 1. [](#bugfix)
     * **Hebrew and Arabic admin language responses are correctly marked right-to-left again**, restoring the RTL admin shell that broke after the BCP-47 language code switch.
+    * **Media files and folders whose names contain non-ASCII characters (e.g. `imäge1.png`, `Földer1`) can be deleted again.** Captured route params arrived percent-encoded because Grav's URL parser does not decode them, so the controller looked for a file that didn't exist. Route params are now rawurldecoded once in the dispatcher. Fixes [getgrav/grav-plugin-api#3](https://github.com/getgrav/grav-plugin-api/issues/3).
+    * **Media files whose extension matches a configured page type (`.txt`, `.md`, `.html`, …) can be deleted again.** Grav's URL router strips known page-type extensions before any plugin sees the route, so `/media/notes.txt` arrived as `/media/notes` and 404'd. The dispatcher now re-attaches the stripped extension before matching, fixing every plugin route at once. Fixes [getgrav/grav-plugin-api#3](https://github.com/getgrav/grav-plugin-api/issues/3).
 
 # v1.0.0-rc.10
 ## 05/26/2026
