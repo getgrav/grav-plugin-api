@@ -486,7 +486,7 @@ class PagesController extends AbstractApiController
 
             if (array_key_exists('header', $body)) {
                 $existing = (array) $page->header();
-                $merged = array_replace_recursive($existing, $body['header']);
+                $merged = $this->mergePatch($existing, $body['header']);
                 // Strip null values — toggleable fields send null to signal removal
                 $merged = $this->stripNullValues($merged);
                 $page->header((object) $merged);

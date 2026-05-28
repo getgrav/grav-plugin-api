@@ -17,25 +17,43 @@ use RocketTheme\Toolbox\Event\Event;
  *
  * Widget format:
  *   [
- *     'id'       => 'ai-pro-chat',        // unique identifier
- *     'plugin'   => 'ai-pro',             // owning plugin slug
- *     'label'    => 'AI Assistant',        // tooltip / display name
- *     'icon'     => 'bot',                // Lucide icon name
- *     'priority' => 10,                    // sort order (higher = earlier)
+ *     'id'        => 'ai-pro-chat',         // unique identifier
+ *     'plugin'    => 'ai-pro',              // owning plugin slug
+ *     'label'     => 'AI Assistant',         // tooltip / display name
+ *     'icon'      => 'bot',                 // Lucide icon name
+ *     'priority'  => 10,                     // sort order (higher = earlier)
+ *     'authorize' => 'api.some.permission', // optional — string or array (any-of)
  *   ]
+ *
+ * `authorize` follows the same string-or-array semantics as the sidebar /
+ * menubar APIs. Widgets without `authorize` are visible to every authenticated
+ * user.
  */
 class FloatingWidgetController extends AbstractApiController
 {
     /**
-     * GET /floating-widgets — Collect floating widget registrations from plugins.
+     * GET /floating-widgets — Collect floating widget registrations from
+     * plugins, filtered by the current user's permissions.
      */
     public function items(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'api.access');
 
-        $event = new Event(['widgets' => [], 'user' => $this->getUser($request)]);
+        $user = $this->getUser($request);
+        $event = new Event(['widgets' => [], 'user' => $user]);
         $this->grav->fireEvent('onApiFloatingWidgets', $event);
 
-        return ApiResponse::create($event['widgets']);
+        $isSuperAdmin = $this->isSuperAdmin($user);
+        $filtered = [];
+        foreach ($event['widgets'] as $widget) {
+            if (!$this->userPassesAuthorize($user, $widget['authorize'] ?? null, $isSuperAdmin)) {
+                continue;
+            }
+            // Strip the authorize field — it's a server-side annotation, not client data
+            unset($widget['authorize']);
+            $filtered[] = $widget;
+        }
+
+        return ApiResponse::create($filtered);
     }
 }

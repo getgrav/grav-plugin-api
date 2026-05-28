@@ -18,27 +18,44 @@ use RocketTheme\Toolbox\Event\Event;
  *
  * Item format:
  *   [
- *     'id'      => 'warm-cache',          // unique identifier
- *     'plugin'  => 'warm-cache',          // owning plugin slug
- *     'label'   => 'Warm Cache',          // tooltip / display name
- *     'icon'    => 'fa-tachometer',       // FA icon class
- *     'action'  => 'warm',               // action key for POST
- *     'confirm' => 'Warm the cache?',     // optional confirmation prompt
+ *     'id'        => 'warm-cache',          // unique identifier
+ *     'plugin'    => 'warm-cache',          // owning plugin slug
+ *     'label'     => 'Warm Cache',          // tooltip / display name
+ *     'icon'      => 'fa-tachometer',       // FA icon class
+ *     'action'    => 'warm',                // action key for POST
+ *     'confirm'   => 'Warm the cache?',     // optional confirmation prompt
+ *     'authorize' => 'api.some.permission', // optional — string or array (any-of)
  *   ]
+ *
+ * `authorize` follows the same string-or-array semantics as the sidebar API.
+ * Items without `authorize` are visible to every authenticated user.
  */
 class MenubarController extends AbstractApiController
 {
     /**
-     * GET /menubar/items — Collect menu items from plugins.
+     * GET /menubar/items — Collect menu items from plugins, filtered by the
+     * current user's permissions.
      */
     public function items(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'api.access');
 
-        $event = new Event(['items' => [], 'user' => $this->getUser($request)]);
+        $user = $this->getUser($request);
+        $event = new Event(['items' => [], 'user' => $user]);
         $this->grav->fireEvent('onApiMenubarItems', $event);
 
-        return ApiResponse::create($event['items']);
+        $isSuperAdmin = $this->isSuperAdmin($user);
+        $filtered = [];
+        foreach ($event['items'] as $item) {
+            if (!$this->userPassesAuthorize($user, $item['authorize'] ?? null, $isSuperAdmin)) {
+                continue;
+            }
+            // Strip the authorize field — it's a server-side annotation, not client data
+            unset($item['authorize']);
+            $filtered[] = $item;
+        }
+
+        return ApiResponse::create($filtered);
     }
 
     /**

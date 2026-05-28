@@ -94,12 +94,13 @@ class ConfigController extends AbstractApiController
         // leaf fields instead of deep-merging them, which is what we want for
         // e.g. `type: file` fields whose keys are file paths: when the user
         // removes a file the client drops that key, and a blind deep-merge
-        // would revive it from $existing. Fall back to array_replace_recursive
-        // only when no blueprint is available (rare — mostly test fixtures).
+        // would revive it from $existing. Fall back to our list-aware
+        // mergePatch only when no blueprint is available (rare — mostly test
+        // fixtures); plain array_replace_recursive would corrupt YAML lists.
         if ($blueprint !== null && is_array($existing)) {
             $merged = $blueprint->mergeData($existing, $body);
         } else {
-            $merged = is_array($existing) ? array_replace_recursive($existing, $body) : $body;
+            $merged = is_array($existing) ? $this->mergePatch($existing, $body) : $body;
         }
 
         $obj = new Data($merged, $blueprint);

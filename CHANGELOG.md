@@ -1,10 +1,13 @@
 # v1.0.0-rc.11
 ## 05/27/2026
 
-1. [](#bugfix)
+1. [](#improved)
+    * **Sidebar `authorize` now accepts an array of permissions** (any-of semantics, matching admin-classic's `nav-quick-tray.html.twig` pattern), and the **menubar and floating-widget APIs gained the same `authorize` filtering**. Plugins that register sidebar / menubar / widget items can now hide them from users who lack the relevant permission without needing to check inside their own event handler. Used across grav-plugin-git-sync, grav-plugin-license-manager, grav-plugin-algolia-pro, grav-plugin-cloudflare, grav-plugin-comments-pro, grav-plugin-image-optimize, grav-plugin-rsync, grav-plugin-seo-magic, grav-plugin-translation-service, grav-plugin-warm-cache, grav-plugin-ai-pro, and grav-plugin-ai-translate to fix [getgrav/grav-plugin-admin2#23](https://github.com/getgrav/grav-plugin-admin2/issues/23).
+2. [](#bugfix)
     * **Hebrew and Arabic admin language responses are correctly marked right-to-left again**, restoring the RTL admin shell that broke after the BCP-47 language code switch.
     * **Media files and folders whose names contain non-ASCII characters (e.g. `imäge1.png`, `Földer1`) can be deleted again.** Captured route params arrived percent-encoded because Grav's URL parser does not decode them, so the controller looked for a file that didn't exist. Route params are now rawurldecoded once in the dispatcher. Fixes [getgrav/grav-plugin-api#3](https://github.com/getgrav/grav-plugin-api/issues/3).
     * **Media files whose extension matches a configured page type (`.txt`, `.md`, `.html`, …) can be deleted again.** Grav's URL router strips known page-type extensions before any plugin sees the route, so `/media/notes.txt` arrived as `/media/notes` and 404'd. The dispatcher now re-attaches the stripped extension before matching, fixing every plugin route at once. Fixes [getgrav/grav-plugin-api#3](https://github.com/getgrav/grav-plugin-api/issues/3).
+    * **Saving a page or configuration with YAML list values no longer grows the file with quoted `'0'`, `'1'`, `'2'` keys mixed in alongside the original entries.** Reported via [getgrav/grav-theme-quark2#8](https://github.com/getgrav/grav-theme-quark2/issues/8).
 
 # v1.0.0-rc.10
 ## 05/26/2026
