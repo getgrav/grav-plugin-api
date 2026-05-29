@@ -44,7 +44,7 @@ class AccountsConfigController extends AbstractApiController
             throw new ValidationException('Request body must contain configuration values to update.');
         }
 
-        $merged = array_replace_recursive($current, $body);
+        $merged = $this->mergePatch($current, $body);
         $this->writeConfig($merged);
 
         $this->fireEvent('onApiConfigUpdated', ['scope' => 'flex/accounts', 'data' => $merged]);

@@ -578,7 +578,7 @@ class SystemController extends AbstractApiController
 
         return ApiResponse::create([
             'lang' => $lang,
-            'dir' => LanguageCodes::getOrientation($lang),
+            'dir' => LanguageCodes::getOrientation(self::primarySubtag($lang)),
             'count' => count($translations),
             'checksum' => $checksum,
             'strings' => $translations,
@@ -607,7 +607,7 @@ class SystemController extends AbstractApiController
                     'code' => $code,
                     'name' => LanguageCodes::getName($code) ?: $code,
                     'native_name' => LanguageCodes::getNativeName($code) ?: $code,
-                    'rtl' => LanguageCodes::isRtl($code),
+                    'rtl' => LanguageCodes::isRtl(self::primarySubtag($code)),
                 ];
             }
         }
@@ -713,6 +713,17 @@ class SystemController extends AbstractApiController
      * wire is coerced here before disk lookup. Anything not in the alias map
      * (or already in canonical region/script casing) passes through.
      */
+    /**
+     * Primary language subtag of a BCP 47 code. `he-IL` → `he`, `zh-Hans` →
+     * `zh`. Grav core's `LanguageCodes` table is keyed by short codes only,
+     * so any lookup against it has to go through here when the input might
+     * be region/script-qualified.
+     */
+    private static function primarySubtag(string $code): string
+    {
+        return strtolower(explode('-', $code, 2)[0]);
+    }
+
     private static function normalizeLangCode(string $code): string
     {
         static $aliases = [

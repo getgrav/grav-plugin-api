@@ -85,6 +85,39 @@ abstract class AbstractApiController
         return (bool) $this->getPermissionResolver()->resolve($user, $permission);
     }
 
+    /**
+     * Check whether a user satisfies an `authorize` requirement attached to a
+     * sidebar / menubar / widget item. Mirrors admin-classic's pattern:
+     *
+     *   - `null` (no requirement) → always allowed.
+     *   - string → user must have that permission.
+     *   - array  → user must have at least ONE of the listed permissions.
+     *
+     * Super-admins pass regardless of the requirement.
+     */
+    protected function userPassesAuthorize(UserInterface $user, mixed $authorize, bool $isSuperAdmin): bool
+    {
+        if ($authorize === null) {
+            return true;
+        }
+        if ($isSuperAdmin) {
+            return true;
+        }
+        if (is_string($authorize)) {
+            return $this->hasPermission($user, $authorize);
+        }
+        if (is_array($authorize)) {
+            foreach ($authorize as $perm) {
+                if (is_string($perm) && $this->hasPermission($user, $perm)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        // Unknown shape — fail closed.
+        return false;
+    }
+
     private ?PermissionResolver $permissionResolver = null;
 
     protected function getPermissionResolver(): PermissionResolver
@@ -102,6 +135,34 @@ abstract class AbstractApiController
             $body = $request->getParsedBody();
         }
         return is_array($body) ? $body : [];
+    }
+
+    /**
+     * List-aware recursive merge of an incoming patch into existing data.
+     *
+     * Unlike array_replace_recursive, this never merges into list-shaped
+     * nodes: if either side at a given key is a sequential list, the
+     * incoming value replaces the existing one wholesale. Prevents the
+     * "'0','1','2' keys alongside named entries" YAML corruption that
+     * array_replace_recursive produces when a YAML list on disk is sent
+     * back as a name-keyed map (or vice versa).
+     */
+    protected function mergePatch(array $existing, array $incoming): array
+    {
+        foreach ($incoming as $key => $value) {
+            if (
+                is_array($value)
+                && isset($existing[$key])
+                && is_array($existing[$key])
+                && !array_is_list($value)
+                && !array_is_list($existing[$key])
+            ) {
+                $existing[$key] = $this->mergePatch($existing[$key], $value);
+            } else {
+                $existing[$key] = $value;
+            }
+        }
+        return $existing;
     }
 
     /**

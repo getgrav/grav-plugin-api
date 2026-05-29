@@ -23,8 +23,13 @@ use RocketTheme\Toolbox\Event\Event;
  *     'route'     => '/plugin/license-manager', // admin-next route
  *     'priority'  => 0,                      // sort order (higher = earlier)
  *     'badge'     => null,                   // optional badge text/count
- *     'authorize' => 'api.some.permission',  // optional — filter by user permission
+ *     'authorize' => 'api.some.permission',  // optional — single permission, or array for any-of
  *   ]
+ *
+ * `authorize` accepts either a string or an array of permissions. An array is
+ * treated as an any-of test, matching admin-classic's nav-quick-tray template.
+ * Items without `authorize` are shown to every authenticated user (anyone past
+ * the api.access gate).
  */
 class SidebarController extends AbstractApiController
 {
@@ -43,8 +48,7 @@ class SidebarController extends AbstractApiController
         $isSuperAdmin = $this->isSuperAdmin($user);
         $filtered = [];
         foreach ($event['items'] as $item) {
-            $authorize = $item['authorize'] ?? null;
-            if ($authorize !== null && !$isSuperAdmin && !$this->hasPermission($user, $authorize)) {
+            if (!$this->userPassesAuthorize($user, $item['authorize'] ?? null, $isSuperAdmin)) {
                 continue;
             }
             // Strip the authorize field — it's a server-side annotation, not client data
