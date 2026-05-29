@@ -1,5 +1,5 @@
 # v1.0.0-rc.11
-## 05/27/2026
+## 05/29/2026
 
 1. [](#improved)
     * **Sidebar `authorize` now accepts an array of permissions** (any-of semantics, matching admin-classic's `nav-quick-tray.html.twig` pattern), and the **menubar and floating-widget APIs gained the same `authorize` filtering**. Plugins that register sidebar / menubar / widget items can now hide them from users who lack the relevant permission without needing to check inside their own event handler. Used across grav-plugin-git-sync, grav-plugin-license-manager, grav-plugin-algolia-pro, grav-plugin-cloudflare, grav-plugin-comments-pro, grav-plugin-image-optimize, grav-plugin-rsync, grav-plugin-seo-magic, grav-plugin-translation-service, grav-plugin-warm-cache, grav-plugin-ai-pro, and grav-plugin-ai-translate to fix [getgrav/grav-plugin-admin2#23](https://github.com/getgrav/grav-plugin-admin2/issues/23).
@@ -267,7 +267,7 @@
 # v1.0.0-beta.2
 ## 04/15/2026
 
-1. [improved] 
+1. [improved]
     * Default `enabled` to `true` since the plugin is not installed by default and admin2 requires it
 
 # v1.0.0-beta.1
@@ -275,4 +275,3 @@
 
 1. [new]
     * Initial beta release
-
