@@ -1,3 +1,11 @@
+# v1.0.0-rc.12
+## 05/29/2026
+
+1. [](#new)
+    * **Invite a user by email** instead of creating the account yourself: pre-set their permissions and groups, send a time-limited invite link, and they choose their own username, name and password when they accept (they can never grant themselves more access than you set).
+2. [](#improved)
+    * **Usernames containing periods (e.g. `john.doe`) are now accepted and listed correctly**, matching the characters admin classic has always allowed.
+
 # v1.0.0-rc.11
 ## 05/29/2026
 

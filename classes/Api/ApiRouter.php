@@ -33,6 +33,7 @@ use Grav\Plugin\Api\Controllers\ContextPanelController;
 use Grav\Plugin\Api\Controllers\SystemController;
 use Grav\Plugin\Api\Controllers\UsersController;
 use Grav\Plugin\Api\Controllers\GroupsController;
+use Grav\Plugin\Api\Controllers\InvitationsController;
 use Grav\Plugin\Api\Controllers\AccountsConfigController;
 use Grav\Plugin\Api\Controllers\WebhookController;
 use Grav\Plugin\Api\Exceptions\ApiException;
@@ -278,6 +279,10 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('POST', '/auth/revoke', [AuthController::class, 'revoke']);
         $r->addRoute('POST', '/auth/forgot-password', [AuthController::class, 'forgotPassword']);
         $r->addRoute('POST', '/auth/reset-password', [AuthController::class, 'resetPassword']);
+        // Invitation acceptance (public — under /auth/ so it inherits the
+        // public-route prefix; the token is the only credential needed).
+        $r->addRoute('GET',  '/auth/invite/{token}', [InvitationsController::class, 'validate']);
+        $r->addRoute('POST', '/auth/invite/{token}', [InvitationsController::class, 'accept']);
         $r->addRoute('GET',  '/auth/setup', [SetupController::class, 'status']);
         $r->addRoute('POST', '/auth/setup', [SetupController::class, 'create']);
         $r->addRoute('GET',  '/auth/password-policy', [PasswordPolicyController::class, 'show']);
@@ -363,6 +368,13 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('GET',    '/groups/{name}',  [GroupsController::class, 'show']);
         $r->addRoute('PATCH',  '/groups/{name}',  [GroupsController::class, 'update']);
         $r->addRoute('DELETE', '/groups/{name}',  [GroupsController::class, 'delete']);
+
+        // Invitations (admin). Top-level path (not /users/...) so it never
+        // collides with the GET /users/{username} catch-all.
+        $r->addRoute('GET',    '/invitations',                 [InvitationsController::class, 'index']);
+        $r->addRoute('POST',   '/invitations',                 [InvitationsController::class, 'create']);
+        $r->addRoute('DELETE', '/invitations/{token}',         [InvitationsController::class, 'delete']);
+        $r->addRoute('POST',   '/invitations/{token}/resend',  [InvitationsController::class, 'resend']);
 
         // Custom fields discovery (all plugins/themes)
         $r->addRoute('GET', '/custom-fields', [GpmController::class, 'allCustomFields']);

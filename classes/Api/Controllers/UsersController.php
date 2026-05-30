@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Grav\Plugin\Api\Controllers;
 
 use Grav\Common\User\Authentication;
+use Grav\Common\User\DataUser\User as DataUser;
 use Grav\Common\User\Interfaces\UserCollectionInterface;
 use Grav\Common\User\Interfaces\UserInterface;
 use Grav\Framework\Flex\FlexDirectory;
@@ -75,14 +76,22 @@ class UsersController extends AbstractApiController
 
         // Grav's Flex FileStorage indexes every file in user/accounts/ without
         // filtering by extension — any stray file left there by another plugin
-        // (e.g. revisions-pro's .rev snapshots) surfaces as a phantom user.
-        // Constrain to keys that look like actual usernames before the
-        // collection is built so downstream search/sort/pagination operate
-        // on real accounts only.
+        // (e.g. revisions-pro's `name.yaml.<timestamp>.rev` snapshots) surfaces
+        // as a phantom user. Constrain to keys that look like actual usernames
+        // before the collection is built so downstream search/sort/pagination
+        // operate on real accounts only.
+        //
+        // Usernames may legitimately contain periods (DataUser::isValidUsername
+        // allows them, and so does POST /users), so we can't simply reject dots
+        // — that hid accounts like `bill.bailey`. Instead accept anything that
+        // is a valid username but drop keys that embed a stored-file extension
+        // (`.yaml`/`.json`), which is the tell-tale of a revision/backup stray.
         $index = $directory->getIndex();
         $validKeys = array_values(array_filter(
             $index->getKeys(),
-            static fn($k) => is_string($k) && preg_match('/^[a-z0-9_-]+$/i', $k) === 1,
+            static fn($k) => is_string($k)
+                && DataUser::isValidUsername($k)
+                && !preg_match('/\.(ya?ml|json)(\.|$)/i', $k),
         ));
         $collection = $directory->getCollection($validKeys);
 
@@ -177,11 +186,17 @@ class UsersController extends AbstractApiController
 
         $username = $body['username'];
 
-        // Validate username format
-        if (!preg_match('/^[a-z0-9_-]{3,64}$/i', $username)) {
+        // Validate username format. Delegate the character rules to the core
+        // helper (Grav\Common\User\DataUser\User::isValidUsername) so the API
+        // accepts exactly what admin-classic does: letters, numbers, periods,
+        // hyphens and underscores, while still blocking path traversal,
+        // leading dots and filesystem-dangerous characters. Keep a 3-64 length
+        // bound for a friendlier message and to match the admin-next UI hint.
+        $length = mb_strlen((string) $username);
+        if ($length < 3 || $length > 64 || !DataUser::isValidUsername((string) $username)) {
             throw new ValidationException(
                 'Invalid username format.',
-                [['field' => 'username', 'message' => 'Username must be 3-64 characters and contain only letters, numbers, hyphens, and underscores.']],
+                [['field' => 'username', 'message' => 'Username must be 3-64 characters and contain only letters, numbers, periods, hyphens, and underscores (and cannot start with a period).']],
             );
         }
 

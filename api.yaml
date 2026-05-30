@@ -52,6 +52,10 @@ pagination:
   default_per_page: 20
   max_per_page: 1000
 
+invitations:
+  # Default lifetime of a user invite link, in seconds (default 7 days).
+  expiration: 604800
+
 popularity:
   enabled: true
   history:
