@@ -7,6 +7,7 @@ namespace Grav\Plugin\Api\Controllers;
 use Grav\Common\Data\Blueprints;
 use Grav\Common\Data\Data;
 use Grav\Common\Yaml;
+use Grav\Plugin\Api\Exceptions\ForbiddenException;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
@@ -17,6 +18,22 @@ use Psr\Http\Message\ServerRequestInterface;
 
 class ConfigController extends AbstractApiController
 {
+    /**
+     * Tool-managed scopes that carry execution- or security-sensitive sinks and
+     * must never be reachable through the generic api.config.read/write
+     * permissions a non-super "configuration admin" can hold.
+     *
+     * `scheduler` is the critical case: scheduler.custom_jobs[].command is fed
+     * straight into a Symfony Process by Job::run(), so write access to this
+     * scope is arbitrary command execution. The Scheduler tool is super-only in
+     * admin-classic, and these scopes are already excluded from index() listing
+     * because they "belong to tools" — but resolveConfigKey()/scopeFileName()
+     * still accept them, so without this guard a user holding only
+     * api.config.write could escalate to RCE (GHSA-wx62). Require API super
+     * authority for these scopes regardless of the generic config permission.
+     */
+    private const PRIVILEGED_SCOPES = ['scheduler', 'backups'];
+
     /**
      * GET /config - List available configuration sections.
      */
@@ -52,6 +69,7 @@ class ConfigController extends AbstractApiController
         $this->requirePermission($request, 'api.config.read');
 
         $scope = $this->getRouteParam($request, 'scope');
+        $this->assertScopeAllowed($request, $scope);
         $configKey = $this->resolveConfigKey($scope);
 
         if ($this->config->get($configKey) === null) {
@@ -66,6 +84,7 @@ class ConfigController extends AbstractApiController
         $this->requirePermission($request, 'api.config.write');
 
         $scope = $this->getRouteParam($request, 'scope');
+        $this->assertScopeAllowed($request, $scope);
         $configKey = $this->resolveConfigKey($scope);
         $existing = $this->config->get($configKey);
 
@@ -226,6 +245,20 @@ class ConfigController extends AbstractApiController
         } catch (\Exception) {
             // If blueprint can't be loaded, save without filtering
             return null;
+        }
+    }
+
+    /**
+     * Reject access to execution- or security-sensitive, tool-managed scopes
+     * unless the caller is an API super user. See PRIVILEGED_SCOPES (GHSA-wx62).
+     */
+    private function assertScopeAllowed(ServerRequestInterface $request, ?string $scope): void
+    {
+        if ($scope !== null && in_array($scope, self::PRIVILEGED_SCOPES, true)
+            && !$this->isSuperAdmin($this->getUser($request))) {
+            throw new ForbiddenException(
+                "Configuration scope '{$scope}' is tool-managed and restricted to API super users."
+            );
         }
     }
 
