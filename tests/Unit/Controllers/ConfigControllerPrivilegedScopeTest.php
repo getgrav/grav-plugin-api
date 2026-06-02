@@ -54,8 +54,41 @@ class ConfigControllerPrivilegedScopeTest extends TestCase
     #[Test]
     public function ordinary_scope_is_unaffected_for_non_super(): void
     {
-        // A non-super configuration admin can still manage e.g. system config.
+        // The tool-managed gate (read+write) leaves ordinary scopes alone: a
+        // non-super configuration admin can still READ/list system config.
         $this->guard($this->nonSuper(), 'system');
+        $this->addToAssertionCount(1);
+    }
+
+    // -- SUPER_WRITE_SCOPES: system/security stay readable but are super-only to
+    //    write (GHSA-9wg2-prc3-vx89) --------------------------------------------
+
+    #[Test]
+    public function non_super_is_blocked_from_writing_system_scope(): void
+    {
+        $this->expectException(ForbiddenException::class);
+        $this->guardWrite($this->nonSuper(), 'system');
+    }
+
+    #[Test]
+    public function non_super_is_blocked_from_writing_security_scope(): void
+    {
+        $this->expectException(ForbiddenException::class);
+        $this->guardWrite($this->nonSuper(), 'security');
+    }
+
+    #[Test]
+    public function super_may_write_system_scope(): void
+    {
+        $this->guardWrite($this->super(), 'system');
+        $this->addToAssertionCount(1); // no exception == pass
+    }
+
+    #[Test]
+    public function non_super_may_still_read_security_scope(): void
+    {
+        // Write is gated, but the read/list gate must stay open for security.
+        $this->guard($this->nonSuper(), 'security');
         $this->addToAssertionCount(1);
     }
 
@@ -84,6 +117,20 @@ class ConfigControllerPrivilegedScopeTest extends TestCase
         );
 
         $ref = new \ReflectionMethod($controller, 'assertScopeAllowed');
+        $ref->invoke($controller, $request, $scope);
+    }
+
+    private function guardWrite(UserInterface $user, string $scope): void
+    {
+        Grav::resetInstance();
+        $controller = new ConfigController(Grav::instance(), new Config());
+        $request = TestHelper::createMockRequest(
+            'PATCH',
+            "/config/{$scope}",
+            attributes: ['api_user' => $user],
+        );
+
+        $ref = new \ReflectionMethod($controller, 'assertScopeWritable');
         $ref->invoke($controller, $request, $scope);
     }
 }
