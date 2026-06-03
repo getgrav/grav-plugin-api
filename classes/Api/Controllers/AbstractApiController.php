@@ -294,11 +294,16 @@ abstract class AbstractApiController
     /**
      * Create a response with ETag header, optionally paired with invalidation tags.
      *
+     * By default the ETag is hashed from the response body. Pass an explicit
+     * $etag when the body and the validator must diverge — e.g. config saves
+     * return the full merged config as the body but key the ETag off the
+     * persisted delta so it survives the save→reload round-trip.
+     *
      * @param array<int, string> $invalidates
      */
-    protected function respondWithEtag(mixed $data, int $status = 200, array $invalidates = []): ResponseInterface
+    protected function respondWithEtag(mixed $data, int $status = 200, array $invalidates = [], ?string $etag = null): ResponseInterface
     {
-        $etag = $this->generateEtag($data);
+        $etag ??= $this->generateEtag($data);
         $headers = ['ETag' => '"' . $etag . '"'];
         if ($invalidates !== []) {
             $headers['X-Invalidates'] = implode(', ', $invalidates);

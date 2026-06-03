@@ -201,10 +201,14 @@ class ConfigDiffer
     }
 
     /**
+     * Recursively sort associative arrays by key so the same logical config
+     * serializes (and therefore hashes) identically regardless of key order.
+     * Sequential arrays keep their order.
+     *
      * @param array<mixed> $arr
      * @return array<mixed>
      */
-    private static function canonicalize(array $arr): array
+    public static function canonicalize(array $arr): array
     {
         if (self::isAssoc($arr)) {
             ksort($arr);

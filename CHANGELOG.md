@@ -5,6 +5,8 @@
     * **Invite a user by email** instead of creating the account yourself: pre-set their permissions and groups, send a time-limited invite link, and they choose their own username, name and password when they accept (they can never grant themselves more access than you set).
 2. [](#improved)
     * **Usernames containing periods (e.g. `john.doe`) are now accepted and listed correctly**, matching the characters admin classic has always allowed.
+3. [](#bugfix)
+    * **Saving a configuration twice in a row no longer fails with a "Configuration was modified elsewhere" error** when you toggle an option whose neighbour is left at its default value. Fixes [getgrav/grav-plugin-admin2#28](https://github.com/getgrav/grav-plugin-admin2/issues/28).
 
 # v1.0.0-rc.11
 ## 05/29/2026
