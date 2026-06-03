@@ -1,5 +1,5 @@
 # v1.0.0-rc.12
-## 05/29/2026
+## 06/03/2026
 
 1. [](#new)
     * **Invite a user by email** instead of creating the account yourself: pre-set their permissions and groups, send a time-limited invite link, and they choose their own username, name and password when they accept (they can never grant themselves more access than you set).
