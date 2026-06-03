@@ -14,11 +14,11 @@ bugs: https://github.com/getgrav/grav-plugin-api/issues
 docs: https://learn.getgrav.org/api
 license: MIT
 compatibility:
-  grav: ['2.0']
+  grav: ["2.0"]
 
 dependencies:
-  - { name: grav, version: '>=2.0.0-rc.2' }
-  - { name: login, version: '>=3.8.3' }
+  - { name: grav, version: ">=2.0.0-rc.6" }
+  - { name: login, version: ">=3.8.3" }
 
 form:
   validation: loose
@@ -131,7 +131,7 @@ form:
       label: Allowed Origins
       help: List of allowed origins. Use * for all origins.
       default:
-        - '*'
+        - "*"
       value_only: true
 
     cors.methods:
