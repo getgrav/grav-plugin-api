@@ -7,6 +7,7 @@ namespace Grav\Plugin\Api\Controllers;
 use Grav\Common\Data\Blueprints;
 use Grav\Common\Data\Data;
 use Grav\Common\Yaml;
+use Grav\Plugin\Api\Exceptions\ForbiddenException;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
@@ -17,6 +18,36 @@ use Psr\Http\Message\ServerRequestInterface;
 
 class ConfigController extends AbstractApiController
 {
+    /**
+     * Tool-managed scopes that carry execution- or security-sensitive sinks and
+     * must never be reachable through the generic api.config.read/write
+     * permissions a non-super "configuration admin" can hold.
+     *
+     * `scheduler` is the critical case: scheduler.custom_jobs[].command is fed
+     * straight into a Symfony Process by Job::run(), so write access to this
+     * scope is arbitrary command execution. The Scheduler tool is super-only in
+     * admin-classic, and these scopes are already excluded from index() listing
+     * because they "belong to tools" — but resolveConfigKey()/scopeFileName()
+     * still accept them, so without this guard a user holding only
+     * api.config.write could escalate to RCE (GHSA-wx62). Require API super
+     * authority for these scopes regardless of the generic config permission.
+     */
+    private const PRIVILEGED_SCOPES = ['scheduler', 'backups'];
+
+    /**
+     * Security-sensitive scopes that any config reader may VIEW but only an API
+     * super user may WRITE. Unlike PRIVILEGED_SCOPES (tool-managed, fully
+     * hidden from index() and blocked for read+write), these stay listed and
+     * readable (a non-super "configuration admin" can still inspect them), but
+     * must not persist changes, because they steer site-wide execution and
+     * security behavior: `system` carries `twig.safe_functions` (PHP functions
+     * callable from trusted templates) and `security` owns the Twig content
+     * sandbox and XSS/CSP settings. The inheritable `admin.configuration`
+     * permission would otherwise let a non-super admin weaken these
+     * (GHSA-9wg2-prc3-vx89). Write-only gate; reads are intentionally left open.
+     */
+    private const SUPER_WRITE_SCOPES = ['system', 'security'];
+
     /**
      * GET /config - List available configuration sections.
      */
@@ -52,13 +83,20 @@ class ConfigController extends AbstractApiController
         $this->requirePermission($request, 'api.config.read');
 
         $scope = $this->getRouteParam($request, 'scope');
+        $this->assertScopeAllowed($request, $scope);
         $configKey = $this->resolveConfigKey($scope);
 
         if ($this->config->get($configKey) === null) {
             throw new NotFoundException("Configuration scope '{$scope}' not found.");
         }
 
-        return $this->respondWithEtag($this->configEtagData($configKey));
+        // Body is the full merged config; the ETag keys off the persisted delta
+        // for the same write target a subsequent PATCH would resolve, so the
+        // client's stored ETag still validates on the next save.
+        $targetEnv = $this->resolveTargetEnv($request);
+        $etag = $this->generateEtag($this->configEtagBasis($scope, $targetEnv));
+
+        return $this->respondWithEtag($this->configEtagData($configKey), 200, [], $etag);
     }
 
     public function update(ServerRequestInterface $request): ResponseInterface
@@ -66,6 +104,8 @@ class ConfigController extends AbstractApiController
         $this->requirePermission($request, 'api.config.write');
 
         $scope = $this->getRouteParam($request, 'scope');
+        $this->assertScopeAllowed($request, $scope);
+        $this->assertScopeWritable($request, $scope);
         $configKey = $this->resolveConfigKey($scope);
         $existing = $this->config->get($configKey);
 
@@ -76,8 +116,9 @@ class ConfigController extends AbstractApiController
         // Write target: X-Config-Environment selects an existing env folder; empty = base.
         $targetEnv = $this->resolveTargetEnv($request);
 
-        // ETag validation — hash the same shape show() returned so If-Match matches.
-        $this->validateEtag($request, $this->generateEtag($this->configEtagData($configKey)));
+        // ETag validation — key off the persisted delta, the same basis show()
+        // and the previous save's response used, so If-Match matches.
+        $this->validateEtag($request, $this->generateEtag($this->configEtagBasis($scope, $targetEnv)));
 
         $body = $this->getRequestBody($request);
 
@@ -146,20 +187,49 @@ class ConfigController extends AbstractApiController
             $tags[] = 'plugins:list';
         }
 
-        // Response hashes the same shape show() would return on the next GET,
-        // so the client's stored ETag stays valid for subsequent saves.
-        return $this->respondWithEtag($this->configEtagData($configKey), 200, $tags);
+        // Response body is the full merged config; the ETag keys off the
+        // persisted delta, so the client's stored ETag stays valid for the
+        // next save even though default-equal values aren't written to disk.
+        $etag = $this->generateEtag($this->configEtagBasis($scope, $targetEnv));
+        return $this->respondWithEtag($this->configEtagData($configKey), 200, $tags, $etag);
     }
 
     /**
-     * Canonical representation used for both the response body and ETag hashing.
-     * Reading via config->get() after save reflects any blueprint defaults or
-     * type coercion Grav applies on the next request, keeping hashes stable.
+     * Full merged config for a scope — the response body for show()/update().
+     * The admin form needs every value to render, so this stays the complete
+     * config->get() snapshot. ETag stability is handled separately by
+     * configEtagBasis(); see why the two must diverge there.
      */
     private function configEtagData(string $configKey): array
     {
         $data = $this->config->get($configKey);
         return is_array($data) ? $data : ['value' => $data];
+    }
+
+    /**
+     * Representation the ETag is hashed from: the *persisted delta* (values
+     * that override the parent), NOT the full merged config.
+     *
+     * The delta is the only representation that survives the save→reload round-trip.
+     * writeConfigFile() stores only the delta, so a value equal to its default
+     * (e.g. `system.pages.events.twig: true`) is present in the in-memory
+     * config right after config->set() but absent once the file is reloaded
+     * from disk on the next request. Hashing the full config therefore yielded
+     * a different ETag on the following save and broke If-Match with a 409
+     * (getgrav/grav-plugin-admin2#28). The delta is invariant because it is
+     * defined relative to the parent: a default-equal value is stripped on
+     * both sides of the round-trip. Canonicalized so key order can't shift the
+     * hash either.
+     */
+    private function configEtagBasis(string $scope, ?string $targetEnv): array
+    {
+        $current = $this->config->get($this->resolveConfigKey($scope));
+        $current = is_array($current) ? $current : ['value' => $current];
+
+        $differ = new ConfigDiffer($this->grav);
+        $delta = $differ->diff($current, $differ->parent($scope, $targetEnv));
+
+        return ConfigDiffer::canonicalize($delta);
     }
 
     /**
@@ -226,6 +296,35 @@ class ConfigController extends AbstractApiController
         } catch (\Exception) {
             // If blueprint can't be loaded, save without filtering
             return null;
+        }
+    }
+
+    /**
+     * Reject access to execution- or security-sensitive, tool-managed scopes
+     * unless the caller is an API super user. See PRIVILEGED_SCOPES (GHSA-wx62).
+     */
+    private function assertScopeAllowed(ServerRequestInterface $request, ?string $scope): void
+    {
+        if ($scope !== null && in_array($scope, self::PRIVILEGED_SCOPES, true)
+            && !$this->isSuperAdmin($this->getUser($request))) {
+            throw new ForbiddenException(
+                "Configuration scope '{$scope}' is tool-managed and restricted to API super users."
+            );
+        }
+    }
+
+    /**
+     * Reject WRITES to security-sensitive scopes unless the caller is an API
+     * super user. Reads/listing remain open. See SUPER_WRITE_SCOPES
+     * (GHSA-9wg2-prc3-vx89).
+     */
+    private function assertScopeWritable(ServerRequestInterface $request, ?string $scope): void
+    {
+        if ($scope !== null && in_array($scope, self::SUPER_WRITE_SCOPES, true)
+            && !$this->isSuperAdmin($this->getUser($request))) {
+            throw new ForbiddenException(
+                "Configuration scope '{$scope}' can only be modified by an API super user."
+            );
         }
     }
 

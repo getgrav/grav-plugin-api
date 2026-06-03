@@ -1,0 +1,43 @@
+{% extends 'email/base.html.twig' %}
+
+{%- set subject = 'You\'ve been invited to ' ~ site_name %}
+
+{%- do email.message.setSubject(subject) %}
+
+{%- block content -%}
+<h1>You're invited</h1>
+<p>
+	Hi,
+</p>
+<p>
+	{{ actor ?: site_name }} has invited you to join <b>{{ site_name }}</b>.
+</p>
+{%- if message %}
+<p style="white-space: pre-line;">{{ message }}</p>
+{%- endif %}
+<p>
+	Click the button below to set up your account and choose your password:
+</p>
+<p>
+	<br />
+	<a href="{{ invite_link }}" class="btn-primary">Accept invitation</a>
+	<br />
+	<br />
+</p>
+<p>
+	Or copy and paste this link into your browser's address bar:
+</p>
+<p class="word-break" style="word-break: break-all;">
+	<a href="{{ invite_link }}">{{ invite_link }}</a>
+</p>
+<p>
+	This invitation will expire soon, so please accept it promptly.
+</p>
+<p>
+	If you weren't expecting this invitation you can safely ignore this email.
+</p>
+<p>
+	<br />
+	— {{ author ?: site_name }}
+</p>
+{%- endblock content -%}
