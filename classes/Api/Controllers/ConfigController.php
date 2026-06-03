@@ -35,6 +35,20 @@ class ConfigController extends AbstractApiController
     private const PRIVILEGED_SCOPES = ['scheduler', 'backups'];
 
     /**
+     * Security-sensitive scopes that any config reader may VIEW but only an API
+     * super user may WRITE. Unlike PRIVILEGED_SCOPES (tool-managed, fully
+     * hidden from index() and blocked for read+write), these stay listed and
+     * readable (a non-super "configuration admin" can still inspect them), but
+     * must not persist changes, because they steer site-wide execution and
+     * security behavior: `system` carries `twig.safe_functions` (PHP functions
+     * callable from trusted templates) and `security` owns the Twig content
+     * sandbox and XSS/CSP settings. The inheritable `admin.configuration`
+     * permission would otherwise let a non-super admin weaken these
+     * (GHSA-9wg2-prc3-vx89). Write-only gate; reads are intentionally left open.
+     */
+    private const SUPER_WRITE_SCOPES = ['system', 'security'];
+
+    /**
      * GET /config - List available configuration sections.
      */
     public function index(ServerRequestInterface $request): ResponseInterface
@@ -91,6 +105,7 @@ class ConfigController extends AbstractApiController
 
         $scope = $this->getRouteParam($request, 'scope');
         $this->assertScopeAllowed($request, $scope);
+        $this->assertScopeWritable($request, $scope);
         $configKey = $this->resolveConfigKey($scope);
         $existing = $this->config->get($configKey);
 
@@ -294,6 +309,21 @@ class ConfigController extends AbstractApiController
             && !$this->isSuperAdmin($this->getUser($request))) {
             throw new ForbiddenException(
                 "Configuration scope '{$scope}' is tool-managed and restricted to API super users."
+            );
+        }
+    }
+
+    /**
+     * Reject WRITES to security-sensitive scopes unless the caller is an API
+     * super user. Reads/listing remain open. See SUPER_WRITE_SCOPES
+     * (GHSA-9wg2-prc3-vx89).
+     */
+    private function assertScopeWritable(ServerRequestInterface $request, ?string $scope): void
+    {
+        if ($scope !== null && in_array($scope, self::SUPER_WRITE_SCOPES, true)
+            && !$this->isSuperAdmin($this->getUser($request))) {
+            throw new ForbiddenException(
+                "Configuration scope '{$scope}' can only be modified by an API super user."
             );
         }
     }
