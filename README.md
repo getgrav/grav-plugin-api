@@ -297,8 +297,9 @@ curl -X POST https://yoursite.com/api/v1/pages/blog/my-post/media \
 |--------|----------|-------------|
 | `GET` | `/config/{scope}` | Read configuration |
 | `PATCH` | `/config/{scope}` | Update configuration |
+| `POST` | `/config/{scope}/revert` | Revert overridden keys, or reset the whole scope |
 
-Scopes: `system`, `site`, `plugins/{name}`, `themes/{name}`
+Scopes: `system`, `site`, `plugins/{name}`, `themes/{name}`, plus any site-authored **custom scope** (see [Custom config scopes](#custom-config-scopes)).
 
 ```bash
 # Read site config
@@ -325,6 +326,48 @@ curl -X PATCH https://yoursite.com/api/v1/config/system \
 ```
 
 > `X-Config-Environment` is a **write-target** header (which env folder receives the change). It is distinct from `X-Grav-Environment` (which env to *load* for the request).
+
+**Override metadata.** Every `GET`/`PATCH` config response carries a `meta` block describing which leaf keys the active layer's file actually overrides, and the value each would revert to:
+
+```json
+{
+  "data": { "debugger": { "enabled": true } },
+  "meta": {
+    "overrides": ["debugger.enabled"],
+    "fallback": { "debugger.enabled": false }
+  }
+}
+```
+
+`overrides` is the set of dotted leaf paths the active file sets on top of the layer beneath it (the base `user/config` for an env overlay, or the raw on-disk defaults for the base layer). `fallback` maps each of those paths to the value it would return to. Admin2 uses this to draw the per-field revert indicators.
+
+**Reverting.** `POST /config/{scope}/revert` removes overrides so the value beneath takes over, honoring the same `If-Match` ETag and `X-Config-Environment` write-target as `PATCH`:
+
+```bash
+# Drop specific overridden keys from the staging overlay
+curl -X POST https://yoursite.com/api/v1/config/system/revert \
+  -H "X-API-Key: ..." \
+  -H "X-Config-Environment: staging.example.com" \
+  -H "Content-Type: application/json" \
+  -d '{"keys": ["debugger.enabled"]}'
+
+# Reset the whole scope — unlink the active layer's file entirely
+curl -X POST https://yoursite.com/api/v1/config/system/revert \
+  -H "X-API-Key: ..." \
+  -H "X-Config-Environment: staging.example.com" \
+  -H "Content-Type: application/json" \
+  -d '{"reset": true}'
+```
+
+A `{"keys": [...]}` payload drops just those paths; `{"reset": true}` removes the active layer's file outright. The response is the same shape as a read, reflecting the post-revert state.
+
+#### Custom config scopes
+
+Beyond the built-in scopes, a site can expose its own top-level config — the Grav cookbook ["add a custom yaml file"](https://learn.getgrav.org/cookbook/general-recipes#add-a-custom-yaml-file) recipe. Drop a blueprint at `user/blueprints/config/<scope>.yaml` (or under `environment://blueprints/config/`) paired with `user/config/<scope>.yaml`, and the generic config endpoints accept `<scope>` automatically — no plugin code required. Admin2 lists it as a config tab alongside System and Site.
+
+A scope qualifies as custom when it is a flat slug (`^[a-z0-9][a-z0-9_-]*$` — no slashes or dots, which also blocks path traversal), is not one of the built-in scopes, and has its blueprint under the `user://` or `environment://` stream. The user/environment requirement is deliberate: core ships its own blueprints under `blueprints://config` (e.g. `streams.yaml`) that must never become writable through the generic config permission.
+
+> **Gotcha — use bare field keys.** A custom config blueprint must name its fields with bare keys (`company_name`), exactly like the core blueprints (`site.yaml`, `system.yaml`). Do **not** prefix them with the scope name (`custom.company_name`): the form fields would render blank and saves would nest the data under a spurious `custom:` block instead of writing it flat. The scope is already the file; the field key is the path within it.
 
 ### Users
 
