@@ -9,6 +9,7 @@ use Grav\Common\Page\Pages;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
+use Grav\Plugin\Api\Services\ConfigScopes;
 use Grav\Plugin\Api\Services\DisabledPluginLangIndex;
 use Grav\Plugin\Api\Services\PreferencesResolver;
 use Psr\Http\Message\ResponseInterface;
@@ -602,10 +603,13 @@ class BlueprintController extends AbstractApiController
         $this->resolveBlueprintLanguages($request);
 
         $scope = $this->getRouteParam($request, 'scope');
-        $validScopes = ['system', 'site', 'media', 'security', 'scheduler', 'backups'];
 
-        if (!in_array($scope, $validScopes, true)) {
-            throw new NotFoundException("Config blueprint scope '{$scope}' not found. Valid: " . implode(', ', $validScopes));
+        // Core scopes ship system blueprints; custom scopes are site-authored
+        // top-level configs (the cookbook "add a custom yaml file" recipe). Any
+        // other scope — including core/system blueprints like `streams` — is
+        // rejected. See {@see ConfigScopes::isCustom()} for the security gate.
+        if (!in_array($scope, ConfigScopes::CORE, true) && !ConfigScopes::isCustom($this->grav, $scope)) {
+            throw new NotFoundException("Config blueprint scope '{$scope}' not found.");
         }
 
         // Use the blueprints:// stream to find config blueprints so that

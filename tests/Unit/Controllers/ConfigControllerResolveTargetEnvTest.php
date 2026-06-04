@@ -81,6 +81,24 @@ class ConfigControllerResolveTargetEnvTest extends TestCase
     }
 
     #[Test]
+    public function default_sentinel_header_is_explicit_base_write(): void
+    {
+        // admin-next sends the reserved `default` sentinel for its base
+        // ("Default") selection — non-empty so proxies/FPM can't strip it.
+        // It must resolve to a base write even when a Grav env is active.
+        mkdir($this->tmp . '/user/localhost/config', 0777, true);
+        $controller = $this->buildController(activeEnv: 'localhost');
+
+        $request = TestHelper::createMockRequest(
+            'PATCH',
+            '/config/system',
+            ['X-Config-Environment' => 'default'],
+        );
+
+        $this->assertNull($this->invokeResolveTargetEnv($controller, $request));
+    }
+
+    #[Test]
     public function explicit_header_value_wins_over_active_env(): void
     {
         mkdir($this->tmp . '/user/localhost/config', 0777, true);

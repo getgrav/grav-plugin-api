@@ -1,3 +1,12 @@
+# v1.0.0-rc.13
+## 06/03/2026
+
+1. [](#new)
+    * **Custom top-level configuration files now appear as their own tab in admin2**, alongside System, Site, Media and Security, so the long-standing "add a custom YAML file" cookbook recipe works again.
+2. [](#bugfix)
+    * **Saving configuration no longer fails with a "modified elsewhere" error on servers that compress responses with zstd**, matching the gzip and brotli handling already in place (follow-up to [getgrav/grav-plugin-admin2#28](https://github.com/getgrav/grav-plugin-admin2/issues/28)).
+    * **Configuration now reads from the correct source behind a reverse proxy that forwards a different hostname than the server booted under**, so the base "Default" view no longer shows another environment's overridden values.
+
 # v1.0.0-rc.12
 ## 06/03/2026
 

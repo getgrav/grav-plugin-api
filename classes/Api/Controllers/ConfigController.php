@@ -12,6 +12,7 @@ use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Grav\Plugin\Api\Services\ConfigDiffer;
+use Grav\Plugin\Api\Services\ConfigScopes;
 use Grav\Plugin\Api\Services\EnvironmentService;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -90,13 +91,15 @@ class ConfigController extends AbstractApiController
             throw new NotFoundException("Configuration scope '{$scope}' not found.");
         }
 
-        // Body is the full merged config; the ETag keys off the persisted delta
-        // for the same write target a subsequent PATCH would resolve, so the
-        // client's stored ETag still validates on the next save.
+        // Body is the full merged config resolved for the requested target, so
+        // base/"Default" shows base config rather than the active env overlay.
+        // The ETag keys off the persisted delta for the same write target a
+        // subsequent PATCH would resolve, so the client's stored ETag still
+        // validates on the next save.
         $targetEnv = $this->resolveTargetEnv($request);
         $etag = $this->generateEtag($this->configEtagBasis($scope, $targetEnv));
 
-        return $this->respondWithEtag($this->configEtagData($configKey), 200, [], $etag);
+        return $this->respondWithEtag($this->effectiveConfig($scope, $targetEnv), 200, [], $etag);
     }
 
     public function update(ServerRequestInterface $request): ResponseInterface
@@ -107,14 +110,18 @@ class ConfigController extends AbstractApiController
         $this->assertScopeAllowed($request, $scope);
         $this->assertScopeWritable($request, $scope);
         $configKey = $this->resolveConfigKey($scope);
-        $existing = $this->config->get($configKey);
 
-        if ($existing === null) {
+        if ($this->config->get($configKey) === null) {
             throw new NotFoundException("Configuration scope '{$scope}' not found.");
         }
 
-        // Write target: X-Config-Environment selects an existing env folder; empty = base.
+        // Write target: X-Config-Environment selects an existing env folder; empty/default = base.
         $targetEnv = $this->resolveTargetEnv($request);
+
+        // Edit against the baseline for THIS target, not the live (boot-env)
+        // config — otherwise a save under base/"Default" would diff the active
+        // env overlay against defaults and copy the overlay into user/config.
+        $existing = $this->effectiveConfig($scope, $targetEnv);
 
         // ETag validation — key off the persisted delta, the same basis show()
         // and the previous save's response used, so If-Match matches.
@@ -187,22 +194,49 @@ class ConfigController extends AbstractApiController
             $tags[] = 'plugins:list';
         }
 
-        // Response body is the full merged config; the ETag keys off the
+        // Response body is the full merged config for the target (re-resolved
+        // from disk so it matches a subsequent show()); the ETag keys off the
         // persisted delta, so the client's stored ETag stays valid for the
         // next save even though default-equal values aren't written to disk.
         $etag = $this->generateEtag($this->configEtagBasis($scope, $targetEnv));
-        return $this->respondWithEtag($this->configEtagData($configKey), 200, $tags, $etag);
+        return $this->respondWithEtag($this->effectiveConfig($scope, $targetEnv), 200, $tags, $etag);
     }
 
     /**
-     * Full merged config for a scope — the response body for show()/update().
-     * The admin form needs every value to render, so this stays the complete
-     * config->get() snapshot. ETag stability is handled separately by
-     * configEtagBasis(); see why the two must diverge there.
+     * Full merged config for a scope, resolved for the requested write target —
+     * the response body for show()/update() and the baseline a save edits.
+     *
+     * For the environment Grav actually booted under (including base on a site
+     * with no overlay) the live config->get() snapshot is authoritative: it
+     * carries blueprint defaults and runtime env-var overrides. For any OTHER
+     * target — most importantly base/"Default" while a hostname overlay is
+     * active — the live config can't be reused, because Grav resolved its
+     * environment once at boot and can't switch mid-request. There we recompute
+     * the merge from YAML files (ConfigDiffer::effective) so "Default" shows —
+     * and saves against — base config, not the env overlay.
+     *
+     * `EnvironmentService::activeEnvironment()` is the right yardstick: it
+     * returns the boot env name only when that env has a config dir on disk
+     * (otherwise null), which is exactly when the live config carries an
+     * overlay. Comparing it to $targetEnv tells us whether the live snapshot
+     * already represents the requested target.
      */
-    private function configEtagData(string $configKey): array
+    private function effectiveConfig(string $scope, ?string $targetEnv): array
     {
-        $data = $this->config->get($configKey);
+        // Always resolve from YAML files for the requested target. We must NOT
+        // shortcut to the live config->get() snapshot even when the target looks
+        // like the booted environment: behind a reverse proxy Grav loads its
+        // config overlay from the REAL connection host (e.g. `localhost` via
+        // SERVER_NAME) while $uri->environment() — and therefore
+        // activeEnvironment() — reflects the FORWARDED host (e.g.
+        // translations.rhuk.net). The two disagree, so the live snapshot can
+        // carry an env overlay that doesn't match the requested target. That
+        // made "Default" hand back (and risk persisting) the localhost overlay
+        // instead of base. ConfigDiffer::effective() is target-exact regardless
+        // of which host booted the request, and already re-applies GRAV_CONFIG__*
+        // env-var overrides; blueprint field defaults are filled client-side from
+        // the blueprint, so the form stays complete.
+        $data = (new ConfigDiffer($this->grav))->effective($scope, $targetEnv);
         return is_array($data) ? $data : ['value' => $data];
     }
 
@@ -223,8 +257,7 @@ class ConfigController extends AbstractApiController
      */
     private function configEtagBasis(string $scope, ?string $targetEnv): array
     {
-        $current = $this->config->get($this->resolveConfigKey($scope));
-        $current = is_array($current) ? $current : ['value' => $current];
+        $current = $this->effectiveConfig($scope, $targetEnv);
 
         $differ = new ConfigDiffer($this->grav);
         $delta = $differ->diff($current, $differ->parent($scope, $targetEnv));
@@ -281,9 +314,10 @@ class ConfigController extends AbstractApiController
     {
         try {
             $blueprintKey = match (true) {
-                in_array($scope, ['system', 'site', 'media', 'security', 'scheduler', 'backups']) => 'config/' . $scope,
+                in_array($scope, ConfigScopes::CORE) => 'config/' . $scope,
                 str_starts_with($scope, 'plugins/') => 'plugins/' . substr($scope, 8),
                 str_starts_with($scope, 'themes/') => 'themes/' . substr($scope, 7),
+                ConfigScopes::isCustom($this->grav, $scope) => 'config/' . $scope,
                 default => null,
             };
 
@@ -343,6 +377,9 @@ class ConfigController extends AbstractApiController
             $scope === 'backups' => 'backups',
             str_starts_with($scope, 'plugins/') => 'plugins.' . substr($scope, 8),
             str_starts_with($scope, 'themes/') => 'themes.' . substr($scope, 7),
+            // Site-authored top-level config (cookbook custom yaml): the scope
+            // name is its own config key (user/config/<scope>.yaml).
+            ConfigScopes::isCustom($this->grav, $scope) => $scope,
             default => throw new NotFoundException("Unknown configuration scope '{$scope}'."),
         };
     }
@@ -361,6 +398,9 @@ class ConfigController extends AbstractApiController
 
         $full = is_array($data) ? $data : ['value' => $data];
         $differ = new ConfigDiffer($this->grav);
+        // Never persist values supplied through GRAV_CONFIG__* env vars (.env);
+        // they're re-applied at runtime and writing them would leak secrets to disk.
+        $full = $differ->stripEnvironmentOverrides($full, $scope);
         $parent = $differ->parent($scope, $targetEnv);
         $delta = $differ->diff($full, $parent);
 
@@ -407,10 +447,14 @@ class ConfigController extends AbstractApiController
     /**
      * Where a write should land for this request.
      *
-     *   header present + non-empty → that env (validated, must exist on disk)
-     *   header present + empty     → explicit base write (opt out of auto-detection)
-     *   header absent              → Grav's currently-active env if it has a
-     *                                config dir on disk; otherwise base
+     *   header present + env name      → that env (validated, must exist on disk)
+     *   header present + `default`/base → explicit base write (the admin-next
+     *                                     sentinel; non-empty so proxies/FPM
+     *                                     can't strip it the way empty values
+     *                                     get dropped)
+     *   header present + empty          → explicit base write (legacy opt-out)
+     *   header absent                   → Grav's currently-active env if it has
+     *                                     a config dir on disk; otherwise base
      *
      * The auto-detect branch keeps writes consistent with reads: config is
      * loaded with `user/<active-env>/config` overlaid on `user/config`, so
@@ -425,7 +469,9 @@ class ConfigController extends AbstractApiController
         }
 
         $name = trim($request->getHeaderLine('X-Config-Environment'));
-        if ($name === '') return null;
+        if ($name === '' || EnvironmentService::isReservedName($name)) {
+            return null;
+        }
 
         if (!EnvironmentService::isValidName($name)) {
             throw new ValidationException("Invalid X-Config-Environment header: '{$name}'.");
@@ -439,9 +485,10 @@ class ConfigController extends AbstractApiController
     private function scopeFileName(string $scope): string
     {
         return match (true) {
-            in_array($scope, ['system', 'site', 'media', 'security', 'scheduler', 'backups'], true) => $scope . '.yaml',
+            in_array($scope, ConfigScopes::CORE, true) => $scope . '.yaml',
             str_starts_with($scope, 'plugins/') => 'plugins/' . substr($scope, 8) . '.yaml',
             str_starts_with($scope, 'themes/') => 'themes/' . substr($scope, 7) . '.yaml',
+            ConfigScopes::isCustom($this->grav, $scope) => $scope . '.yaml',
             default => throw new NotFoundException("Unknown configuration scope '{$scope}'."),
         };
     }

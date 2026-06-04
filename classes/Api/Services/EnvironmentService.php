@@ -21,6 +21,17 @@ class EnvironmentService
         'images', 'languages', 'media', 'pages', 'plugins', 'themes',
     ];
 
+    /**
+     * Names the admin uses as the "base / no overlay" sentinel. The admin-next
+     * environment switcher maps its base ("Default") selection to the env name
+     * `default` for X-Grav-Environment, relying on there being no
+     * user/env/default/ folder so Grav resolves config base-only (Setup empties
+     * the environment:// stream for a non-existent env dir). Allowing an env
+     * folder with one of these names would let an overlay silently shadow the
+     * base-only view, so we refuse to create them.
+     */
+    private const RESERVED_ENV_NAMES = ['default', 'base'];
+
     public function __construct(private Grav $grav)
     {
     }
@@ -120,6 +131,9 @@ class EnvironmentService
         if (!self::isValidName($name)) {
             throw new \InvalidArgumentException("Invalid environment name '{$name}'.");
         }
+        if (in_array(strtolower($name), self::RESERVED_ENV_NAMES, true)) {
+            throw new \InvalidArgumentException("Environment name '{$name}' is reserved for the base configuration.");
+        }
         if (in_array($name, $this->listEnvironments(), true)) {
             throw new \InvalidArgumentException("Environment '{$name}' already exists.");
         }
@@ -192,6 +206,16 @@ class EnvironmentService
     public static function isValidName(string $name): bool
     {
         return $name !== '' && (bool)preg_match('/^[a-z0-9][a-z0-9._-]*$/i', $name);
+    }
+
+    /**
+     * Whether a name is the admin's base/"no overlay" sentinel (`default` /
+     * `base`). Such names are refused as env folders, and the config write path
+     * treats them as a base (user/config) write target.
+     */
+    public static function isReservedName(string $name): bool
+    {
+        return in_array(strtolower($name), self::RESERVED_ENV_NAMES, true);
     }
 
     private static function rmrf(string $dir): void

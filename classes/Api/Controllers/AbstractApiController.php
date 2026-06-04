@@ -278,8 +278,11 @@ abstract class AbstractApiController
             $etag = substr($etag, 2);
         }
         $etag = trim($etag, '"');
-        // Strip known transport suffixes (mod_deflate: -gzip or ;gzip; nginx: -br).
-        $etag = preg_replace('/[-;](?:gzip|br|deflate)$/i', '', $etag) ?? $etag;
+        // Strip known transport suffixes a compressing front-end appends to the
+        // ETag and leaves in place when the client echoes it back in If-Match:
+        // mod_deflate `-gzip`/`;gzip`, mod_brotli `-br`, and mod_zstd `-zstd`
+        // (the last surfaced as a false 409 in getgrav/grav-plugin-admin2#28).
+        $etag = preg_replace('/[-;](?:gzip|br|deflate|zstd)$/i', '', $etag) ?? $etag;
         return $etag;
     }
 

@@ -92,6 +92,38 @@ class EnvironmentServiceTest extends TestCase
         $this->assertNull($svc->activeEnvironment());
     }
 
+    #[Test]
+    public function is_reserved_name_matches_base_sentinels_case_insensitively(): void
+    {
+        $this->assertTrue(EnvironmentService::isReservedName('default'));
+        $this->assertTrue(EnvironmentService::isReservedName('Default'));
+        $this->assertTrue(EnvironmentService::isReservedName('base'));
+        $this->assertFalse(EnvironmentService::isReservedName('localhost'));
+        $this->assertFalse(EnvironmentService::isReservedName('staging'));
+    }
+
+    #[Test]
+    public function create_environment_rejects_reserved_base_sentinel(): void
+    {
+        // `default` must never become an env folder, otherwise its overlay would
+        // shadow the admin's base-only ("Default") view.
+        $svc = $this->buildService(uri: null);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $svc->createEnvironment('default');
+    }
+
+    #[Test]
+    public function create_environment_creates_modern_env_dir(): void
+    {
+        $svc = $this->buildService(uri: null);
+
+        $dir = $svc->createEnvironment('staging');
+
+        $this->assertSame($this->tmp . '/user/env/staging/config', $dir);
+        $this->assertDirectoryExists($dir);
+    }
+
     private function buildService(mixed $uri): EnvironmentService
     {
         Grav::resetInstance();
