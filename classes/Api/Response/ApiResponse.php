@@ -12,11 +12,14 @@ class ApiResponse
     /**
      * Create a standard JSON response with the data envelope.
      */
-    public static function create(mixed $data, int $status = 200, array $headers = []): ResponseInterface
+    public static function create(mixed $data, int $status = 200, array $headers = [], ?array $meta = null): ResponseInterface
     {
         $body = [
             'data' => $data,
         ];
+        if ($meta !== null) {
+            $body['meta'] = $meta;
+        }
 
         $headers = array_merge($headers, [
             'Content-Type' => 'application/json',

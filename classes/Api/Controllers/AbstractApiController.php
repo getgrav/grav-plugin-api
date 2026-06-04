@@ -304,14 +304,14 @@ abstract class AbstractApiController
      *
      * @param array<int, string> $invalidates
      */
-    protected function respondWithEtag(mixed $data, int $status = 200, array $invalidates = [], ?string $etag = null): ResponseInterface
+    protected function respondWithEtag(mixed $data, int $status = 200, array $invalidates = [], ?string $etag = null, ?array $meta = null): ResponseInterface
     {
         $etag ??= $this->generateEtag($data);
         $headers = ['ETag' => '"' . $etag . '"'];
         if ($invalidates !== []) {
             $headers['X-Invalidates'] = implode(', ', $invalidates);
         }
-        return ApiResponse::create($data, $status, $headers);
+        return ApiResponse::create($data, $status, $headers, $meta);
     }
 
     /**

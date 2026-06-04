@@ -99,7 +99,118 @@ class ConfigController extends AbstractApiController
         $targetEnv = $this->resolveTargetEnv($request);
         $etag = $this->generateEtag($this->configEtagBasis($scope, $targetEnv));
 
-        return $this->respondWithEtag($this->effectiveConfig($scope, $targetEnv), 200, [], $etag);
+        // meta.overrides / meta.fallback drive the per-field override indicators
+        // and the revert affordance in admin2 (see docs/config-overrides-revert).
+        $meta = $this->overrideMeta($scope, $targetEnv);
+
+        return $this->respondWithEtag($this->effectiveConfig($scope, $targetEnv), 200, [], $etag, $meta);
+    }
+
+    /**
+     * POST /config/{scope}/revert — drop one or more overridden keys from the
+     * active layer's file (or reset the whole scope), letting the value beneath
+     * take over. Body: `{"keys": ["pages.theme", ...]}` or `{"reset": true}`.
+     *
+     * The active layer is the same write target show()/update() resolve from
+     * X-Config-Environment: base `user/config/<scope>.yaml`, or an environment's
+     * `user/env/<env>/config/<scope>.yaml`. Reverting a key there falls back to
+     * the layer beneath (base → core/plugin defaults; env → base).
+     */
+    public function revert(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.config.write');
+
+        $scope = $this->getRouteParam($request, 'scope');
+        $this->assertScopeAllowed($request, $scope);
+        $this->assertScopeWritable($request, $scope);
+        $configKey = $this->resolveConfigKey($scope);
+
+        if ($this->config->get($configKey) === null) {
+            throw new NotFoundException("Configuration scope '{$scope}' not found.");
+        }
+
+        $targetEnv = $this->resolveTargetEnv($request);
+
+        // Same ETag basis as show()/update(), so the client's stored If-Match validates.
+        $this->validateEtag($request, $this->generateEtag($this->configEtagBasis($scope, $targetEnv)));
+
+        $body = $this->getRequestBody($request);
+        $reset = !empty($body['reset']);
+        $keys = $body['keys'] ?? [];
+        if (!$reset && (!is_array($keys) || $keys === [])) {
+            throw new ValidationException('Provide a non-empty "keys" array or "reset": true.');
+        }
+
+        $filePath = $this->resolveConfigFile($scope, $targetEnv);
+
+        if ($reset) {
+            // Nuke the active layer's file entirely → falls back to the parent layer.
+            if ($filePath && is_file($filePath)) {
+                unlink($filePath);
+            }
+        } elseif ($filePath) {
+            // The file already IS the persisted delta — drop each requested key,
+            // prune empties, and rewrite, or remove the file if nothing remains.
+            $delta = is_file($filePath) ? Yaml::parse((string) file_get_contents($filePath)) : [];
+            if (!is_array($delta)) {
+                $delta = [];
+            }
+            $differ = new ConfigDiffer($this->grav);
+            foreach ($keys as $key) {
+                if (is_string($key) && $key !== '') {
+                    $delta = $differ->unsetDotPath($delta, $key);
+                }
+            }
+            if ($delta === []) {
+                if (is_file($filePath)) {
+                    unlink($filePath);
+                }
+            } else {
+                $dir = dirname($filePath);
+                if (!is_dir($dir)) {
+                    mkdir($dir, 0775, true);
+                }
+                file_put_contents($filePath, Yaml::dump($delta));
+            }
+        }
+
+        // Refresh in-memory config + clear cache so the next read is correct.
+        $effective = $this->effectiveConfig($scope, $targetEnv);
+        $this->config->set($configKey, $effective);
+        $this->grav['cache']->clearCache('standard');
+        $this->fireEvent('onApiConfigUpdated', ['scope' => $scope, 'data' => $effective]);
+
+        $tags = ['config:update:' . $scope];
+        if (str_starts_with($scope, 'plugins/')) {
+            $pluginName = substr($scope, 8);
+            $tags[] = 'plugins:update:' . $pluginName;
+            $tags[] = 'plugins:list';
+        }
+
+        $etag = $this->generateEtag($this->configEtagBasis($scope, $targetEnv));
+        $meta = $this->overrideMeta($scope, $targetEnv);
+        return $this->respondWithEtag($effective, 200, $tags, $etag, $meta);
+    }
+
+    /**
+     * Override metadata for the active layer: which dotted leaf paths the
+     * target's file actually overrides, and the value each would revert to.
+     *
+     * @return array{overrides: list<string>, fallback: array<string, mixed>}
+     */
+    private function overrideMeta(string $scope, ?string $targetEnv): array
+    {
+        $differ = new ConfigDiffer($this->grav);
+        $parent = $differ->parent($scope, $targetEnv);
+        $delta = $differ->diff($this->effectiveConfig($scope, $targetEnv), $parent);
+
+        $overrides = ConfigDiffer::flattenLeaves($delta);
+        $fallback = [];
+        foreach ($overrides as $path) {
+            $fallback[$path] = ConfigDiffer::valueAtPath($parent, $path);
+        }
+
+        return ['overrides' => $overrides, 'fallback' => $fallback];
     }
 
     public function update(ServerRequestInterface $request): ResponseInterface

@@ -283,12 +283,54 @@ class ConfigDiffer
     }
 
     /**
+     * Flatten a nested config delta to its dotted leaf paths. A "leaf" is a
+     * scalar, a sequential (list) array — treated atomically, matching diff() —
+     * or an empty array; only associative maps recurse. Used to map a persisted
+     * override delta onto blueprint field names for the override indicators.
+     *
+     * @param array<mixed> $data
+     * @return list<string>
+     */
+    public static function flattenLeaves(array $data, string $prefix = ''): array
+    {
+        $out = [];
+        foreach ($data as $key => $value) {
+            $path = $prefix === '' ? (string) $key : $prefix . '.' . $key;
+            if (is_array($value) && self::isAssoc($value)) {
+                $out = array_merge($out, self::flattenLeaves($value, $path));
+            } else {
+                $out[] = $path;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Dig a dotted path out of a nested array, or null if any segment is
+     * missing. Callers treat "absent in the parent" as "reverts to the
+     * blueprint default / unset".
+     *
+     * @param array<mixed> $data
+     */
+    public static function valueAtPath(array $data, string $path): mixed
+    {
+        $ref = $data;
+        foreach (explode('.', $path) as $part) {
+            if (!is_array($ref) || !array_key_exists($part, $ref)) {
+                return null;
+            }
+            $ref = $ref[$part];
+        }
+        return $ref;
+    }
+
+    /**
      * Unset a dotted path from a nested array, pruning parents left empty.
      *
      * @param array<mixed> $data
      * @return array<mixed>
      */
-    private function unsetDotPath(array $data, string $path): array
+    public function unsetDotPath(array $data, string $path): array
     {
         $parts = explode('.', $path);
         $key = array_shift($parts);

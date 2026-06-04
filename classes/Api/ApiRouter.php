@@ -344,6 +344,7 @@ class ApiRouter extends ProcessorBase
         // would be shadowed by an earlier-defined variable on the same path.
         $r->addRoute('GET',   '/config/accounts', [AccountsConfigController::class, 'show']);
         $r->addRoute('PATCH', '/config/accounts', [AccountsConfigController::class, 'update']);
+        $r->addRoute('POST', '/config/{scope:.+}/revert', [ConfigController::class, 'revert']);
         $r->addRoute('GET', '/config/{scope:.+}', [ConfigController::class, 'show']);
         $r->addRoute('PATCH', '/config/{scope:.+}', [ConfigController::class, 'update']);
 
