@@ -7,6 +7,7 @@
 2. [](#bugfix)
     * **Saving configuration no longer fails with a "modified elsewhere" error on servers that compress responses with zstd**, matching the gzip and brotli handling already in place (follow-up to [getgrav/grav-plugin-admin2#28](https://github.com/getgrav/grav-plugin-admin2/issues/28)).
     * **Configuration now reads from the correct source behind a reverse proxy that forwards a different hostname than the server booted under**, so the base "Default" view no longer shows another environment's overridden values.
+    * **Configuration saved without an explicit environment now lands in the environment the site is actually running, even behind a reverse proxy**, instead of silently writing to the base configuration.
 
 # v1.0.0-rc.12
 ## 06/03/2026

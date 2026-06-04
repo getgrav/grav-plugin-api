@@ -318,20 +318,13 @@ class ConfigController extends AbstractApiController
      * Full merged config for a scope, resolved for the requested write target —
      * the response body for show()/update() and the baseline a save edits.
      *
-     * For the environment Grav actually booted under (including base on a site
-     * with no overlay) the live config->get() snapshot is authoritative: it
-     * carries blueprint defaults and runtime env-var overrides. For any OTHER
-     * target — most importantly base/"Default" while a hostname overlay is
-     * active — the live config can't be reused, because Grav resolved its
-     * environment once at boot and can't switch mid-request. There we recompute
-     * the merge from YAML files (ConfigDiffer::effective) so "Default" shows —
-     * and saves against — base config, not the env overlay.
-     *
-     * `EnvironmentService::activeEnvironment()` is the right yardstick: it
-     * returns the boot env name only when that env has a config dir on disk
-     * (otherwise null), which is exactly when the live config carries an
-     * overlay. Comparing it to $targetEnv tells us whether the live snapshot
-     * already represents the requested target.
+     * The live config->get() snapshot only ever represents the ONE environment
+     * Grav booted under, and Grav resolves that once at boot and can't switch
+     * mid-request. Any request can target a different env via X-Config-Environment
+     * (most importantly base/"Default" while a hostname overlay is active), so we
+     * always recompute the merge from YAML files (ConfigDiffer::effective). That
+     * keeps "Default" showing — and saving against — base config, not the env
+     * overlay, and stays correct for any other named target too.
      */
     private function effectiveConfig(string $scope, ?string $targetEnv): array
     {
@@ -339,15 +332,13 @@ class ConfigController extends AbstractApiController
         // shortcut to the live config->get() snapshot even when the target looks
         // like the booted environment: behind a reverse proxy Grav loads its
         // config overlay from the REAL connection host (e.g. `localhost` via
-        // SERVER_NAME) while $uri->environment() — and therefore
-        // activeEnvironment() — reflects the FORWARDED host (e.g.
-        // translations.rhuk.net). The two disagree, so the live snapshot can
-        // carry an env overlay that doesn't match the requested target. That
-        // made "Default" hand back (and risk persisting) the localhost overlay
-        // instead of base. ConfigDiffer::effective() is target-exact regardless
-        // of which host booted the request, and already re-applies GRAV_CONFIG__*
-        // env-var overrides; blueprint field defaults are filled client-side from
-        // the blueprint, so the form stays complete.
+        // SERVER_NAME), which need not match the requested target. (Note
+        // EnvironmentService::activeEnvironment() now reports that booted host,
+        // not the forwarded one — but $targetEnv may still be any other env.)
+        // ConfigDiffer::effective() is target-exact regardless of which host
+        // booted the request, and already re-applies GRAV_CONFIG__* env-var
+        // overrides; blueprint field defaults are filled client-side from the
+        // blueprint, so the form stays complete.
         $data = (new ConfigDiffer($this->grav))->effective($scope, $targetEnv);
         return is_array($data) ? $data : ['value' => $data];
     }
