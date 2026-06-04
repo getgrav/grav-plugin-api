@@ -14,7 +14,7 @@ use Grav\Common\Grav;
  * by explicit arms in ConfigController / BlueprintController. Beyond those,
  * site authors can drop a top-level config in via the cookbook "add a custom
  * yaml file" recipe — a `user/blueprints/config/<scope>.yaml` paired with a
- * `user/config/<scope>.yaml`. Admin-classic surfaced those as config tabs
+ * `user/config/<scope>.yaml`. Admin-classic showed those as config tabs
  * automatically; admin2's API used to reject them because every downstream
  * handler hardcoded the 6-scope whitelist.
  *
