@@ -1,5 +1,5 @@
 # v1.0.0-rc.13
-## 06/03/2026
+## 06/04/2026
 
 1. [](#new)
     * **Custom top-level configuration files now appear as their own tab in admin2**, alongside System, Site, Media and Security, so the long-standing "add a custom YAML file" cookbook recipe works again.
