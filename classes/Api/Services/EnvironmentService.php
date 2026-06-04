@@ -94,10 +94,56 @@ class EnvironmentService
      * saves land where reads come from — otherwise an active env overlay can
      * silently shadow a write to base.
      *
+     * The env Grav actually booted its overlay under (`Setup::$environment`) is
+     * authoritative. Behind a reverse proxy that is the REAL connection host —
+     * e.g. `localhost` via `SERVER_NAME` — captured at boot, whereas
+     * `$uri->environment()` reflects the FORWARDED host (e.g.
+     * `translations.rhuk.net`) and so names an env whose overlay was never
+     * loaded. We therefore trust the booted env first: if it has a config dir
+     * that overlay is live, so return it; if it doesn't, no overlay is active
+     * and base is correct (return null) — we must NOT fall through to a
+     * forwarded-host env that isn't actually loaded. The Uri is consulted only
+     * when the booted env is unknown (non-standard bootstrap, or unit tests).
+     *
      * Returns null when no env is active, the env name is malformed, or the
-     * env has no config dir (in which case base writes are correct anyway).
+     * active env has no config dir (in which case base writes are correct).
      */
     public function activeEnvironment(): ?string
+    {
+        $booted = $this->bootedEnvironment();
+        if ($booted !== null) {
+            return $this->envConfigRoot($booted) !== null ? $booted : null;
+        }
+
+        $name = $this->uriEnvironment();
+        if ($name === null) {
+            return null;
+        }
+
+        return $this->envConfigRoot($name) !== null ? $name : null;
+    }
+
+    /**
+     * The environment Grav resolved at boot (`Setup::$environment`), normalized.
+     * This is the env whose config overlay is actually loaded for the request.
+     * Null when the static is unset/malformed or Grav core isn't available.
+     */
+    private function bootedEnvironment(): ?string
+    {
+        if (!class_exists(\Grav\Common\Config\Setup::class)) {
+            return null;
+        }
+
+        $name = \Grav\Common\Config\Setup::$environment;
+        return is_string($name) && $name !== '' && self::isValidName($name) ? $name : null;
+    }
+
+    /**
+     * The environment derived from the Grav Uri service (the request host, with
+     * forwarded-host handling applied). Defensive fallback only — see
+     * {@see activeEnvironment()}.
+     */
+    private function uriEnvironment(): ?string
     {
         $uri = $this->grav['uri'] ?? null;
         if (!is_object($uri) || !method_exists($uri, 'environment')) {
@@ -105,11 +151,7 @@ class EnvironmentService
         }
 
         $name = $uri->environment();
-        if (!is_string($name) || $name === '' || !self::isValidName($name)) {
-            return null;
-        }
-
-        return $this->envConfigRoot($name) !== null ? $name : null;
+        return is_string($name) && $name !== '' && self::isValidName($name) ? $name : null;
     }
 
     public function envHasOverrides(string $name): bool
