@@ -310,7 +310,8 @@ class ConfigController extends AbstractApiController
         // persisted delta, so the client's stored ETag stays valid for the
         // next save even though default-equal values aren't written to disk.
         $etag = $this->generateEtag($this->configEtagBasis($scope, $targetEnv));
-        return $this->respondWithEtag($this->effectiveConfig($scope, $targetEnv), 200, $tags, $etag);
+        $meta = $this->overrideMeta($scope, $targetEnv);
+        return $this->respondWithEtag($this->effectiveConfig($scope, $targetEnv), 200, $tags, $etag, $meta);
     }
 
     /**
