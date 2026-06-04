@@ -1194,7 +1194,22 @@ composer install
 composer test
 ```
 
-The test suite runs standalone without a Grav installation (using stubs for Grav core classes). For integration tests within a Grav instance:
+Run the tests from inside a Grav install (the plugin's normal home at
+`user/plugins/api`). The bootstrap auto-detects the hosting Grav and loads its
+autoloader, which provides `symfony/yaml` — the plugin relies on Grav's copy
+rather than bundling its own (see the `replace` entry in `composer.json`).
+
+Most unit tests fall back to lightweight stubs and run without a Grav
+installation, but the YAML-dependent tests (config diffing, page header
+merging, API key storage) need Grav reachable. If you're working from a
+standalone source clone that the bootstrap can't locate automatically, point it
+at your Grav root:
+
+```bash
+GRAV_ROOT=/path/to/grav composer test
+```
+
+For integration tests within a Grav instance:
 
 ```bash
 vendor/bin/phpunit --group integration

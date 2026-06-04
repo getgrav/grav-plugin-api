@@ -7,6 +7,7 @@ namespace Grav\Plugin\Api\Controllers;
 use Grav\Common\Grav;
 use Grav\Common\Yaml;
 use Grav\Plugin\Api\Exceptions\ValidationException;
+use Grav\Plugin\Api\Services\ConfigDiffer;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -87,7 +88,10 @@ class AccountsConfigController extends AbstractApiController
             mkdir($dir, 0775, true);
         }
 
-        file_put_contents($filePath, Yaml::dump($data, 99, 2));
+        // Skip persisting any values injected via GRAV_CONFIG__* env vars (.env);
+        // they win at runtime and must not be written into the config on disk.
+        $forFile = (new ConfigDiffer($grav))->stripEnvironmentOverrides($data, 'flex/accounts');
+        file_put_contents($filePath, Yaml::dump($forFile, 99, 2));
 
         $this->config->set(self::CONFIG_KEY, $data);
         $grav['cache']->clearCache('standard');

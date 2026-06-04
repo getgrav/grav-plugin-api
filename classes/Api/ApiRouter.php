@@ -344,6 +344,7 @@ class ApiRouter extends ProcessorBase
         // would be shadowed by an earlier-defined variable on the same path.
         $r->addRoute('GET',   '/config/accounts', [AccountsConfigController::class, 'show']);
         $r->addRoute('PATCH', '/config/accounts', [AccountsConfigController::class, 'update']);
+        $r->addRoute('POST', '/config/{scope:.+}/revert', [ConfigController::class, 'revert']);
         $r->addRoute('GET', '/config/{scope:.+}', [ConfigController::class, 'show']);
         $r->addRoute('PATCH', '/config/{scope:.+}', [ConfigController::class, 'update']);
 
@@ -511,7 +512,15 @@ $r->addRoute('GET', '/gpm/themes/{slug}/field/{type}', [GpmController::class, 'c
     /**
      * Apply the X-Grav-Environment header if provided.
      * Defaults to Grav's auto-detected environment (from hostname) if not set.
-     * Reinitializes config and cache when switching environments.
+     *
+     * NOTE: once Grav has booted, `setup()` is idempotent (it early-returns on
+     * the `initialized['setup']` guard), so this can only take effect for a
+     * request that has NOT yet been set up — it does not switch the environment
+     * of an already-booted request. Per-environment CONFIG reads/writes do not
+     * rely on this: ConfigController resolves each scope for the requested
+     * target from YAML files (ConfigDiffer::effective) when the target differs
+     * from the booted environment, so base/"Default" sees base config even
+     * though the live Grav instance stays on the hostname overlay.
      */
     protected function applyEnvironment(ServerRequestInterface $request): void
     {

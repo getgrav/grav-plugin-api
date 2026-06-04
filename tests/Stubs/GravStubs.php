@@ -144,6 +144,28 @@ namespace Grav\Common {
     }
 }
 
+namespace Grav\Common\User {
+    if (!class_exists(\Grav\Common\User\Authentication::class, false)) {
+        /**
+         * Minimal Authentication stub mirroring Grav's password hashing helper.
+         * create() returns a bcrypt hash; verify() returns an int (1 = match,
+         * 0 = no match) matching the contract ApiKeyManager::verifyKey() relies on.
+         */
+        abstract class Authentication
+        {
+            public static function create(string $password): string
+            {
+                return password_hash($password, PASSWORD_BCRYPT);
+            }
+
+            public static function verify(string $password, string $hash): int
+            {
+                return password_verify($password, $hash) ? 1 : 0;
+            }
+        }
+    }
+}
+
 namespace Grav\Common\User\Interfaces {
     if (!interface_exists(\Grav\Common\User\Interfaces\UserInterface::class, false)) {
         interface UserInterface

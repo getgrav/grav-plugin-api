@@ -153,8 +153,10 @@ class CorsMiddlewareTest extends TestCase
 
         $result = $middleware->addHeaders($request, $response);
 
+        // CorsMiddleware always appends X-Invalidates so clients can read
+        // cache-invalidation tags, regardless of the configured expose_headers.
         self::assertSame(
-            'X-Request-Id, X-Rate-Limit-Remaining',
+            'X-Request-Id, X-Rate-Limit-Remaining, X-Invalidates',
             $result->getHeaderLine('Access-Control-Expose-Headers'),
         );
     }

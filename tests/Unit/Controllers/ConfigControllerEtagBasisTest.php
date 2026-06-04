@@ -97,10 +97,17 @@ class ConfigControllerEtagBasisTest extends TestCase
         $grav = Grav::instance();
         $grav['locator'] = new EtagFakeLocator($this->tmp);
 
-        $config = new Config();
-        $config->set('system', $systemConfig);
+        // effectiveConfig() resolves from the persisted YAML files (not the live
+        // in-memory snapshot), so it stays target-exact behind a reverse proxy
+        // where the booted config env and $uri->environment() disagree. Persist
+        // the base override the way writeConfigFile() would, then read it back —
+        // which is exactly the save→reload round-trip this regression guards.
+        file_put_contents(
+            $this->tmp . '/user/config/system.yaml',
+            \Grav\Common\Yaml::dump($systemConfig),
+        );
 
-        $controller = new ConfigController($grav, $config);
+        $controller = new ConfigController($grav, new Config());
 
         $ref = new \ReflectionMethod($controller, 'configEtagBasis');
         return $ref->invoke($controller, 'system', null);
