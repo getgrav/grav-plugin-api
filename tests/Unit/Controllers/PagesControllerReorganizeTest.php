@@ -119,8 +119,11 @@ class PagesControllerReorganizeTest extends TestCase
 
     private function makeRequest(array $body): \Psr\Http\Message\ServerRequestInterface
     {
+        // API authority is scoped to access.api.super (admin-classic's legacy
+        // access.admin.super is intentionally NOT honored by the API — see
+        // AbstractApiController::isSuperAdmin()).
         $superAdmin = TestHelper::createMockUser('admin', [
-            'access.admin.super' => true,
+            'access.api.super' => true,
         ]);
 
         return TestHelper::createMockRequest(
