@@ -683,19 +683,41 @@ class GpmController extends AbstractApiController
             throw new ValidationException('Cannot upgrade Grav when installed via symlink.');
         }
 
+        $body = $this->getRequestBody($request);
+        $override = !empty($body['override']);
+
         $this->fireEvent('onApiBeforeGravUpgrade', [
             'current_version' => GRAV_VERSION,
             'available_version' => $gravInfo->getVersion(),
         ]);
 
         try {
-            $result = GpmService::selfupgrade();
+            $result = GpmService::selfupgrade(['override' => $override]);
         } catch (\Throwable $e) {
-            throw new ApiException(500, 'Upgrade Failed', $e->getMessage());
+            $this->grav['log']->error('[api] Grav self-upgrade failed: ' . $e->getMessage());
+            throw new ApiException(500, 'Upgrade Failed', $e->getMessage(), [], $e);
         }
 
         if (!$result) {
-            throw new ApiException(500, 'Upgrade Failed', 'Failed to upgrade Grav core.');
+            $report = GpmService::getLastPreflightReport();
+            $blocking = $report['blocking'] ?? [];
+
+            // Recoverable: preflight blocked the upgrade and the caller can act on it
+            // (disable the offending packages, or retry with {"override": true}).
+            if (!$override && !empty($blocking)) {
+                return ApiResponse::create([
+                    'status' => 'preflight_failed',
+                    'message' => 'Upgrade blocked by preflight checks.',
+                    'blocking' => $blocking,
+                    'warnings' => $report['warnings'] ?? [],
+                    'incompatible_packages' => $report['incompatible_packages'] ?? [],
+                    'can_override' => true,
+                ], 409);
+            }
+
+            $detail = GpmService::getLastError() ?: 'Failed to upgrade Grav core.';
+            $this->grav['log']->error('[api] Grav self-upgrade failed: ' . $detail);
+            throw new ApiException(500, 'Upgrade Failed', $detail);
         }
 
         $this->fireEvent('onApiGravUpgraded', [

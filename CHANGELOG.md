@@ -1,3 +1,13 @@
+# v1.0.0-rc.14
+## 06/04/2026
+
+1. [](#new)
+    * The users API can now filter accounts by permission or group, so the admin can list everyone who holds a given permission such as admin access.
+    * The user listing now includes each account's group memberships.
+2. [](#improved)
+    * A failed Grav core upgrade now reports the real reason and records it in the log, instead of a generic "Failed to upgrade Grav core" message.
+    * A Grav core upgrade blocked by a compatibility check now lists the packages responsible and can be retried with an explicit override, matching the command-line upgrader.
+
 # v1.0.0-rc.13
 ## 06/04/2026
 
