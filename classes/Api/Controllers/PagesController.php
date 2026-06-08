@@ -1738,7 +1738,10 @@ class PagesController extends AbstractApiController
                 'visible' => $page->visible() === filter_var($value, FILTER_VALIDATE_BOOLEAN),
                 'parent' => str_starts_with($page->route(), '/' . trim($value, '/')),
                 'children_of' => $this->isDirectChildOf($page, $value),
-                'root' => filter_var($value, FILTER_VALIDATE_BOOLEAN) && substr_count(trim($page->route(), '/'), '/') === 0,
+                // Root-level = direct child of the pages-root, resolved from the
+                // real hierarchy (see isDirectChildOf) so home-page children
+                // aren't mistaken for top-level pages.
+                'root' => filter_var($value, FILTER_VALIDATE_BOOLEAN) && $this->isDirectChildOf($page, '/'),
                 default => true,
             };
 
@@ -1752,25 +1755,38 @@ class PagesController extends AbstractApiController
 
     /**
      * Check if a page is a direct child of the given parent route.
-     * Direct child = parent route + one slug segment, no deeper.
+     *
+     * Resolves the relationship from Grav's real page hierarchy
+     * ($page->parent()) rather than by string-matching the public route. The
+     * home page's children have the home segment stripped from their public
+     * route (e.g. '/child' instead of '/home/child' when home.hide_in_urls is
+     * on), so a route-string comparison wrongly lists them as children of root
+     * — the cause of the tree/columns hierarchy bug
+     * (getgrav/grav-plugin-admin2#32). Comparing against the actual parent
+     * page, like admin-classic's tree does, keeps the hierarchy correct.
      */
     private function isDirectChildOf(PageInterface $page, string $parentValue): bool
     {
-        $parentRoute = '/' . trim($parentValue, '/');
-        $pageRoute = $page->route();
-
-        if ($parentRoute === '/') {
-            // Root children: routes like /home, /blog (one segment only)
-            return substr_count(trim($pageRoute, '/'), '/') === 0;
-        }
-
-        // Must start with parent route + / and have exactly one more segment
-        if (!str_starts_with($pageRoute, $parentRoute . '/')) {
+        $parent = $page->parent();
+        if ($parent === null) {
+            // The virtual pages-root itself has no parent; it's nobody's child.
             return false;
         }
 
-        $remainder = substr($pageRoute, strlen($parentRoute) + 1);
-        return !str_contains($remainder, '/');
+        $parentRoute = '/' . trim($parentValue, '/');
+
+        if ($parentRoute === '/') {
+            // Direct child of root: the page's parent IS the pages-root. This
+            // correctly excludes children of the home page (whose parent is the
+            // home page, a real page), which would otherwise leak into root.
+            return $parent->root();
+        }
+
+        // Match the real parent by its structural route first (the home page's
+        // public route is '/', but its rawRoute is e.g. '/home'), then fall
+        // back to the public route for everything else.
+        return $parentRoute === $parent->rawRoute()
+            || $parentRoute === $parent->route();
     }
 
     private function indexViaDefaultSort(ServerRequestInterface $request, string $parentRoute, array $filters, array $pagination): ResponseInterface
@@ -1786,7 +1802,9 @@ class PagesController extends AbstractApiController
                 if (!$page instanceof PageInterface) {
                     continue;
                 }
-                if ($page->route() === $childRoute) {
+                // Match by rawRoute too: the home page's public route is '/'
+                // while the frontend asks for its structural route (e.g. '/home').
+                if ($page->route() === $childRoute || $page->rawRoute() === $childRoute) {
                     $parent = $page;
                 }
                 if ($this->isDirectChildOf($page, $filters['children_of'])) {

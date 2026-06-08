@@ -10,6 +10,8 @@
     * Saving config, pages or accounts now validates the submitted fields against the blueprint, so a required field left empty or an invalid value is rejected instead of silently saved ([getgrav/grav-plugin-admin2#30](https://github.com/getgrav/grav-plugin-admin2/issues/30)).
 3. [](#bugfix)
     * Saving a page no longer corrupts its frontmatter with stray internal keys, which previously accumulated on every save when editing in Expert mode ([getgrav/grav-plugin-admin2#31](https://github.com/getgrav/grav-plugin-admin2/issues/31)).
+    * Saving a page through the API no longer fails when an admin-aware plugin posts a flash message from its save handler ([#5](https://github.com/getgrav/grav-plugin-api/issues/5)).
+    * Pages under the home page now appear nested beneath it in the tree and columns views, instead of being listed at the top level ([getgrav/grav-plugin-admin2#32](https://github.com/getgrav/grav-plugin-admin2/issues/32)).
 
 # v1.0.0-rc.13
 ## 06/04/2026
