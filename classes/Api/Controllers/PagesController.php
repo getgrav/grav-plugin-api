@@ -391,6 +391,9 @@ class PagesController extends AbstractApiController
                 // Allow plugins to modify the page before save (e.g. SEO Magic, mega-frontmatter)
                 $this->fireAdminEvent('onAdminSave', ['object' => &$page, 'page' => &$page]);
 
+                // Validate the submitted page fields against the blueprint (admin2#30).
+                $this->validatePageChanges($page, ['header' => $header, 'content' => $content]);
+
                 $page->save();
             }
 
@@ -530,6 +533,11 @@ class PagesController extends AbstractApiController
 
             // Allow plugins to modify the page before save
             $this->fireAdminEvent('onAdminSave', ['object' => &$page, 'page' => &$page]);
+
+            // Validate the submitted page fields against the blueprint before
+            // writing to disk (admin2#30) — a required field sent empty now
+            // returns 422 instead of saving silently.
+            $this->validatePageChanges($page, $body);
 
             $page->save();
 
@@ -2233,6 +2241,37 @@ class PagesController extends AbstractApiController
             return $header;
         }
         return json_decode(json_encode($header), true) ?: [];
+    }
+
+    /**
+     * Validate the submitted page fields against the page blueprint.
+     *
+     * Page blueprints name their fields `header.*` (plus `content`, `slug`,
+     * `folder`), so we re-key the incoming body into that shape and let
+     * validateChangedFields() flatten + check only what was submitted. A flat
+     * `title` in the body maps to `header.title`.
+     *
+     * @param object $page  The page being saved (legacy Page or Flex PageObject).
+     * @param array  $body  The request body / built create payload.
+     */
+    private function validatePageChanges(object $page, array $body): void
+    {
+        if (!method_exists($page, 'getBlueprint')) {
+            return;
+        }
+
+        $changes = [];
+        if (array_key_exists('header', $body) && is_array($body['header'])) {
+            $changes['header'] = $body['header'];
+        }
+        if (array_key_exists('title', $body)) {
+            $changes['header']['title'] = $body['title'];
+        }
+        if (array_key_exists('content', $body)) {
+            $changes['content'] = $body['content'];
+        }
+
+        $this->validateChangedFields($changes, $page->getBlueprint());
     }
 
     /**

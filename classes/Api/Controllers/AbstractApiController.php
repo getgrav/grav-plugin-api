@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Grav\Plugin\Api\Controllers;
 
 use Grav\Common\Config\Config;
+use Grav\Common\Data\Blueprint;
+use Grav\Common\Data\Validation;
 use Grav\Common\Grav;
 use Grav\Common\Page\Interfaces\PageInterface;
 use Grav\Common\User\Interfaces\UserInterface;
@@ -163,6 +165,81 @@ abstract class AbstractApiController
             }
         }
         return $existing;
+    }
+
+    /**
+     * Validate only the fields present in `$changes` against their blueprint
+     * definitions, throwing the API's ValidationException (HTTP 422) with
+     * per-field messages on failure.
+     *
+     * We validate the submitted delta — NOT the whole merged object — on
+     * purpose. Grav's own stock config doesn't pass a whole-object
+     * `$blueprint->validate()`: `system.errors.display` ships as a bool against
+     * a `type: int` rule, and the core `list` validator rejects complete
+     * security/backups/scheduler list items (required per-item sub-fields are
+     * checked at the wrong nesting level). All of those landmines live in
+     * fields the request never touches, so validating just the changed fields
+     * sidesteps them while still rejecting an invalid value or a required field
+     * submitted empty (getgrav/grav-plugin-admin2#30). Completeness — a required
+     * field the user never filled — is enforced by the admin UI, which renders
+     * the whole form.
+     *
+     * `$changes` is keyed exactly as the blueprint expects (e.g. `errors.display`
+     * nested under `errors`, page fields under `header`); it is flattened to the
+     * blueprint's leaf fields here.
+     *
+     * @param array $changes  Incoming values (possibly nested), as sent by the client.
+     */
+    protected function validateChangedFields(array $changes, ?Blueprint $blueprint): void
+    {
+        if ($blueprint === null || $changes === []) {
+            return;
+        }
+
+        $schema = $blueprint->schema();
+        $errors = [];
+
+        foreach ($blueprint->flattenData($changes) as $name => $value) {
+            $field = $schema->getProperty($name);
+            if (!is_array($field) || !isset($field['type'])) {
+                // Not a blueprint-defined field (extra/legacy key) — nothing to validate.
+                continue;
+            }
+
+            $value = $this->coerceForValidation($value, $field);
+
+            foreach (Validation::validate($value, $field) as $messages) {
+                foreach ((array) $messages as $message) {
+                    $errors[] = [
+                        'field' => $name,
+                        'message' => trim(strip_tags((string) $message)),
+                    ];
+                }
+            }
+        }
+
+        if ($errors !== []) {
+            throw new ValidationException(
+                'The submitted data did not pass blueprint validation.',
+                $errors,
+            );
+        }
+    }
+
+    /**
+     * Mirror Grav's runtime leniency between ints and booleans for int-typed
+     * fields. `system.errors.display`, for example, is declared `type: int`
+     * but Grav's error handler (Errors::resetHandlers) treats `true`/`false`
+     * as `1`/`0`. Grav's `typeInt` validator is stricter (`is_numeric(true)`
+     * is false), so without this a legitimate boolean value would be rejected.
+     */
+    private function coerceForValidation(mixed $value, array $field): mixed
+    {
+        $type = $field['validate']['type'] ?? $field['type'] ?? null;
+        if (is_bool($value) && ($type === 'int' || $type === 'number')) {
+            return (int) $value;
+        }
+        return $value;
     }
 
     /**

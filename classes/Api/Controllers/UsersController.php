@@ -259,6 +259,11 @@ class UsersController extends AbstractApiController
         // Allow plugins to modify the user before save
         $this->fireAdminEvent('onAdminSave', ['object' => &$user]);
 
+        // Validate the submitted fields against the account blueprint before
+        // writing to disk (admin2#30) — e.g. a password that fails the
+        // configured pwd_regex, or a required field sent empty, now returns 422.
+        $this->validateChangedFields($body, method_exists($user, 'getBlueprint') ? $user->getBlueprint() : null);
+
         $user->save();
 
         $this->fireAdminEvent('onAdminAfterSave', ['object' => $user]);
@@ -330,6 +335,10 @@ class UsersController extends AbstractApiController
 
         // Allow plugins to modify the user before save
         $this->fireAdminEvent('onAdminSave', ['object' => &$user]);
+
+        // Validate the submitted fields against the account blueprint before
+        // writing to disk (admin2#30).
+        $this->validateChangedFields($body, method_exists($user, 'getBlueprint') ? $user->getBlueprint() : null);
 
         $user->save();
 
