@@ -479,13 +479,13 @@ class PagesController extends AbstractApiController
             }
 
             if (array_key_exists('title', $body)) {
-                $header = (array) $page->header();
+                $header = $this->headerToArray($page->header());
                 $header['title'] = $body['title'];
                 $page->header((object) $header);
             }
 
             if (array_key_exists('header', $body)) {
-                $existing = (array) $page->header();
+                $existing = $this->headerToArray($page->header());
                 $merged = $this->mergePatch($existing, $body['header']);
                 // Strip null values — toggleable fields send null to signal removal
                 $merged = $this->stripNullValues($merged);
@@ -511,7 +511,7 @@ class PagesController extends AbstractApiController
             }
 
             if (array_key_exists('published', $body)) {
-                $header = (array) $page->header();
+                $header = $this->headerToArray($page->header());
                 $header['published'] = (bool) $body['published'];
                 $page->header((object) $header);
                 // Legacy Page caches $this->published at init and doesn't
@@ -522,7 +522,7 @@ class PagesController extends AbstractApiController
             }
 
             if (array_key_exists('visible', $body)) {
-                $header = (array) $page->header();
+                $header = $this->headerToArray($page->header());
                 $header['visible'] = (bool) $body['visible'];
                 $page->header((object) $header);
                 $page->visible((bool) $body['visible']);
@@ -809,7 +809,7 @@ class PagesController extends AbstractApiController
 
         $title = $body['title'] ?? $page->title();
         $content = $body['content'] ?? $page->rawMarkdown();
-        $header = $body['header'] ?? (array) $page->header();
+        $header = $body['header'] ?? $this->headerToArray($page->header());
 
         // Ensure title is set
         $header = array_merge(['title' => $title], is_array($header) ? $header : []);
@@ -1054,7 +1054,7 @@ class PagesController extends AbstractApiController
             }
 
             $sourceContent = $sourcePage->rawMarkdown();
-            $sourceHeader = (array) $sourcePage->header();
+            $sourceHeader = $this->headerToArray($sourcePage->header());
 
             // Load the target page
             $language->setActive($targetLang);
@@ -1150,7 +1150,7 @@ class PagesController extends AbstractApiController
                     'exists' => isset($translated[$sourceLang]),
                     'title' => $sourcePage->title(),
                     'content' => $sourcePage->rawMarkdown(),
-                    'header' => (array) $sourcePage->header(),
+                    'header' => $this->headerToArray($sourcePage->header()),
                     'modified' => $sourcePage->modified() ? date('c', $sourcePage->modified()) : null,
                 ];
             }
@@ -1168,7 +1168,7 @@ class PagesController extends AbstractApiController
                     'exists' => isset($translated[$targetLang]),
                     'title' => $targetPage->title(),
                     'content' => $targetPage->rawMarkdown(),
-                    'header' => (array) $targetPage->header(),
+                    'header' => $this->headerToArray($targetPage->header()),
                     'modified' => $targetPage->modified() ? date('c', $targetPage->modified()) : null,
                 ];
             }
@@ -1945,7 +1945,7 @@ class PagesController extends AbstractApiController
      */
     private function batchPublish(PageInterface $page, bool $published): void
     {
-        $header = (array) $page->header();
+        $header = $this->headerToArray($page->header());
         $header['published'] = $published;
         $page->header((object) $header);
         $page->save();
@@ -2208,6 +2208,34 @@ class PagesController extends AbstractApiController
     }
 
     /**
+     * Convert a page header into a plain array.
+     *
+     * Flex pages (Grav's default since 1.7) return a Header/Data object from
+     * header(), not a stdClass. Casting that object with (array) leaks its
+     * protected properties as NUL-prefixed keys ("\0*\0items",
+     * "\0*\0nestedSeparator"), which then get merged back in and persisted into
+     * the frontmatter — corrupting the file a little more on every save (see
+     * grav-plugin-admin2#31, triggered by Expert-mode frontmatter edits).
+     *
+     * Going through JSON invokes the object's jsonSerialize() and yields the
+     * clean field keys, matching how PageSerializer reads headers. Legacy pages
+     * (stdClass header) and already-plain arrays round-trip cleanly too.
+     *
+     * @param object|array|null $header
+     * @return array
+     */
+    private function headerToArray($header): array
+    {
+        if ($header === null) {
+            return [];
+        }
+        if (is_array($header)) {
+            return $header;
+        }
+        return json_decode(json_encode($header), true) ?: [];
+    }
+
+    /**
      * Recursively strip null values from an array.
      * Used to remove header fields that were toggled off (sent as null).
      */
@@ -2244,7 +2272,7 @@ class PagesController extends AbstractApiController
     {
         $existingTwig = false;
         if ($existingPage !== null) {
-            $existingHeader = (array) $existingPage->header();
+            $existingHeader = $this->headerToArray($existingPage->header());
             $existingTwig = (bool) (($existingHeader['process']['twig'] ?? false));
         }
 

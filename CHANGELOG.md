@@ -7,6 +7,8 @@
 2. [](#improved)
     * A failed Grav core upgrade now reports the real reason and records it in the log, instead of a generic "Failed to upgrade Grav core" message.
     * A Grav core upgrade blocked by a compatibility check now lists the packages responsible and can be retried with an explicit override, matching the command-line upgrader.
+3. [](#bugfix)
+    * Saving a page no longer corrupts its frontmatter with stray internal keys, which previously accumulated on every save when editing in Expert mode ([getgrav/grav-plugin-admin2#31](https://github.com/getgrav/grav-plugin-admin2/issues/31)).
 
 # v1.0.0-rc.13
 ## 06/04/2026
