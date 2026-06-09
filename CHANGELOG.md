@@ -1,3 +1,9 @@
+# v1.0.0-rc.15
+## 06/09/2026
+
+1. [](#new)
+    * Added a dashboard security endpoint that hands the admin Dashboard a sentinel URL under `user/data`, so it can detect from the browser whether the sensitive `user/` folders are downloadable over the web.
+
 # v1.0.0-rc.14
 ## 06/09/2026
 

@@ -411,6 +411,7 @@ $r->addRoute('GET', '/gpm/themes/{slug}/field/{type}', [GpmController::class, 'c
         $r->addRoute('POST', '/dashboard/notifications/{id}/hide', [DashboardController::class, 'hideNotification']);
         $r->addRoute('GET', '/dashboard/feed', [DashboardController::class, 'feed']);
         $r->addRoute('GET', '/dashboard/stats', [DashboardController::class, 'stats']);
+        $r->addRoute('GET', '/dashboard/security/exposure-probe', [DashboardController::class, 'securityProbe']);
         $r->addRoute('GET', '/dashboard/popularity', [DashboardController::class, 'popularity']);
         $r->addRoute('GET', '/dashboard/widgets', [DashboardWidgetController::class, 'widgets']);
         $r->addRoute('PATCH', '/dashboard/layout', [DashboardWidgetController::class, 'saveUserLayout']);
