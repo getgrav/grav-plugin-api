@@ -2,6 +2,8 @@
 ## 06/04/2026
 
 1. [](#new)
+    * The page editor now includes a Security tab for setting page access and permissions, matching the classic admin, with the permissions section limited to users who hold API super or configuration rights.
+    * Page Authors is now a searchable multiselect of the users who can edit pages, instead of free-text username entry.
     * The users API can now filter accounts by permission or group, so the admin can list everyone who holds a given permission such as admin access.
     * The user listing now includes each account's group memberships.
 2. [](#improved)

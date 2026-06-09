@@ -256,6 +256,12 @@ class UsersController extends AbstractApiController
             $user->set('access', $body['access']);
         }
 
+        // `groups` is super-admin-only (see update()): group membership can grant
+        // access, so a non-super creator must not seed group assignments.
+        if (isset($body['groups']) && $this->isSuperAdmin($this->getUser($request))) {
+            $user->set('groups', $body['groups']);
+        }
+
         // Allow plugins to modify the user before save
         $this->fireAdminEvent('onAdminSave', ['object' => &$user]);
 
@@ -308,6 +314,11 @@ class UsersController extends AbstractApiController
         // itself api.super / admin.super — see GHSA-r945-h4vm-h736.
         $selfFields  = ['email', 'fullname', 'title', 'language', 'content_editor', 'twofa_enabled'];
         $adminFields = ['state', 'access'];
+        // `groups` is marked `security@: admin.super` in the account blueprint:
+        // group membership can confer access, so only super admins may change it
+        // — a plain api.users.write manager must not assign users into groups.
+        $superFields = ['groups'];
+        $isSuper = $this->isSuperAdmin($currentUser);
 
         if (!$canManageUsers) {
             foreach ($adminFields as $field) {
@@ -319,7 +330,23 @@ class UsersController extends AbstractApiController
             }
         }
 
-        $allowedFields = $canManageUsers ? array_merge($selfFields, $adminFields) : $selfFields;
+        if (!$isSuper) {
+            foreach ($superFields as $field) {
+                if (array_key_exists($field, $body)) {
+                    throw new ForbiddenException(
+                        "Modifying '{$field}' requires super-admin privileges."
+                    );
+                }
+            }
+        }
+
+        $allowedFields = $selfFields;
+        if ($canManageUsers) {
+            $allowedFields = array_merge($allowedFields, $adminFields);
+        }
+        if ($isSuper) {
+            $allowedFields = array_merge($allowedFields, $superFields);
+        }
         foreach ($allowedFields as $field) {
             if (array_key_exists($field, $body)) {
                 $user->set($field, $body[$field]);

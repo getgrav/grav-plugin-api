@@ -6,6 +6,7 @@ namespace Grav\Plugin\Api\Controllers;
 
 use Grav\Common\Data\Blueprint;
 use Grav\Common\Page\Pages;
+use Grav\Common\User\Interfaces\UserInterface;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
@@ -31,6 +32,14 @@ class BlueprintController extends AbstractApiController
      * @var array<int, string>|null
      */
     private ?array $blueprintLanguages = null;
+
+    /**
+     * Map of primary subtag => shipped region-suffixed locale codes, e.g.
+     * `['en' => ['en-US'], 'de' => ['de-DE']]`. Cached per request.
+     *
+     * @var array<string, array<int, string>>|null
+     */
+    private ?array $regionVariantIndex = null;
 
     private function disabledLangIndex(): DisabledPluginLangIndex
     {
@@ -71,7 +80,82 @@ class BlueprintController extends AbstractApiController
             // Unauthenticated or resolver failure — fall back to English.
         }
 
-        return $this->blueprintLanguages = $lang === 'en' ? ['en'] : [$lang, 'en'];
+        return $this->blueprintLanguages = $this->expandLanguageChain($lang);
+    }
+
+    /**
+     * Build the translation fallback chain for a requested admin language.
+     *
+     * The requested language comes first and English is the universal tail
+     * fallback. Each entry is then expanded to include any region-suffixed
+     * variant that ships on disk: admin2 stores its dictionary under e.g.
+     * `en-US.yaml` (not `en.yaml`), and Grav indexes plugin language files by
+     * the filename's locale code. Without this expansion a user whose
+     * preference is the bare 2-char `en` never reaches admin2's `en-US` strings
+     * and every blueprint label/help falls through to the humaniser
+     * (getgrav/grav-admin-next#1). Expanding `en` → `['en', 'en-US']` (and
+     * likewise `de` → `['de', 'de-DE']`) lets the shipped region file serve the
+     * bare code, so no duplicate `en.yaml` is needed.
+     *
+     * @return array<int, string>
+     */
+    private function expandLanguageChain(string $lang): array
+    {
+        $chain = [];
+        foreach ([$lang, 'en'] as $code) {
+            foreach (array_merge([$code], $this->regionVariantsFor($code)) as $candidate) {
+                if (!in_array($candidate, $chain, true)) {
+                    $chain[] = $candidate;
+                }
+            }
+        }
+
+        return $chain;
+    }
+
+    /**
+     * Region-suffixed locale codes shipped for a bare primary subtag, e.g.
+     * `en` => `['en-US']`. Already-regioned codes (containing `-`) need no
+     * expansion and return an empty list.
+     *
+     * @return array<int, string>
+     */
+    private function regionVariantsFor(string $code): array
+    {
+        if (str_contains($code, '-')) {
+            return [];
+        }
+
+        return $this->buildRegionVariantIndex()[$code] ?? [];
+    }
+
+    /**
+     * Discover shipped region variants from admin2's languages directory (where
+     * the SPA's translation dictionary lives). Cached for the request.
+     *
+     * @return array<string, array<int, string>>
+     */
+    private function buildRegionVariantIndex(): array
+    {
+        if ($this->regionVariantIndex !== null) {
+            return $this->regionVariantIndex;
+        }
+
+        $index = [];
+        $dir = $this->grav['locator']->findResource('plugin://admin2/languages')
+            ?: (defined('GRAV_ROOT') ? GRAV_ROOT . '/user/plugins/admin2/languages' : null);
+
+        if (is_string($dir) && is_dir($dir)) {
+            foreach (glob($dir . '/*.yaml') ?: [] as $file) {
+                $localeCode = basename($file, '.yaml');
+                $dash = strpos($localeCode, '-');
+                if ($dash !== false) {
+                    $index[substr($localeCode, 0, $dash)][] = $localeCode;
+                }
+            }
+        }
+
+        return $this->regionVariantIndex = $index;
     }
 
     /**
@@ -195,7 +279,7 @@ class BlueprintController extends AbstractApiController
 
         $template = $this->getRouteParam($request, 'template');
 
-        $blueprint = $this->loadPageBlueprint($template);
+        $blueprint = $this->loadPageBlueprint($template, $this->getUser($request));
 
         if (!$blueprint) {
             throw new NotFoundException("Blueprint for template '{$template}' not found.");
@@ -510,6 +594,26 @@ class BlueprintController extends AbstractApiController
                 return $icuTranslated;
             }
 
+            // admin2 consolidated its shared PLUGIN_ADMIN vocabulary into the
+            // ICU.ADMIN_NEXT namespace so the translation service — scoped to
+            // ADMIN_NEXT — actually translates it into every locale. Blueprints
+            // (and 160+ plugins) still reference the public PLUGIN_ADMIN.* keys,
+            // so alias them onto ICU.ADMIN_NEXT.* here. A handful of nav-word
+            // keys (GROUPS/MEDIA/PAGES/SETTINGS/SYSTEM) resolve to a nested map
+            // under ADMIN_NEXT rather than a string; the is_string guard lets
+            // those fall through to the humaniser (which yields the right word).
+            if (str_starts_with($label, 'PLUGIN_ADMIN.')) {
+                $aliasKey = 'ICU.ADMIN_NEXT.' . substr($label, strlen('PLUGIN_ADMIN.'));
+                // array_support=true returns the raw node instead of casting an
+                // array to string, so a key that lands on a nested namespace
+                // (GROUPS/MEDIA/PAGES/SETTINGS/SYSTEM) comes back as an array and
+                // is skipped here rather than blowing up on "Array to string".
+                $aliasTranslated = $lang->translate($aliasKey, $languages, true);
+                if (is_string($aliasTranslated) && $aliasTranslated !== $aliasKey) {
+                    return $aliasTranslated;
+                }
+            }
+
             // Skip the flat lookup if the only source for this key is a disabled
             // plugin — a disabled plugin shouldn't influence what admin2 renders.
             if (!$this->disabledLangIndex()->isDisabledOnly($label, $primary)) {
@@ -646,7 +750,7 @@ class BlueprintController extends AbstractApiController
      * and the hand-rolled path silently dropped most BlueprintForm directives
      * (see grav-plugin-admin2#3).
      */
-    private function loadPageBlueprint(string $template): ?Blueprint
+    private function loadPageBlueprint(string $template, ?UserInterface $user = null): ?Blueprint
     {
         $this->ensurePagesEnabled();
 
@@ -654,10 +758,370 @@ class BlueprintController extends AbstractApiController
         $pages = $this->grav['pages'];
 
         try {
-            return $pages->blueprints($template);
+            $blueprint = $pages->blueprints($template);
         } catch (\RuntimeException) {
             return null;
         }
+
+        $this->injectSecurityTab($blueprint, $user);
+
+        return $blueprint;
+    }
+
+    /**
+     * Inject the page Security tab into a resolved page blueprint.
+     *
+     * Page-type blueprints (default.yaml etc.) don't carry the Security tab —
+     * in admin-classic it's the Flex pages wrapper (blueprints://flex/pages.yaml)
+     * that adds it via `import@: { type: partials/security }`. Admin-next loads
+     * the plain page-type blueprint instead, so the tab goes missing. We
+     * replicate the Flex wrapper here: load the same security partial and embed
+     * it as a tab, positioned right after `advanced` to match classic ordering.
+     *
+     * The partial only sets frontmatter (header.access, header.permissions.*)
+     * that grav-core already understands — nothing else changes.
+     *
+     * The partial's `_admin` (Page Permissions) section carries a
+     * `security@: {or: [admin.super, admin.configuration.pages]}` gate. Core
+     * evaluates that against `$grav['user']`, but during an API request that's
+     * the guest user — so the gate fails for everyone and stamps the section
+     * with `validate: ignore`. We evaluate the gate ourselves against the real
+     * authenticated API user, accepting the API authority equivalents
+     * (api.super / api.config): authorized users get the section clean and
+     * editable, everyone else only sees the ungated Page Access section.
+     */
+    private function injectSecurityTab(Blueprint $blueprint, ?UserInterface $user = null): void
+    {
+        // Only page blueprints that wrap their fields in a `tabs` container can
+        // host the Security tab. Skip anything with a different layout.
+        $tabs = $blueprint->get('form/fields/tabs');
+        if (!is_array($tabs) || ($tabs['type'] ?? null) !== 'tabs') {
+            return;
+        }
+
+        // Respect a template/plugin that already defines its own Security tab.
+        if ($blueprint->get('form/fields/tabs/fields/security') !== null) {
+            return;
+        }
+
+        try {
+            $security = new Blueprint('partials/security');
+            $security->setContext('blueprints://pages');
+            $security->load()->init();
+        } catch (Throwable) {
+            return;
+        }
+
+        $securityFields = $security->fields();
+        if (empty($securityFields)) {
+            return;
+        }
+
+        // Gate the Page Permissions section on API authority. `_site` (Page
+        // Access) is ungated and always shown.
+        $canManagePermissions = $user !== null
+            && ($this->isSuperAdmin($user) || $this->hasPermission($user, 'api.config'));
+
+        if (isset($securityFields['_admin'])) {
+            if ($canManagePermissions) {
+                // Clear the guest-induced `validate: ignore` so the section is
+                // fully editable (baseline has no ignore flags of its own).
+                $this->clearValidateIgnore($securityFields['_admin']);
+            } else {
+                unset($securityFields['_admin']);
+            }
+        }
+
+        if (empty($securityFields)) {
+            return;
+        }
+
+        // Turn the two `acl_picker` fields (Page Access, Page Groups) into the
+        // dedicated admin-next web components with their dropdown options baked
+        // in server-side. See decorateAclPickerFields() for why.
+        $this->decorateAclPickerFields($securityFields);
+
+        $securityTab = [
+            'type' => 'tab',
+            'title' => 'PLUGIN_ADMIN.SECURITY',
+            'fields' => $securityFields,
+        ];
+
+        // Insert after the core `advanced` tab so the order matches classic
+        // (Content, Options, Advanced, Security, …plugin tabs). Fall back to
+        // appending if no `advanced` tab is present.
+        $rebuilt = [];
+        $inserted = false;
+        foreach ((array) ($tabs['fields'] ?? []) as $key => $value) {
+            $rebuilt[$key] = $value;
+            if ($key === 'advanced') {
+                $rebuilt['security'] = $securityTab;
+                $inserted = true;
+            }
+        }
+        if (!$inserted) {
+            $rebuilt['security'] = $securityTab;
+        }
+
+        $blueprint->set('form/fields/tabs/fields', $rebuilt);
+    }
+
+    /**
+     * Recursively remove the `validate: ignore` flag that core's blueprint
+     * init stamps on a `security@`-gated field (and its children) when the
+     * gate fails. Leaves the rest of each `validate` block intact.
+     */
+    private function clearValidateIgnore(array &$field): void
+    {
+        if (isset($field['validate']) && is_array($field['validate'])) {
+            unset($field['validate']['ignore']);
+            if ($field['validate'] === []) {
+                unset($field['validate']);
+            }
+        }
+
+        if (isset($field['fields']) && is_array($field['fields'])) {
+            foreach ($field['fields'] as &$child) {
+                if (is_array($child)) {
+                    $this->clearValidateIgnore($child);
+                }
+            }
+            unset($child);
+        }
+    }
+
+    /**
+     * Replace the page security `acl_picker` fields with their admin-next web
+     * components and bake their dropdown options in server-side.
+     *
+     * admin-next's native FieldRenderer claims `acl_picker` before the custom
+     * field registry, and `data_type` (access vs permissions) isn't part of
+     * the serialized field props — so a stock `acl_picker` can't render the
+     * classic row picker. We remap each field to a distinct custom type that
+     * falls through to the plugin web component:
+     *   - data_type: access      → `acl-access`      (Allowed/Denied per action)
+     *   - data_type: permissions → `acl-permissions` (CRUD per group)
+     *
+     * The option lists (access actions / user groups) need `$grav['permissions']`
+     * and the groups directory, and the access-actions endpoint is gated on
+     * `api.users.read` which a page editor may not hold — so we resolve them
+     * here and attach as `options`, sparing the component an extra (possibly
+     * forbidden) round-trip.
+     */
+    private function decorateAclPickerFields(array &$fields): void
+    {
+        foreach ($fields as $key => &$field) {
+            if (!is_array($field)) {
+                continue;
+            }
+
+            $type = $field['type'] ?? null;
+
+            if ($type === 'acl_picker') {
+                $dataType = $field['data_type'] ?? null;
+                if ($dataType === 'access') {
+                    $field['type'] = 'acl-access';
+                    $field['options'] = $this->buildAccessActionOptions();
+                } elseif ($dataType === 'permissions') {
+                    $field['type'] = 'acl-permissions';
+                    $field['options'] = $this->buildGroupOptions();
+                }
+                unset($field['data_type']);
+            }
+
+            if (isset($field['fields']) && is_array($field['fields'])) {
+                $this->decorateAclPickerFields($field['fields']);
+            }
+        }
+        unset($field);
+    }
+
+    /**
+     * Resolve the option list for a `users` field — every account that meets
+     * the field's access/group requirements. Config props on the field:
+     *
+     *   access: api.pages.write          # min permission (string or list, any-of)
+     *   groups: [editors, authors]       # group membership (string or list, any-of)
+     *
+     * With neither set, every account is listed. Super admins (API or classic)
+     * always qualify. The value stored is the username, so existing plain
+     * username-array fields round-trip unchanged.
+     *
+     * @return array<string, string> username => label, insertion order preserved
+     */
+    private function resolveUserFieldOptions(array $field): array
+    {
+        $accessList = $this->toStringList($field['access'] ?? null);
+        $groupList = $this->toStringList($field['groups'] ?? null);
+
+        $options = [];
+        try {
+            $accounts = $this->grav['accounts'] ?? null;
+            if (!$accounts) {
+                return $options;
+            }
+            foreach ($this->getAccountUsernames() as $username) {
+                $account = $accounts->load($username);
+                if (!$account || !$account->exists()) {
+                    continue;
+                }
+                if (!$this->userMeetsRequirements($account, $accessList, $groupList)) {
+                    continue;
+                }
+                $fullname = (string) ($account->get('fullname') ?? '');
+                $options[(string) $username] = $fullname !== ''
+                    ? sprintf('%s (%s)', $fullname, $username)
+                    : (string) $username;
+            }
+        } catch (Throwable) {
+            // Fall through with whatever was collected.
+        }
+
+        return $options;
+    }
+
+    /**
+     * Whether an account satisfies a `users` field's access/group filter.
+     * Empty filter → everyone qualifies; super admins always qualify.
+     *
+     * @param list<string> $accessList
+     * @param list<string> $groupList
+     */
+    private function userMeetsRequirements(object $account, array $accessList, array $groupList): bool
+    {
+        if (!$accessList && !$groupList) {
+            return true;
+        }
+        if ($this->isSuperAdmin($account) || (bool) $account->get('access.admin.super')) {
+            return true;
+        }
+        foreach ($accessList as $permission) {
+            if ($this->hasPermission($account, $permission)) {
+                return true;
+            }
+        }
+        if ($groupList) {
+            $userGroups = (array) $account->get('groups', []);
+            foreach ($groupList as $group) {
+                if (in_array($group, $userGroups, true)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Normalize a scalar-or-list blueprint config value into a list of
+     * non-empty strings.
+     *
+     * @return list<string>
+     */
+    private function toStringList(mixed $value): array
+    {
+        if ($value === null || $value === '') {
+            return [];
+        }
+        return array_values(array_filter(
+            array_map(static fn ($v) => (string) $v, (array) $value),
+            static fn (string $s) => $s !== '',
+        ));
+    }
+
+    /**
+     * Enumerate user-account usernames from the accounts storage directory.
+     * Mirrors UsersController's listing without depending on its private API.
+     *
+     * @return list<string>
+     */
+    private function getAccountUsernames(): array
+    {
+        $locator = $this->grav['locator'];
+        $dir = $locator->findResource('account://', true) ?: $locator->findResource('user://accounts', true);
+        if (!$dir || !is_dir($dir)) {
+            return [];
+        }
+
+        $usernames = [];
+        foreach (new \DirectoryIterator($dir) as $file) {
+            if ($file->isDot() || !$file->isFile() || $file->getExtension() !== 'yaml') {
+                continue;
+            }
+            $usernames[] = $file->getBasename('.yaml');
+        }
+        sort($usernames);
+
+        return $usernames;
+    }
+
+    /**
+     * Build the Page Access dropdown options from the registered ACL actions,
+     * e.g. `admin.login` → "Login to Admin (admin.login)". Mirrors the
+     * `data_type: access` option list in admin-classic's acl_picker.
+     *
+     * @return array<string, string> value => label, insertion order preserved
+     */
+    private function buildAccessActionOptions(): array
+    {
+        $options = [];
+        try {
+            $permissions = $this->grav['permissions'] ?? null;
+            if ($permissions && method_exists($permissions, 'getInstances')) {
+                foreach ($permissions->getInstances() as $action) {
+                    $name = $action->name ?? null;
+                    if (!$name || ($action->visible ?? true) === false) {
+                        continue;
+                    }
+                    // Short label only — the picker shows the dotted action
+                    // name (the option value) as secondary text and derives the
+                    // tree nesting from it.
+                    $options[(string) $name] = $this->translateLabel($action->label ?? $name);
+                }
+            }
+        } catch (Throwable) {
+            // Fall through with whatever was collected.
+        }
+
+        return $options;
+    }
+
+    /**
+     * Build the Page Groups dropdown options: every user group plus the two
+     * special ACL targets that grav-core understands for pages. Mirrors the
+     * `data_type: permissions` option list in admin-classic's acl_picker.
+     *
+     * @return array<string, string> value => label, insertion order preserved
+     */
+    private function buildGroupOptions(): array
+    {
+        $options = [];
+
+        try {
+            $flex = $this->grav['flex'] ?? $this->grav['flex_objects'] ?? null;
+            $directory = $flex && method_exists($flex, 'getDirectory') ? $flex->getDirectory('user-groups') : null;
+            if ($directory) {
+                foreach ($directory->getCollection() as $key => $group) {
+                    $name = (is_object($group) && method_exists($group, 'get') ? $group->get('groupname') : null) ?: (string) $key;
+                    $label = (is_object($group) && method_exists($group, 'get') ? $group->get('readableName') : null) ?: $name;
+                    $options[(string) $name] = (string) $label;
+                }
+            }
+        } catch (Throwable) {
+            // Fall through to config-based enumeration.
+        }
+
+        if (!$options) {
+            foreach ((array) $this->grav['config']->get('groups', []) as $name => $group) {
+                $label = is_array($group) ? ($group['readableName'] ?? $name) : $name;
+                $options[(string) $name] = (string) $label;
+            }
+        }
+
+        // Special ACL targets understood by grav-core for page permissions.
+        $options['authors'] = $this->translateLabel('PLUGIN_ADMIN.PAGE_AUTHORS') . ' (Special)';
+        $options['defaults'] = 'Default ACL (Special)';
+
+        return $options;
     }
 
     /**
@@ -768,6 +1232,15 @@ class BlueprintController extends AbstractApiController
 
             $type = $field['type'] ?? null;
             $fieldPath = $prefix ? "{$prefix}.{$name}" : $name;
+
+            // `users` field type: a reusable, permission-filtered user picker.
+            // Resolve its dropdown options from the field's own `access:` /
+            // `groups:` config so any blueprint can drop one in without extra
+            // server code. Stuffing the options back onto $field lets the
+            // normal options pipeline (translate + assoc→array) handle them.
+            if ($type === 'users') {
+                $field['options'] = $this->resolveUserFieldOptions($field);
+            }
 
             $serialized = [
                 'name' => $fieldPath,
