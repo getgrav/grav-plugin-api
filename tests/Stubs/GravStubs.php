@@ -569,8 +569,9 @@ namespace Grav\Common\GPM {
 namespace Grav\Common {
     if (!class_exists(\Grav\Common\Utils::class, false)) {
         /**
-         * Minimal Utils stub. Currently only arrayFlattenDotNotation() is
-         * exercised by unit tests (via PermissionResolver).
+         * Minimal Utils stub. Exercised by unit tests via PermissionResolver
+         * (arrayFlattenDotNotation) and UsersController's permission filtering
+         * (isPositive).
          */
         class Utils
         {
@@ -585,6 +586,11 @@ namespace Grav\Common {
                     }
                 }
                 return $results;
+            }
+
+            public static function isPositive($value): bool
+            {
+                return in_array($value, [true, 1, '1', 'yes', 'on', 'true'], true);
             }
         }
     }

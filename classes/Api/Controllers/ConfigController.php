@@ -262,6 +262,13 @@ class ConfigController extends AbstractApiController
             $merged = is_array($existing) ? $this->mergePatch($existing, $body) : $body;
         }
 
+        // Validate the submitted fields against the blueprint before persisting
+        // (getgrav/grav-plugin-admin2#30). A `validate.required` field sent
+        // empty now returns 422 instead of silently saving. We validate the
+        // delta, not the merged whole — see validateChangedFields() for why
+        // (stock Grav config doesn't pass a whole-object validate).
+        $this->validateChangedFields($body, $blueprint);
+
         $obj = new Data($merged, $blueprint);
         $obj->filter(true, true);
 

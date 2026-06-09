@@ -391,6 +391,9 @@ class PagesController extends AbstractApiController
                 // Allow plugins to modify the page before save (e.g. SEO Magic, mega-frontmatter)
                 $this->fireAdminEvent('onAdminSave', ['object' => &$page, 'page' => &$page]);
 
+                // Validate the submitted page fields against the blueprint (admin2#30).
+                $this->validatePageChanges($page, ['header' => $header, 'content' => $content]);
+
                 $page->save();
             }
 
@@ -479,13 +482,13 @@ class PagesController extends AbstractApiController
             }
 
             if (array_key_exists('title', $body)) {
-                $header = (array) $page->header();
+                $header = $this->headerToArray($page->header());
                 $header['title'] = $body['title'];
                 $page->header((object) $header);
             }
 
             if (array_key_exists('header', $body)) {
-                $existing = (array) $page->header();
+                $existing = $this->headerToArray($page->header());
                 $merged = $this->mergePatch($existing, $body['header']);
                 // Strip null values — toggleable fields send null to signal removal
                 $merged = $this->stripNullValues($merged);
@@ -511,7 +514,7 @@ class PagesController extends AbstractApiController
             }
 
             if (array_key_exists('published', $body)) {
-                $header = (array) $page->header();
+                $header = $this->headerToArray($page->header());
                 $header['published'] = (bool) $body['published'];
                 $page->header((object) $header);
                 // Legacy Page caches $this->published at init and doesn't
@@ -522,7 +525,7 @@ class PagesController extends AbstractApiController
             }
 
             if (array_key_exists('visible', $body)) {
-                $header = (array) $page->header();
+                $header = $this->headerToArray($page->header());
                 $header['visible'] = (bool) $body['visible'];
                 $page->header((object) $header);
                 $page->visible((bool) $body['visible']);
@@ -530,6 +533,11 @@ class PagesController extends AbstractApiController
 
             // Allow plugins to modify the page before save
             $this->fireAdminEvent('onAdminSave', ['object' => &$page, 'page' => &$page]);
+
+            // Validate the submitted page fields against the blueprint before
+            // writing to disk (admin2#30) — a required field sent empty now
+            // returns 422 instead of saving silently.
+            $this->validatePageChanges($page, $body);
 
             $page->save();
 
@@ -809,7 +817,7 @@ class PagesController extends AbstractApiController
 
         $title = $body['title'] ?? $page->title();
         $content = $body['content'] ?? $page->rawMarkdown();
-        $header = $body['header'] ?? (array) $page->header();
+        $header = $body['header'] ?? $this->headerToArray($page->header());
 
         // Ensure title is set
         $header = array_merge(['title' => $title], is_array($header) ? $header : []);
@@ -1054,7 +1062,7 @@ class PagesController extends AbstractApiController
             }
 
             $sourceContent = $sourcePage->rawMarkdown();
-            $sourceHeader = (array) $sourcePage->header();
+            $sourceHeader = $this->headerToArray($sourcePage->header());
 
             // Load the target page
             $language->setActive($targetLang);
@@ -1150,7 +1158,7 @@ class PagesController extends AbstractApiController
                     'exists' => isset($translated[$sourceLang]),
                     'title' => $sourcePage->title(),
                     'content' => $sourcePage->rawMarkdown(),
-                    'header' => (array) $sourcePage->header(),
+                    'header' => $this->headerToArray($sourcePage->header()),
                     'modified' => $sourcePage->modified() ? date('c', $sourcePage->modified()) : null,
                 ];
             }
@@ -1168,7 +1176,7 @@ class PagesController extends AbstractApiController
                     'exists' => isset($translated[$targetLang]),
                     'title' => $targetPage->title(),
                     'content' => $targetPage->rawMarkdown(),
-                    'header' => (array) $targetPage->header(),
+                    'header' => $this->headerToArray($targetPage->header()),
                     'modified' => $targetPage->modified() ? date('c', $targetPage->modified()) : null,
                 ];
             }
@@ -1730,7 +1738,10 @@ class PagesController extends AbstractApiController
                 'visible' => $page->visible() === filter_var($value, FILTER_VALIDATE_BOOLEAN),
                 'parent' => str_starts_with($page->route(), '/' . trim($value, '/')),
                 'children_of' => $this->isDirectChildOf($page, $value),
-                'root' => filter_var($value, FILTER_VALIDATE_BOOLEAN) && substr_count(trim($page->route(), '/'), '/') === 0,
+                // Root-level = direct child of the pages-root, resolved from the
+                // real hierarchy (see isDirectChildOf) so home-page children
+                // aren't mistaken for top-level pages.
+                'root' => filter_var($value, FILTER_VALIDATE_BOOLEAN) && $this->isDirectChildOf($page, '/'),
                 default => true,
             };
 
@@ -1744,25 +1755,38 @@ class PagesController extends AbstractApiController
 
     /**
      * Check if a page is a direct child of the given parent route.
-     * Direct child = parent route + one slug segment, no deeper.
+     *
+     * Resolves the relationship from Grav's real page hierarchy
+     * ($page->parent()) rather than by string-matching the public route. The
+     * home page's children have the home segment stripped from their public
+     * route (e.g. '/child' instead of '/home/child' when home.hide_in_urls is
+     * on), so a route-string comparison wrongly lists them as children of root
+     * — the cause of the tree/columns hierarchy bug
+     * (getgrav/grav-plugin-admin2#32). Comparing against the actual parent
+     * page, like admin-classic's tree does, keeps the hierarchy correct.
      */
     private function isDirectChildOf(PageInterface $page, string $parentValue): bool
     {
-        $parentRoute = '/' . trim($parentValue, '/');
-        $pageRoute = $page->route();
-
-        if ($parentRoute === '/') {
-            // Root children: routes like /home, /blog (one segment only)
-            return substr_count(trim($pageRoute, '/'), '/') === 0;
-        }
-
-        // Must start with parent route + / and have exactly one more segment
-        if (!str_starts_with($pageRoute, $parentRoute . '/')) {
+        $parent = $page->parent();
+        if ($parent === null) {
+            // The virtual pages-root itself has no parent; it's nobody's child.
             return false;
         }
 
-        $remainder = substr($pageRoute, strlen($parentRoute) + 1);
-        return !str_contains($remainder, '/');
+        $parentRoute = '/' . trim($parentValue, '/');
+
+        if ($parentRoute === '/') {
+            // Direct child of root: the page's parent IS the pages-root. This
+            // correctly excludes children of the home page (whose parent is the
+            // home page, a real page), which would otherwise leak into root.
+            return $parent->root();
+        }
+
+        // Match the real parent by its structural route first (the home page's
+        // public route is '/', but its rawRoute is e.g. '/home'), then fall
+        // back to the public route for everything else.
+        return $parentRoute === $parent->rawRoute()
+            || $parentRoute === $parent->route();
     }
 
     private function indexViaDefaultSort(ServerRequestInterface $request, string $parentRoute, array $filters, array $pagination): ResponseInterface
@@ -1778,7 +1802,9 @@ class PagesController extends AbstractApiController
                 if (!$page instanceof PageInterface) {
                     continue;
                 }
-                if ($page->route() === $childRoute) {
+                // Match by rawRoute too: the home page's public route is '/'
+                // while the frontend asks for its structural route (e.g. '/home').
+                if ($page->route() === $childRoute || $page->rawRoute() === $childRoute) {
                     $parent = $page;
                 }
                 if ($this->isDirectChildOf($page, $filters['children_of'])) {
@@ -1945,7 +1971,7 @@ class PagesController extends AbstractApiController
      */
     private function batchPublish(PageInterface $page, bool $published): void
     {
-        $header = (array) $page->header();
+        $header = $this->headerToArray($page->header());
         $header['published'] = $published;
         $page->header((object) $header);
         $page->save();
@@ -2208,6 +2234,65 @@ class PagesController extends AbstractApiController
     }
 
     /**
+     * Convert a page header into a plain array.
+     *
+     * Flex pages (Grav's default since 1.7) return a Header/Data object from
+     * header(), not a stdClass. Casting that object with (array) leaks its
+     * protected properties as NUL-prefixed keys ("\0*\0items",
+     * "\0*\0nestedSeparator"), which then get merged back in and persisted into
+     * the frontmatter — corrupting the file a little more on every save (see
+     * grav-plugin-admin2#31, triggered by Expert-mode frontmatter edits).
+     *
+     * Going through JSON invokes the object's jsonSerialize() and yields the
+     * clean field keys, matching how PageSerializer reads headers. Legacy pages
+     * (stdClass header) and already-plain arrays round-trip cleanly too.
+     *
+     * @param object|array|null $header
+     * @return array
+     */
+    private function headerToArray($header): array
+    {
+        if ($header === null) {
+            return [];
+        }
+        if (is_array($header)) {
+            return $header;
+        }
+        return json_decode(json_encode($header), true) ?: [];
+    }
+
+    /**
+     * Validate the submitted page fields against the page blueprint.
+     *
+     * Page blueprints name their fields `header.*` (plus `content`, `slug`,
+     * `folder`), so we re-key the incoming body into that shape and let
+     * validateChangedFields() flatten + check only what was submitted. A flat
+     * `title` in the body maps to `header.title`.
+     *
+     * @param object $page  The page being saved (legacy Page or Flex PageObject).
+     * @param array  $body  The request body / built create payload.
+     */
+    private function validatePageChanges(object $page, array $body): void
+    {
+        if (!method_exists($page, 'getBlueprint')) {
+            return;
+        }
+
+        $changes = [];
+        if (array_key_exists('header', $body) && is_array($body['header'])) {
+            $changes['header'] = $body['header'];
+        }
+        if (array_key_exists('title', $body)) {
+            $changes['header']['title'] = $body['title'];
+        }
+        if (array_key_exists('content', $body)) {
+            $changes['content'] = $body['content'];
+        }
+
+        $this->validateChangedFields($changes, $page->getBlueprint());
+    }
+
+    /**
      * Recursively strip null values from an array.
      * Used to remove header fields that were toggled off (sent as null).
      */
@@ -2244,7 +2329,7 @@ class PagesController extends AbstractApiController
     {
         $existingTwig = false;
         if ($existingPage !== null) {
-            $existingHeader = (array) $existingPage->header();
+            $existingHeader = $this->headerToArray($existingPage->header());
             $existingTwig = (bool) (($existingHeader['process']['twig'] ?? false));
         }
 

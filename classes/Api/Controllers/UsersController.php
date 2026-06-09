@@ -8,6 +8,7 @@ use Grav\Common\User\Authentication;
 use Grav\Common\User\DataUser\User as DataUser;
 use Grav\Common\User\Interfaces\UserCollectionInterface;
 use Grav\Common\User\Interfaces\UserInterface;
+use Grav\Common\Utils;
 use Grav\Framework\Flex\FlexDirectory;
 use Grav\Plugin\Api\Auth\ApiKeyManager;
 use Grav\Plugin\Api\Exceptions\ConflictException;
@@ -73,6 +74,7 @@ class UsersController extends AbstractApiController
         $pagination = $this->getPagination($request);
         $query = $request->getQueryParams();
         $search = $query['search'] ?? null;
+        $filters = $this->getListFilters($request);
 
         // Grav's Flex FileStorage indexes every file in user/accounts/ without
         // filtering by extension — any stray file left there by another plugin
@@ -103,12 +105,34 @@ class UsersController extends AbstractApiController
         // Sort by username by default
         $collection = $collection->sort(['username' => 'asc']);
 
-        $total = $collection->count();
-        $slice = $collection->slice($pagination['offset'], $pagination['limit']);
+        if ($filters['access'] === '' && $filters['group'] === '') {
+            // No permission/group filter — keep the lazy, indexed fast path that
+            // only materializes the requested page.
+            $total = $collection->count();
+            $slice = $collection->slice($pagination['offset'], $pagination['limit']);
 
-        $data = [];
-        foreach ($slice as $flexUser) {
-            if ($flexUser instanceof UserInterface) {
+            $data = [];
+            foreach ($slice as $flexUser) {
+                if ($flexUser instanceof UserInterface) {
+                    $data[] = $this->serializeUser($flexUser);
+                }
+            }
+        } else {
+            // Permission/group filtering can't be expressed as an indexed query
+            // (it depends on effective access, including group inheritance and
+            // the superuser fallback), so materialize the ordered users and
+            // filter in PHP before paginating. Search above already narrowed
+            // the set.
+            $users = [];
+            foreach ($collection as $flexUser) {
+                if ($flexUser instanceof UserInterface && $this->userMatchesFilters($flexUser, $filters)) {
+                    $users[] = $flexUser;
+                }
+            }
+
+            $total = count($users);
+            $data = [];
+            foreach (array_slice($users, $pagination['offset'], $pagination['limit']) as $flexUser) {
                 $data[] = $this->serializeUser($flexUser);
             }
         }
@@ -128,13 +152,23 @@ class UsersController extends AbstractApiController
     private function indexViaAccounts(ServerRequestInterface $request): ResponseInterface
     {
         $pagination = $this->getPagination($request);
+        $query = $request->getQueryParams();
+        $search = isset($query['search']) ? trim((string) $query['search']) : '';
+        $filters = $this->getListFilters($request);
 
         $allUsers = [];
         foreach ($this->getAllUsernames() as $username) {
             $user = $this->grav['accounts']->load($username);
-            if ($user->exists()) {
-                $allUsers[] = $this->serializeUser($user);
+            if (!$user->exists()) {
+                continue;
             }
+            if ($search !== '' && !$this->userMatchesSearch($user, $search)) {
+                continue;
+            }
+            if (!$this->userMatchesFilters($user, $filters)) {
+                continue;
+            }
+            $allUsers[] = $this->serializeUser($user);
         }
 
         $total = count($allUsers);
@@ -222,8 +256,19 @@ class UsersController extends AbstractApiController
             $user->set('access', $body['access']);
         }
 
+        // `groups` is super-admin-only (see update()): group membership can grant
+        // access, so a non-super creator must not seed group assignments.
+        if (isset($body['groups']) && $this->isSuperAdmin($this->getUser($request))) {
+            $user->set('groups', $body['groups']);
+        }
+
         // Allow plugins to modify the user before save
         $this->fireAdminEvent('onAdminSave', ['object' => &$user]);
+
+        // Validate the submitted fields against the account blueprint before
+        // writing to disk (admin2#30) — e.g. a password that fails the
+        // configured pwd_regex, or a required field sent empty, now returns 422.
+        $this->validateChangedFields($body, method_exists($user, 'getBlueprint') ? $user->getBlueprint() : null);
 
         $user->save();
 
@@ -269,6 +314,11 @@ class UsersController extends AbstractApiController
         // itself api.super / admin.super — see GHSA-r945-h4vm-h736.
         $selfFields  = ['email', 'fullname', 'title', 'language', 'content_editor', 'twofa_enabled'];
         $adminFields = ['state', 'access'];
+        // `groups` is marked `security@: admin.super` in the account blueprint:
+        // group membership can confer access, so only super admins may change it
+        // — a plain api.users.write manager must not assign users into groups.
+        $superFields = ['groups'];
+        $isSuper = $this->isSuperAdmin($currentUser);
 
         if (!$canManageUsers) {
             foreach ($adminFields as $field) {
@@ -280,7 +330,23 @@ class UsersController extends AbstractApiController
             }
         }
 
-        $allowedFields = $canManageUsers ? array_merge($selfFields, $adminFields) : $selfFields;
+        if (!$isSuper) {
+            foreach ($superFields as $field) {
+                if (array_key_exists($field, $body)) {
+                    throw new ForbiddenException(
+                        "Modifying '{$field}' requires super-admin privileges."
+                    );
+                }
+            }
+        }
+
+        $allowedFields = $selfFields;
+        if ($canManageUsers) {
+            $allowedFields = array_merge($allowedFields, $adminFields);
+        }
+        if ($isSuper) {
+            $allowedFields = array_merge($allowedFields, $superFields);
+        }
         foreach ($allowedFields as $field) {
             if (array_key_exists($field, $body)) {
                 $user->set($field, $body[$field]);
@@ -296,6 +362,10 @@ class UsersController extends AbstractApiController
 
         // Allow plugins to modify the user before save
         $this->fireAdminEvent('onAdminSave', ['object' => &$user]);
+
+        // Validate the submitted fields against the account blueprint before
+        // writing to disk (admin2#30).
+        $this->validateChangedFields($body, method_exists($user, 'getBlueprint') ? $user->getBlueprint() : null);
 
         $user->save();
 
@@ -691,6 +761,143 @@ class UsersController extends AbstractApiController
     private function serializeUser(UserInterface $user): array
     {
         return $this->getSerializer()->serialize($user);
+    }
+
+    /**
+     * Extract the access/group list filters from the request query string.
+     *
+     * `access` is the canonical permission filter (e.g. `admin.login`,
+     * `api.super`); `permission` is accepted as an alias. `group` filters by
+     * group membership.
+     *
+     * @return array{access: string, group: string}
+     */
+    private function getListFilters(ServerRequestInterface $request): array
+    {
+        $query = $request->getQueryParams();
+        $access = $query['access'] ?? $query['permission'] ?? '';
+        $group = $query['group'] ?? '';
+
+        return [
+            'access' => is_string($access) ? trim($access) : '',
+            'group' => is_string($group) ? trim($group) : '',
+        ];
+    }
+
+    /**
+     * @param array{access: string, group: string} $filters
+     */
+    private function userMatchesFilters(UserInterface $user, array $filters): bool
+    {
+        if ($filters['group'] !== '') {
+            $groups = array_map('strval', (array) $user->get('groups', []));
+            if (!in_array($filters['group'], $groups, true)) {
+                return false;
+            }
+        }
+
+        if ($filters['access'] !== '' && !$this->userHasEffectiveAccess($user, $filters['access'])) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Test whether a user is effectively granted a permission, independent of
+     * login state (so it works against accounts loaded from storage).
+     *
+     * Resolves the action against the merged access map (group access overlaid
+     * by the user's own access) with parent-key inheritance — `api.pages`
+     * covers `api.pages.read` — and treats super admins (api.super or the
+     * legacy admin.super) as authorized for everything, so "find all admins"
+     * catches either authority.
+     */
+    private function userHasEffectiveAccess(UserInterface $user, string $action): bool
+    {
+        if ($action === '') {
+            return true;
+        }
+
+        $flat = $this->effectiveAccessMap($user);
+
+        if ($action !== 'admin.super' && $action !== 'api.super') {
+            if ($this->isPositiveFlat($flat, 'api.super') || $this->isPositiveFlat($flat, 'admin.super')) {
+                return true;
+            }
+        }
+
+        // Walk up the dot-path; the closest explicitly-set key wins.
+        $key = $action;
+        while ($key !== '') {
+            if (array_key_exists($key, $flat)) {
+                return Utils::isPositive($flat[$key]);
+            }
+            $pos = strrpos($key, '.');
+            $key = $pos !== false ? substr($key, 0, $pos) : '';
+        }
+
+        return false;
+    }
+
+    /**
+     * Build a flattened (dot-notation) access map for the user: each group's
+     * access first, then the user's own access on top so direct grants
+     * override inherited ones.
+     *
+     * @return array<string, mixed>
+     */
+    private function effectiveAccessMap(UserInterface $user): array
+    {
+        $map = [];
+
+        foreach ((array) $user->get('groups', []) as $group) {
+            if (!is_string($group)) {
+                continue;
+            }
+            $groupAccess = $this->config->get("groups.{$group}.access");
+            if (is_array($groupAccess)) {
+                $map = array_merge($map, Utils::arrayFlattenDotNotation($groupAccess));
+            }
+        }
+
+        $own = $user->get('access');
+        if (is_array($own)) {
+            $map = array_merge($map, Utils::arrayFlattenDotNotation($own));
+        }
+
+        return $map;
+    }
+
+    /**
+     * @param array<string, mixed> $flat
+     */
+    private function isPositiveFlat(array $flat, string $key): bool
+    {
+        return array_key_exists($key, $flat) && Utils::isPositive($flat[$key]);
+    }
+
+    /**
+     * Case-insensitive substring match across the searchable user fields,
+     * mirroring the Flex backend's blueprint-configured search.
+     */
+    private function userMatchesSearch(UserInterface $user, string $search): bool
+    {
+        $needle = mb_strtolower($search);
+        $haystacks = [
+            (string) $user->username,
+            (string) $user->get('email', ''),
+            (string) $user->get('fullname', ''),
+            (string) $user->get('title', ''),
+        ];
+
+        foreach ($haystacks as $value) {
+            if ($value !== '' && str_contains(mb_strtolower($value), $needle)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function getSerializer(): UserSerializer

@@ -30,6 +30,12 @@ class GpmService
     /** @var GravGPM|null */
     protected static ?GravGPM $GPM = null;
 
+    /** @var string|null Raw installer error captured during the last selfupgrade(). */
+    protected static ?string $lastError = null;
+
+    /** @var array<string, mixed>|null Preflight report captured during the last selfupgrade(). */
+    protected static ?array $lastPreflightReport = null;
+
     /**
      * Default options for install operations.
      *
@@ -294,18 +300,25 @@ class GpmService
     /**
      * Self-upgrade Grav core to the latest release.
      *
+     * @param array<string, mixed> $options Supported: 'override' (bool) to bypass
+     *                                       blocking preflight checks, mirroring the CLI.
      * @return bool
      */
-    public static function selfupgrade(): bool
+    public static function selfupgrade(array $options = []): bool
     {
+        static::$lastError = null;
+        static::$lastPreflightReport = null;
+
         $upgrader = new Upgrader();
 
         if (!Installer::isGravInstance(GRAV_ROOT)) {
+            static::$lastError = 'Target directory is not a valid Grav instance.';
             return false;
         }
 
         if (is_link(GRAV_ROOT . DS . 'index.php')) {
             Installer::setError(Installer::IS_LINK);
+            static::$lastError = 'Cannot self-upgrade: index.php is a symlink.';
             return false;
         }
 
@@ -317,6 +330,11 @@ class GpmService
             $error[] = 'You are currently running PHP <strong>' . phpversion() . '</strong>';
             $error[] = ', but PHP <strong>' . $upgrader->minPHPVersion() . '</strong> is required.</p>';
             Installer::setError(implode("\n", $error));
+            static::$lastError = sprintf(
+                'PHP %s or higher is required; this server runs PHP %s.',
+                $upgrader->minPHPVersion(),
+                phpversion()
+            );
             return false;
         }
 
@@ -326,13 +344,39 @@ class GpmService
         $file = static::downloadSelfupgrade($update, $tmp);
         $folder = Installer::unZip($file, $tmp . '/zip');
 
-        static::upgradeGrav($file, $folder, false);
+        static::upgradeGrav($file, $folder, false, $options);
 
         $errorCode = Installer::lastErrorCode();
 
         Folder::delete($tmp);
 
-        return !(is_string($errorCode) || ($errorCode & (Installer::ZIP_OPEN_ERROR | Installer::ZIP_EXTRACT_ERROR)));
+        $success = !(is_string($errorCode) || ($errorCode & (Installer::ZIP_OPEN_ERROR | Installer::ZIP_EXTRACT_ERROR)));
+
+        // Capture the real reason so the controller can surface it instead of a generic 500.
+        if (!$success && null === static::$lastError) {
+            $msg = Installer::lastErrorMsg();
+            static::$lastError = ('' !== $msg && 'No Error' !== $msg) ? $msg : 'Failed to upgrade Grav core.';
+        }
+
+        return $success;
+    }
+
+    /**
+     * The raw installer error from the last selfupgrade() attempt, if any.
+     */
+    public static function getLastError(): ?string
+    {
+        return static::$lastError;
+    }
+
+    /**
+     * The preflight report from the last selfupgrade() attempt, if one was generated.
+     *
+     * @return array<string, mixed>|null
+     */
+    public static function getLastPreflightReport(): ?array
+    {
+        return static::$lastPreflightReport;
     }
 
     /**
@@ -388,7 +432,7 @@ class GpmService
     /**
      * Run the Grav core upgrade install script against an extracted zip.
      */
-    private static function upgradeGrav(string $zip, string $folder, bool $keepFolder = false): void
+    private static function upgradeGrav(string $zip, string $folder, bool $keepFolder = false, array $options = []): void
     {
         static $ignores = [
             'backup',
@@ -403,11 +447,38 @@ class GpmService
 
         if (!is_dir($folder)) {
             Installer::setError('Invalid source folder');
+            return;
         }
 
         try {
             $script = $folder . '/system/install.php';
             if ((file_exists($script) && $install = include $script) && is_callable($install)) {
+                // Preflight parity with `bin/gpm self-upgrade`: inspect the blocking checks
+                // and honor an explicit override, rather than failing with an opaque error.
+                if (is_object($install) && method_exists($install, 'generatePreflightReport')) {
+                    $report = $install->generatePreflightReport();
+                    static::$lastPreflightReport = $report;
+
+                    if (!empty($report['blocking'] ?? [])) {
+                        if (!empty($options['override'])) {
+                            if (method_exists($install, 'allowIncompatibleOverride')) {
+                                $install::allowIncompatibleOverride(true);
+                            }
+                            if (method_exists($install, 'allowPendingOverride')) {
+                                $install::allowPendingOverride(true);
+                            }
+                            // Recompute so install() reuses an unblocked, cached report.
+                            $report = $install->generatePreflightReport();
+                            static::$lastPreflightReport = $report;
+                        }
+
+                        if (!empty($report['blocking'] ?? [])) {
+                            Installer::setError('Upgrade preflight checks failed.');
+                            return;
+                        }
+                    }
+                }
+
                 $install($zip);
             } else {
                 Installer::install(
@@ -420,8 +491,9 @@ class GpmService
 
                 Cache::clearCache();
             }
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             Installer::setError($e->getMessage());
+            static::$lastError = $e->getMessage();
         }
     }
 

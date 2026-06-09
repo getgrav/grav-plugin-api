@@ -51,6 +51,9 @@ class AdminProxy
     /** @var string[] Enabled languages */
     public array $languages_enabled = [];
 
+    /** @var array<int, array{message: string, scope: string}> Queued temp messages */
+    public array $temp_messages = [];
+
     private Grav $grav;
     private ?Blueprints $blueprintsLoader = null;
 
@@ -199,6 +202,66 @@ class AdminProxy
         }
 
         return $lookup;
+    }
+
+    /**
+     * Add a flash message to the session queue.
+     *
+     * Mirrors Admin::setMessage(). Admin-aware plugins routinely call this from
+     * onAdminSave/onAdminAfterSave handlers (e.g. to report generated image
+     * derivatives). The core `messages` service always resolves — returning a
+     * transient Messages instance when there's no active session — so queuing
+     * here is harmless under the API and simply discarded after the request.
+     *
+     * @param string $msg
+     * @param string $type
+     * @return void
+     */
+    public function setMessage($msg, $type = 'info'): void
+    {
+        $messages = $this->grav['messages'];
+        $messages->add($msg, $type);
+    }
+
+    /**
+     * Fetch and clear messages from the session queue.
+     *
+     * Mirrors Admin::messages().
+     *
+     * @param string|null $type
+     * @return array
+     */
+    public function messages($type = null): array
+    {
+        $messages = $this->grav['messages'];
+
+        return $messages->fetch($type);
+    }
+
+    /**
+     * Queue a temporary message.
+     *
+     * Mirrors Admin::addTempMessage().
+     *
+     * @param string $msg
+     * @param string $type
+     * @return void
+     */
+    public function addTempMessage($msg, $type): void
+    {
+        $this->temp_messages[] = ['message' => $msg, 'scope' => $type];
+    }
+
+    /**
+     * Return queued temporary messages.
+     *
+     * Mirrors Admin::getTempMessages().
+     *
+     * @return array
+     */
+    public function getTempMessages(): array
+    {
+        return $this->temp_messages;
     }
 
     /**

@@ -22,6 +22,10 @@ class UserSerializer implements SerializerInterface
             'language' => $resource->get('language', ''),
             'content_editor' => $resource->get('content_editor', ''),
             'access' => $resource->get('access', []),
+            'groups' => array_values(array_filter(
+                (array) $resource->get('groups', []),
+                'is_string',
+            )),
             'avatar_url' => self::resolveAvatarUrl($resource),
             'twofa_enabled' => (bool) $resource->get('twofa_enabled', false),
             'twofa_secret' => $resource->get('twofa_secret') ? true : false,

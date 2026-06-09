@@ -1,3 +1,21 @@
+# v1.0.0-rc.14
+## 06/09/2026
+
+1. [](#new)
+    * The page editor now includes a Security tab for setting page access and permissions, matching the classic admin, with the permissions section limited to users who hold API super or configuration rights.
+    * Page Authors is now a searchable multiselect of the users who can edit pages, instead of free-text username entry.
+    * The users API can now filter accounts by permission or group, so the admin can list everyone who holds a given permission such as admin access.
+    * The user listing now includes each account's group memberships.
+2. [](#improved)
+    * A failed Grav core upgrade now reports the real reason and records it in the log, instead of a generic "Failed to upgrade Grav core" message.
+    * A Grav core upgrade blocked by a compatibility check now lists the packages responsible and can be retried with an explicit override, matching the command-line upgrader.
+    * Saving config, pages or accounts now validates the submitted fields against the blueprint, so a required field left empty or an invalid value is rejected instead of silently saved ([getgrav/grav-plugin-admin2#30](https://github.com/getgrav/grav-plugin-admin2/issues/30)).
+    * Media upload handling is now shared, so other plugins such as Flex Objects can let you attach files to their own records.
+3. [](#bugfix)
+    * Saving a page no longer corrupts its frontmatter with stray internal keys, which previously accumulated on every save when editing in Expert mode ([getgrav/grav-plugin-admin2#31](https://github.com/getgrav/grav-plugin-admin2/issues/31)).
+    * Saving a page through the API no longer fails when an admin-aware plugin posts a flash message from its save handler ([#5](https://github.com/getgrav/grav-plugin-api/issues/5)).
+    * Pages under the home page now appear nested beneath it in the tree and columns views, instead of being listed at the top level ([getgrav/grav-plugin-admin2#32](https://github.com/getgrav/grav-plugin-admin2/issues/32)).
+
 # v1.0.0-rc.13
 ## 06/04/2026
 
