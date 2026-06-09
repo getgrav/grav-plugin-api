@@ -9,18 +9,12 @@ use Grav\Framework\Psr7\Response;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
-use Grav\Plugin\Api\Serializers\MediaSerializer;
-use Grav\Plugin\Api\Services\ThumbnailService;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
-use Psr\Http\Message\UploadedFileInterface;
 
 class MediaController extends AbstractApiController
 {
-    private ?MediaSerializer $serializer = null;
-
-    /** Maximum upload size: 64 MB */
-    private const int MAX_UPLOAD_SIZE = 67_108_864;
+    use HandlesMediaUploads;
 
     /**
      * GET /pages/{route}/media - List all media for a page.
@@ -527,22 +521,6 @@ class MediaController extends AbstractApiController
         );
     }
 
-    private function getThumbnailService(): ThumbnailService
-    {
-        $cacheDir = $this->grav['locator']->findResource('cache://') . '/api/thumbnails';
-        return new ThumbnailService($cacheDir);
-    }
-
-    private function getSerializer(): MediaSerializer
-    {
-        if (!$this->serializer) {
-            $thumbnailService = $this->getThumbnailService();
-            $baseUrl = $this->getApiBaseUrl();
-            $this->serializer = new MediaSerializer($thumbnailService, $baseUrl);
-        }
-        return $this->serializer;
-    }
-
     /**
      * Resolve a page from the route parameter or throw a 404.
      */
@@ -568,30 +546,6 @@ class MediaController extends AbstractApiController
         }
 
         return $page;
-    }
-
-    /**
-     * Extract and validate a safe filename from the route parameters.
-     */
-    private function getSafeFilename(ServerRequestInterface $request): string
-    {
-        $filename = $this->getRouteParam($request, 'filename');
-
-        if ($filename === null || $filename === '') {
-            throw new ValidationException('Filename is required.');
-        }
-
-        $filename = basename($filename);
-
-        if (
-            str_contains($filename, '..')
-            || str_contains($filename, "\0")
-            || str_starts_with($filename, '.')
-        ) {
-            throw new ValidationException('Invalid filename.');
-        }
-
-        return $filename;
     }
 
     /**
@@ -694,101 +648,6 @@ class MediaController extends AbstractApiController
         }
 
         return $path;
-    }
-
-    /**
-     * Process a single uploaded file: validate it and move to the target directory.
-     *
-     * Returns the safe filename that was written.
-     */
-    private function processUploadedFile(UploadedFileInterface $file, string $targetDir): string
-    {
-        // Check for upload errors
-        if ($file->getError() !== UPLOAD_ERR_OK) {
-            $message = match ($file->getError()) {
-                UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => 'File exceeds maximum upload size.',
-                UPLOAD_ERR_PARTIAL => 'File was only partially uploaded.',
-                UPLOAD_ERR_NO_FILE => 'No file was uploaded.',
-                UPLOAD_ERR_NO_TMP_DIR => 'Missing temporary folder.',
-                UPLOAD_ERR_CANT_WRITE => 'Failed to write file to disk.',
-                default => 'Unknown upload error.',
-            };
-            throw new ValidationException($message);
-        }
-
-        // Validate file size
-        $size = $file->getSize();
-        if ($size !== null && $size > self::MAX_UPLOAD_SIZE) {
-            throw new ValidationException(
-                sprintf('File exceeds maximum allowed size of %d MB.', self::MAX_UPLOAD_SIZE / 1_048_576)
-            );
-        }
-
-        // Sanitize the filename
-        $originalName = $file->getClientFilename() ?? 'upload';
-        $filename = basename($originalName);
-
-        if (
-            str_contains($filename, '..')
-            || str_contains($filename, "\0")
-            || str_starts_with($filename, '.')
-        ) {
-            throw new ValidationException("Invalid filename: '{$filename}'.");
-        }
-
-        // Validate extension against dangerous extensions list
-        $this->validateFileExtension($filename);
-
-        // Move the file to the target directory
-        $targetPath = $targetDir . '/' . $filename;
-        $file->moveTo($targetPath);
-
-        return $filename;
-    }
-
-    /**
-     * Validate that a filename's extension is not on the dangerous list.
-     */
-    private function validateFileExtension(string $filename): void
-    {
-        $extension = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
-
-        if ($extension === '') {
-            throw new ValidationException('Uploaded file must have a file extension.');
-        }
-
-        $dangerousExtensions = $this->config->get('security.uploads_dangerous_extensions', []);
-
-        // Normalize to lowercase for comparison
-        $dangerousExtensions = array_map('strtolower', $dangerousExtensions);
-
-        if (in_array($extension, $dangerousExtensions, true)) {
-            throw new ValidationException(
-                "File extension '.{$extension}' is not allowed for security reasons."
-            );
-        }
-    }
-
-    /**
-     * Flatten a potentially nested array of uploaded files into a flat list.
-     *
-     * PSR-7 allows uploaded files to be nested (e.g. files[avatar], files[gallery][]).
-     *
-     * @return UploadedFileInterface[]
-     */
-    private function flattenUploadedFiles(array $files): array
-    {
-        $result = [];
-
-        foreach ($files as $file) {
-            if ($file instanceof UploadedFileInterface) {
-                $result[] = $file;
-            } elseif (is_array($file)) {
-                $result = [...$result, ...$this->flattenUploadedFiles($file)];
-            }
-        }
-
-        return $result;
     }
 
     /**
