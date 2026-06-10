@@ -1221,7 +1221,7 @@ class BlueprintController extends AbstractApiController
      * Recursively serialize blueprint fields into a structure
      * suitable for client-side form rendering.
      */
-    protected function serializeFields(array $fields, string $prefix = ''): array
+    protected function serializeFields(array $fields, string $prefix = '', string $parent = ''): array
     {
         $result = [];
 
@@ -1231,7 +1231,19 @@ class BlueprintController extends AbstractApiController
             }
 
             $type = $field['type'] ?? null;
-            $fieldPath = $prefix ? "{$prefix}.{$name}" : $name;
+
+            // Leading-dot relative naming. A child keyed `.optionA` binds under
+            // its container's own name rather than the (transparent) layout
+            // prefix, so `.optionA` inside a section named `header.sectionName`
+            // resolves to `header.sectionName.optionA` and saves nested. This
+            // mirrors core's BlueprintSchema::getFieldKey(); without it the bare
+            // `.optionA` reached the SPA and its values never saved.
+            if (is_string($name) && isset($name[0]) && $name[0] === '.') {
+                $base = $parent !== '' ? $parent : rtrim($prefix, '.');
+                $fieldPath = $base !== '' ? $base . $name : substr($name, 1);
+            } else {
+                $fieldPath = $prefix !== '' ? "{$prefix}.{$name}" : (string) $name;
+            }
 
             // `users` field type: a reusable, permission-filtered user picker.
             // Resolve its dropdown options from the field's own `access:` /
@@ -1330,7 +1342,10 @@ class BlueprintController extends AbstractApiController
                 $layoutTypes = ['tabs', 'tab', 'section', 'fieldset', 'columns', 'column', 'page-exists', 'elements', 'element'];
                 $childPrefix = in_array($type, $layoutTypes, true) ? $prefix : $fieldPath;
 
-                $serialized['fields'] = $this->serializeFields($field['fields'], $childPrefix);
+                // Always pass this field's resolved name as the parent so any
+                // leading-dot children bind under it, even when the container is
+                // a transparent layout type that leaves $childPrefix untouched.
+                $serialized['fields'] = $this->serializeFields($field['fields'], $childPrefix, $fieldPath);
             }
 
             $result[] = $serialized;
