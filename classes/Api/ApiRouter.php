@@ -119,10 +119,31 @@ class ApiRouter extends ProcessorBase
             $publicPrefixes = $this->publicPrefixes;
             $publicExact    = $this->publicExact;
 
-            $isPublic = in_array($routePath, $publicExact, true);
+            // Entries may be method-scoped as "METHOD /path" (e.g. "GET /api/v1/foo/")
+            // so plugins can expose public reads while writes on the same paths
+            // still require authentication. Method-less entries match all methods.
+            $method = $request->getMethod();
+            $matches = static function (string $entry, bool $prefix) use ($method, $routePath): bool {
+                $entryMethod = null;
+                if (str_contains($entry, ' ')) {
+                    [$entryMethod, $entry] = explode(' ', $entry, 2);
+                }
+                if ($entryMethod !== null && strcasecmp($entryMethod, $method) !== 0) {
+                    return false;
+                }
+                return $prefix ? str_starts_with($routePath, $entry) : $routePath === $entry;
+            };
+
+            $isPublic = false;
+            foreach ($publicExact as $entry) {
+                if ($matches($entry, false)) {
+                    $isPublic = true;
+                    break;
+                }
+            }
             if (!$isPublic) {
-                foreach ($publicPrefixes as $pp) {
-                    if (str_starts_with($routePath, $pp)) {
+                foreach ($publicPrefixes as $entry) {
+                    if ($matches($entry, true)) {
                         $isPublic = true;
                         break;
                     }
