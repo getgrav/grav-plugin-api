@@ -3,6 +3,8 @@
 
 1. [](#new)
     * Added a dashboard security endpoint that hands the admin Dashboard a sentinel URL under `user/data`, so it can detect from the browser whether the sensitive `user/` folders are downloadable over the web.
+2. [](#improved)
+    * Public API endpoints now recognize logged-in callers when credentials are provided, returning their richer permission-filtered responses instead of treating everyone as a guest.
 
 # v1.0.0-rc.14
 ## 06/09/2026
