@@ -10,6 +10,7 @@
 3. [](#bugfix)
     * Blueprint fields that use relative dot-naming inside a section (such as `.optionA`) now save their values again, restoring the nested-field behaviour from the classic admin ([getgrav/grav#4120](https://github.com/getgrav/grav/issues/4120)).
     * Pages on a template the current theme doesn't define now fall back to the default page form in the editor instead of showing a blank screen, matching the classic admin.
+    * Toggle and select options whose Yes/No labels were turned into booleans by strict YAML parsing now render as Yes/No again instead of a blank or "true" button ([getgrav/grav-plugin-admin2#36](https://github.com/getgrav/grav-plugin-admin2/issues/36)).
 
 # v1.0.0-rc.14
 ## 06/09/2026

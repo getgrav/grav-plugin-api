@@ -1342,7 +1342,10 @@ class BlueprintController extends AbstractApiController
             if (isset($serialized['options']) && is_array($serialized['options'])) {
                 $ordered = [];
                 foreach ($serialized['options'] as $optKey => $optLabel) {
-                    $ordered[] = ['value' => (string) $optKey, 'label' => $optLabel];
+                    $ordered[] = [
+                        'value' => $this->normalizeOptionScalar($optKey),
+                        'label' => $this->normalizeOptionScalar($optLabel),
+                    ];
                 }
                 $serialized['options'] = $ordered;
             }
@@ -1368,5 +1371,25 @@ class BlueprintController extends AbstractApiController
         }
 
         return $result;
+    }
+
+    /**
+     * Stringify an option key or label for the client.
+     *
+     * With strict YAML (system.strict_mode.yaml_compat: false) Grav parses
+     * blueprints with the native YAML 1.1 parser, which reads unquoted
+     * Yes/No/On/Off/y/n option labels as booleans. Left as booleans they
+     * render as a blank button or a literal "true"; mapping them back to
+     * Yes/No keeps these (Grav 1.7-era) blueprints working without asking
+     * authors — or end users — to quote every label. Option keys are never
+     * booleans (PHP casts bool array keys to 1/0), so they just stringify.
+     */
+    private function normalizeOptionScalar(mixed $value): string
+    {
+        if (is_bool($value)) {
+            return $value ? 'Yes' : 'No';
+        }
+
+        return (string) $value;
     }
 }
