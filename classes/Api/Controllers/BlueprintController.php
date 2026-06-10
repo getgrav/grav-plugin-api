@@ -763,6 +763,22 @@ class BlueprintController extends AbstractApiController
             return null;
         }
 
+        // An orphan template — one with no blueprint of its own, e.g. a page
+        // left on a template that the current theme doesn't define after a
+        // theme switch — resolves to an empty blueprint with no fields. Grav
+        // core only falls back to `default` when the lookup *throws*, which a
+        // missing blueprint file does not: it returns the empty blueprint
+        // instead. Mirror admin-classic and fall back to the default page
+        // blueprint so the editor always shows the standard page form rather
+        // than a blank pane.
+        if (!$blueprint->fields()) {
+            try {
+                $blueprint = $pages->blueprints('default');
+            } catch (\RuntimeException) {
+                return null;
+            }
+        }
+
         $this->injectSecurityTab($blueprint, $user);
 
         return $blueprint;

@@ -1,5 +1,5 @@
 # v1.0.0-rc.15
-## 06/09/2026
+## 06/10/2026
 
 1. [](#new)
     * Added a dashboard security endpoint that hands the admin Dashboard a sentinel URL under `user/data`, so it can detect from the browser whether the sensitive `user/` folders are downloadable over the web.
@@ -8,6 +8,7 @@
     * Plugins can now mark public routes as read-only by method, so browsing stays open while writes on the same paths still require login.
 3. [](#bugfix)
     * Blueprint fields that use relative dot-naming inside a section (such as `.optionA`) now save their values again, restoring the nested-field behaviour from the classic admin ([getgrav/grav#4120](https://github.com/getgrav/grav/issues/4120)).
+    * Pages on a template the current theme doesn't define now fall back to the default page form in the editor instead of showing a blank screen, matching the classic admin.
 
 # v1.0.0-rc.14
 ## 06/09/2026
