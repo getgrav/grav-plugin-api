@@ -95,6 +95,10 @@ class PageSerializer implements SerializerInterface
             // '/home'. Clients editing/finding pages should prefer this.
             'raw_route' => $resource->rawRoute(),
             'slug' => $resource->slug(),
+            // The on-disk folder basename, including any numeric ordering
+            // prefix (e.g. `01.consulting`). `slug` is the prefix-stripped
+            // name; admin UIs need the real folder to show/diagnose ordering.
+            'folder' => $resource->folder(),
             'title' => is_string($headerTitle) && $headerTitle !== '' ? $headerTitle : $resource->title(),
             'menu' => is_string($headerMenu) && $headerMenu !== '' ? $headerMenu : (is_string($headerTitle) && $headerTitle !== '' ? $headerTitle : $resource->menu()),
             'template' => $resource->template(),

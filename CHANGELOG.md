@@ -6,6 +6,7 @@
 2. [](#improved)
     * Public API endpoints now recognize logged-in callers when credentials are provided, returning their richer permission-filtered responses instead of treating everyone as a guest.
     * Plugins can now mark public routes as read-only by method, so browsing stays open while writes on the same paths still require login.
+    * Page responses now include the on-disk folder name, including any numeric ordering prefix, so admin tools can show and diagnose page ordering.
 3. [](#bugfix)
     * Blueprint fields that use relative dot-naming inside a section (such as `.optionA`) now save their values again, restoring the nested-field behaviour from the classic admin ([getgrav/grav#4120](https://github.com/getgrav/grav/issues/4120)).
     * Pages on a template the current theme doesn't define now fall back to the default page form in the editor instead of showing a blank screen, matching the classic admin.
