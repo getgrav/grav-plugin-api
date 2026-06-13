@@ -3,6 +3,7 @@
 
 1. [](#new)
     * Added a dashboard security endpoint that hands the admin Dashboard a sentinel URL under `user/data`, so it can detect from the browser whether the sensitive `user/` folders are downloadable over the web.
+    * Added user preferences for keeping the Markdown editor toolbar pinned while scrolling and for setting a fixed editor height.
 2. [](#improved)
     * Public API endpoints now recognize logged-in callers when credentials are provided, returning their richer permission-filtered responses instead of treating everyone as a guest.
     * Plugins can now mark public routes as read-only by method, so browsing stays open while writes on the same paths still require login.
