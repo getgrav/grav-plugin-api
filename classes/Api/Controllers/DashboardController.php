@@ -8,6 +8,7 @@ use Grav\Common\HTTP\Response;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use RocketTheme\Toolbox\Event\Event;
 use RocketTheme\Toolbox\File\YamlFile;
 
 class DashboardController extends AbstractApiController
@@ -71,6 +72,23 @@ class DashboardController extends AbstractApiController
             } catch (\Exception $e) {
                 // Use cached data on failure
             }
+        }
+
+        // Let plugins contribute notifications (grouped by location: `top`,
+        // `dashboard`, `feed`). Fired after the remote refresh so plugin notices
+        // are merged fresh every request (never cached) yet still flow through
+        // the dismiss + reappear_after handling below — a plugin-provided `id`
+        // is dismissed via the same /notifications/{id}/hide endpoint. This is
+        // how a plugin can raise a persistent, dismissible admin banner.
+        $event = new Event([
+            'notifications' => $notifications,
+            'user' => $user,
+            'force' => $force,
+        ]);
+        $this->grav->fireEvent('onApiDashboardNotifications', $event);
+        $contributed = $event['notifications'];
+        if (is_array($contributed)) {
+            $notifications = $contributed;
         }
 
         // Filter out hidden notifications

@@ -1,9 +1,10 @@
 # v1.0.0-rc.15
-## 06/10/2026
+## 06/13/2026
 
 1. [](#new)
     * Added a dashboard security endpoint that hands the admin Dashboard a sentinel URL under `user/data`, so it can detect from the browser whether the sensitive `user/` folders are downloadable over the web.
     * Added user preferences for keeping the Markdown editor toolbar pinned while scrolling and for setting a fixed editor height.
+    * Plugins can now contribute dashboard notifications via a new `onApiDashboardNotifications` event, letting them raise a persistent, dismissible admin banner (grouped by location — `top`, `dashboard`, `feed`) that flows through the existing dismiss and `reappear_after` handling.
 2. [](#improved)
     * Public API endpoints now recognize logged-in callers when credentials are provided, returning their richer permission-filtered responses instead of treating everyone as a guest.
     * Plugins can now mark public routes as read-only by method, so browsing stays open while writes on the same paths still require login.
