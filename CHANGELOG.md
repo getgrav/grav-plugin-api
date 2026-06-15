@@ -1,5 +1,5 @@
 # v1.0.0-rc.15
-## 06/14/2026
+## 06/15/2026
 
 1. [](#new)
     * Added a dashboard security endpoint that hands the admin Dashboard a sentinel URL under `user/data`, so it can detect from the browser whether the sensitive `user/` folders are downloadable over the web.
@@ -16,6 +16,8 @@
     * Pages on a template the current theme doesn't define now fall back to the default page form in the editor instead of showing a blank screen, matching the classic admin.
     * Toggle and select options whose Yes/No labels were turned into booleans by strict YAML parsing now render as Yes/No again instead of a blank or "true" button ([getgrav/grav-plugin-admin2#36](https://github.com/getgrav/grav-plugin-admin2/issues/36)).
     * A caller restored via the login plugin's *remember me* cookie (left `authenticated` but not `authorized`) is now accepted by session authentication, so a remembered user who shows as signed in can use the API instead of being silently rejected on every write until a fresh login. Per-route permission checks still gate what they can actually do.
+    * The page template selector no longer breaks with a "callable not found" error when a blueprint references the classic admin's page-types helper but the classic admin isn't active, falling back to the built-in page types instead ([getgrav/grav-plugin-admin2#41](https://github.com/getgrav/grav-plugin-admin2/issues/41)).
+    * Custom fields provided by a theme are now reported with their provider type and included in the theme's own info, so the admin can load them from the correct route instead of always assuming a plugin ([getgrav/grav-admin-next#3](https://github.com/getgrav/grav-admin-next/issues/3)).
 
 # v1.0.0-rc.14
 ## 06/09/2026
