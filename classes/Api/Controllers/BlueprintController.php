@@ -212,6 +212,19 @@ class BlueprintController extends AbstractApiController
         $class = '\\' . $class;
 
         if (!class_exists($class) || !method_exists($class, $method)) {
+            // admin-classic ships permission-filtered page-type wrappers
+            // (\Grav\Plugin\AdminPlugin::pagesTypes / ::pagesModularTypes).
+            // admin-next is designed to run without admin-classic, but a
+            // blueprint or a stale compiled-blueprint cache can still reference
+            // those callables — in which case the class isn't loaded and the
+            // hard guard below would 500 the template selector
+            // (grav-plugin-admin2#41). Fall back to core's always-available
+            // equivalent rather than throwing.
+            if (in_array($method, ['pagesTypes', 'pagesModularTypes'], true)) {
+                $type = $method === 'pagesModularTypes' ? 'modular' : 'standard';
+                return ApiResponse::create($this->normalizeOptions(Pages::pageTypes($type)));
+            }
+
             throw new NotFoundException("Callable '{$callable}' not found.");
         }
 
@@ -227,16 +240,27 @@ class BlueprintController extends AbstractApiController
             return ApiResponse::create([]);
         }
 
-        // Normalize to [{value, label}] format for select options
+        return ApiResponse::create($this->normalizeOptions($result));
+    }
+
+    /**
+     * Normalize a [key => label] map to the [{value, label}] format the
+     * admin-next SelectField expects for `data-options@` results.
+     *
+     * @param array<string|int, mixed> $options
+     * @return list<array{value: string, label: string}>
+     */
+    private function normalizeOptions(array $options): array
+    {
         $normalized = [];
-        foreach ($result as $key => $label) {
+        foreach ($options as $key => $label) {
             $normalized[] = [
                 'value' => (string) $key,
                 'label' => is_string($label) ? $label : (string) $key,
             ];
         }
 
-        return ApiResponse::create($normalized);
+        return $normalized;
     }
 
     /**
