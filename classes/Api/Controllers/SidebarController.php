@@ -22,9 +22,15 @@ use RocketTheme\Toolbox\Event\Event;
  *     'icon'      => 'fa-key',              // FA icon class
  *     'route'     => '/plugin/license-manager', // admin-next route
  *     'priority'  => 0,                      // sort order (higher = earlier)
- *     'badge'     => null,                   // optional badge text/count
+ *     'badge'     => null,                   // optional static badge text/count
+ *     'badgeEndpoint' => '/my-plugin/badge', // optional — API path returning { count: N }, refreshed live
  *     'authorize' => 'api.some.permission',  // optional — single permission, or array for any-of
  *   ]
+ *
+ * When `badgeEndpoint` is set, admin-next fetches it on load and re-fetches on
+ * content/config/plugin/theme changes; a plugin can also push an update live by
+ * dispatching `grav:sidebar:badge` ({ id, count }). The live count overrides the
+ * static `badge`.
  *
  * `authorize` accepts either a string or an array of permissions. An array is
  * treated as an any-of test, matching admin-classic's nav-quick-tray template.
