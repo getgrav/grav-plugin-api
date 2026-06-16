@@ -20,6 +20,7 @@
     * A caller restored via the login plugin's *remember me* cookie (left `authenticated` but not `authorized`) is now accepted by session authentication, so a remembered user who shows as signed in can use the API instead of being silently rejected on every write until a fresh login. Per-route permission checks still gate what they can actually do.
     * The page template selector no longer breaks with a "callable not found" error when a blueprint references the classic admin's page-types helper but the classic admin isn't active, falling back to the built-in page types instead ([getgrav/grav-plugin-admin2#41](https://github.com/getgrav/grav-plugin-admin2/issues/41)).
     * Custom fields provided by a theme are now reported with their provider type and included in the theme's own info, so the admin can load them from the correct route instead of always assuming a plugin ([getgrav/grav-admin-next#3](https://github.com/getgrav/grav-admin-next/issues/3)).
+    * Editing or deleting a specific translation with `?lang=` now targets that language's file instead of silently overwriting or failing to find the default language ([getgrav/grav-plugin-api#6](https://github.com/getgrav/grav-plugin-api/issues/6)).
 
 # v1.0.0-rc.14
 ## 06/09/2026
