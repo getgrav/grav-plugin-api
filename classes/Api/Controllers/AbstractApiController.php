@@ -216,6 +216,22 @@ abstract class AbstractApiController
                     ];
                 }
             }
+
+            // XSS safety gate. The full blueprint validator (BlueprintSchema::validate())
+            // runs checkSafety() per field, but this partial-field path validates the
+            // submitted delta directly and must enforce the same trust boundary itself —
+            // otherwise a non-superadmin editor could persist stored XSS (e.g. an
+            // `onerror=` handler in page Markdown) that fires in an admin or visitor
+            // session. checkSafety() honors security.xss_whitelist (admin.super) and
+            // per-field `xss_check: false`, so behaviour matches the classic admin exactly.
+            foreach (Validation::checkSafety($value, $field) as $messages) {
+                foreach ((array) $messages as $message) {
+                    $errors[] = [
+                        'field' => $name,
+                        'message' => trim(strip_tags((string) $message)),
+                    ];
+                }
+            }
         }
 
         if ($errors !== []) {

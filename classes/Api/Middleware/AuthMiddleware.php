@@ -40,6 +40,24 @@ class AuthMiddleware
         );
     }
 
+    /**
+     * Optimistic authentication for public routes: attach api_user when valid
+     * credentials are supplied, continue as guest otherwise. Lets public
+     * endpoints return richer, permission-filtered responses to logged-in
+     * callers without requiring auth from anonymous ones.
+     */
+    public function processOptional(ServerRequestInterface $request): ServerRequestInterface
+    {
+        foreach ($this->authenticators as $authenticator) {
+            $user = $authenticator->authenticate($request);
+            if ($user !== null) {
+                return $request->withAttribute('api_user', $user);
+            }
+        }
+
+        return $request;
+    }
+
     protected function buildAuthenticatorChain(): void
     {
         // API Key is fastest to check - try first

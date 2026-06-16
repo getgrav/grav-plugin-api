@@ -7,6 +7,7 @@ namespace Grav\Plugin\Api\Tests\Unit\Controllers;
 use Grav\Common\Config\Config;
 use Grav\Plugin\Api\Controllers\MediaController;
 use Grav\Plugin\Api\Exceptions\ValidationException;
+use Grav\Plugin\Api\Services\UploadFieldSettings;
 use Grav\Plugin\Api\Tests\Unit\TestHelper;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\Attributes\Test;
@@ -117,6 +118,81 @@ class HandlesMediaUploadsTest extends TestCase
 
         $this->expectException(ValidationException::class);
         $this->invoke('processUploadedFile', $file, $this->tempDir);
+    }
+
+    #[Test]
+    public function random_name_replaces_the_filename_but_keeps_the_extension(): void
+    {
+        $file = new TraitTestUploadedFile('My Photo.PNG', 'png-bytes');
+        $settings = UploadFieldSettings::fromParams(['random_name' => '1']);
+
+        $name = $this->invoke('processUploadedFile', $file, $this->tempDir, $settings);
+
+        self::assertNotSame('My Photo.PNG', $name);
+        self::assertMatchesRegularExpression('/^[a-z0-9]{15}\.png$/', $name);
+        self::assertFileExists($this->tempDir . '/' . $name);
+        self::assertFileDoesNotExist($this->tempDir . '/My Photo.PNG');
+    }
+
+    #[Test]
+    public function avoid_overwriting_prefixes_a_conflicting_filename(): void
+    {
+        // Pre-seed a colliding file so the conflict branch fires.
+        file_put_contents($this->tempDir . '/logo.png', 'existing');
+
+        $file = new TraitTestUploadedFile('logo.png', 'new-bytes');
+        $settings = UploadFieldSettings::fromParams(['avoid_overwriting' => true]);
+
+        $name = $this->invoke('processUploadedFile', $file, $this->tempDir, $settings);
+
+        self::assertMatchesRegularExpression('/^\d{14}-logo\.png$/', $name);
+        self::assertSame('existing', file_get_contents($this->tempDir . '/logo.png'));
+        self::assertSame('new-bytes', file_get_contents($this->tempDir . '/' . $name));
+    }
+
+    #[Test]
+    public function accept_allowlist_rejects_a_non_matching_file(): void
+    {
+        $file = new TraitTestUploadedFile('notes.txt', 'text');
+        $settings = UploadFieldSettings::fromParams(['accept' => 'image/*']);
+
+        $this->expectException(ValidationException::class);
+        $this->invoke('processUploadedFile', $file, $this->tempDir, $settings);
+    }
+
+    #[Test]
+    public function accept_allowlist_admits_a_matching_extension(): void
+    {
+        $file = new TraitTestUploadedFile('photo.png', 'png');
+        $settings = UploadFieldSettings::fromParams(['accept' => '.png,.jpg']);
+
+        $name = $this->invoke('processUploadedFile', $file, $this->tempDir, $settings);
+
+        self::assertSame('photo.png', $name);
+        self::assertFileExists($this->tempDir . '/photo.png');
+    }
+
+    #[Test]
+    public function per_field_filesize_limit_is_enforced_under_the_hard_cap(): void
+    {
+        // 2 MB file against a 1 MB per-field limit — well under the 64 MB cap.
+        $file = new TraitTestUploadedFile('big.png', 'x', 2 * 1_048_576);
+        $settings = UploadFieldSettings::fromParams(['filesize' => 1]);
+
+        $this->expectException(ValidationException::class);
+        $this->invoke('processUploadedFile', $file, $this->tempDir, $settings);
+    }
+
+    #[Test]
+    public function random_name_cannot_smuggle_a_dangerous_extension(): void
+    {
+        // The extension floor runs before random_name, which preserves the
+        // extension — so a .php upload is still rejected even with randomizing.
+        $file = new TraitTestUploadedFile('shell.php', '<?php evil();');
+        $settings = UploadFieldSettings::fromParams(['random_name' => '1']);
+
+        $this->expectException(ValidationException::class);
+        $this->invoke('processUploadedFile', $file, $this->tempDir, $settings);
     }
 
     #[Test]

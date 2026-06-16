@@ -836,7 +836,8 @@ The API uses Grav's built-in ACL system. Available permissions:
 | `api.users.read` | Read user accounts |
 | `api.users.write` | Create, update, delete users |
 | `api.system.read` | Read system info, logs, dashboard, notifications, feed |
-| `api.system.write` | Clear cache, create backups, dismiss notifications |
+| `api.system.write` | Clear cache, dismiss notifications |
+| `api.system.backup` | Create, list, download, and delete site backups (the archive includes account hashes and config secrets) |
 | `api.gpm.read` | List packages, check updates, browse/search repository |
 | `api.gpm.write` | Install, remove, update packages |
 | `api.scheduler.read` | View scheduler jobs, status, history |

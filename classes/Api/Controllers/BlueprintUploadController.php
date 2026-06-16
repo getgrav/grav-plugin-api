@@ -9,6 +9,7 @@ use Grav\Plugin\Api\Exceptions\ForbiddenException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Grav\Plugin\Api\Services\BlueprintPathResolver;
+use Grav\Plugin\Api\Services\UploadFieldSettings;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\UploadedFileInterface;
@@ -98,9 +99,13 @@ class BlueprintUploadController extends AbstractApiController
 
         $isAccountsDir = $this->resolver()->classifyTargetDir($targetDir) === 'accounts';
 
+        // Per-field upload settings (random_name, avoid_overwriting, accept,
+        // filesize) ride in on the same body as destination/scope.
+        $settings = is_array($body) ? UploadFieldSettings::fromParams($body) : UploadFieldSettings::none();
+
         $saved = [];
         foreach ($files as $file) {
-            $saved[] = $this->processUploadedFile($file, $targetDir, $isAccountsDir);
+            $saved[] = $this->processUploadedFile($file, $targetDir, $isAccountsDir, $settings);
         }
 
         // Build a response payload describing each saved file in a Grav
@@ -238,8 +243,12 @@ class BlueprintUploadController extends AbstractApiController
         return rtrim($base, '/') . '/' . ltrim($relative, '/');
     }
 
-    private function processUploadedFile(UploadedFileInterface $file, string $targetDir, bool $isAccountsDir): string
-    {
+    private function processUploadedFile(
+        UploadedFileInterface $file,
+        string $targetDir,
+        bool $isAccountsDir,
+        ?UploadFieldSettings $settings = null,
+    ): string {
         if ($file->getError() !== UPLOAD_ERR_OK) {
             throw new ValidationException('File upload failed.');
         }
@@ -250,12 +259,21 @@ class BlueprintUploadController extends AbstractApiController
                 sprintf('File exceeds maximum allowed size of %d MB.', self::MAX_UPLOAD_SIZE / 1_048_576)
             );
         }
+        $settings?->assertFilesize($size);
 
         $originalName = $file->getClientFilename() ?? 'upload';
         $filename = basename($originalName);
 
         $this->assertSafeFilename($filename);
+        // Extension policy first (the security floor), then the field's accept
+        // allowlist. Both run against the original name; random_name/
+        // avoid_overwriting are applied afterwards and preserve the extension.
         $this->assertSafeExtension($filename, $isAccountsDir);
+        $settings?->assertAccepted($filename);
+
+        if ($settings !== null) {
+            $filename = $settings->resolveFilename($filename, $targetDir);
+        }
 
         $file->moveTo($targetDir . '/' . $filename);
         return $filename;

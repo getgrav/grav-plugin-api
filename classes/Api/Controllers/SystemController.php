@@ -376,7 +376,13 @@ class SystemController extends AbstractApiController
 
     public function backup(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, 'api.system.write');
+        // Backups archive the full Grav root, including user/accounts (admin
+        // password hashes) and user/config secrets. Gate creation, listing,
+        // download and deletion behind a dedicated api.system.backup permission
+        // (or api.super) rather than the broader read/write tiers, so only
+        // operators explicitly trusted with the credential-bearing archive can
+        // touch it (GHSA-2f86-9cp8-6hcf).
+        $this->requirePermission($request, 'api.system.backup');
 
         // Ensure backup directory is initialized
         $backups = $this->grav['backups'] ?? new Backups();
@@ -402,7 +408,7 @@ class SystemController extends AbstractApiController
 
     public function backups(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, 'api.system.read');
+        $this->requirePermission($request, 'api.system.backup');
 
         // Ensure backup directory is initialized before listing
         $backups = $this->grav['backups'] ?? new Backups();
@@ -439,7 +445,7 @@ class SystemController extends AbstractApiController
      */
     public function deleteBackup(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, 'api.system.write');
+        $this->requirePermission($request, 'api.system.backup');
 
         $b = $this->grav['backups'] ?? new Backups();
         if (method_exists($b, 'init')) { $b->init(); }
@@ -468,7 +474,7 @@ class SystemController extends AbstractApiController
      */
     public function downloadBackup(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, 'api.system.read');
+        $this->requirePermission($request, 'api.system.backup');
 
         $b = $this->grav['backups'] ?? new Backups();
         if (method_exists($b, 'init')) { $b->init(); }

@@ -155,6 +155,12 @@ class GpmController extends AbstractApiController
         $data['thumbnail'] = $images['thumbnail'];
         $data['screenshot'] = $images['screenshot'];
 
+        // Discover custom admin-next field components (same as plugins)
+        $customFields = $this->discoverCustomFields($slug, 'themes');
+        if ($customFields) {
+            $data['custom_fields'] = $customFields;
+        }
+
         return $this->respondWithEtag($data);
     }
 
@@ -1261,7 +1267,9 @@ class GpmController extends AbstractApiController
             $fields = $this->discoverCustomFields($slug, 'plugins');
             if ($fields) {
                 foreach ($fields as $fieldType => $label) {
-                    $allFields[$fieldType] = $slug;
+                    // Provider kind lets admin-next fetch the script from the
+                    // correct /gpm/{kind}/{slug}/field/{type} route.
+                    $allFields[$fieldType] = ['slug' => $slug, 'kind' => 'plugins'];
                 }
             }
         }
@@ -1271,7 +1279,7 @@ class GpmController extends AbstractApiController
             $fields = $this->discoverCustomFields($slug, 'themes');
             if ($fields) {
                 foreach ($fields as $fieldType => $label) {
-                    $allFields[$fieldType] = $slug;
+                    $allFields[$fieldType] = ['slug' => $slug, 'kind' => 'themes'];
                 }
             }
         }

@@ -139,4 +139,44 @@ class BlueprintValidationTest extends TestCase
         // Dynamic data-options@ select must not false-positive (options unresolved).
         $this->assertSame([], $this->failingFields(['language' => 'fr'], $account));
     }
+
+    /**
+     * GHSA-5wc5-7v9g-f7v6 / CVE-2026-11982 regression: the partial-validation
+     * path must run the XSS safety check, not just type/required validation.
+     *
+     * A non-superadmin page editor previously stored an event-handler payload
+     * in page Markdown through PATCH /pages because validateChangedFields()
+     * called Validation::validate() but never Validation::checkSafety() — the
+     * method that invokes Security::detectXss(). The full blueprint validator
+     * (classic admin) runs checkSafety() per field; this path now matches it.
+     */
+    #[Test]
+    public function stored_xss_payload_in_content_is_rejected(): void
+    {
+        // Mirrors the page blueprint's content field (type markdown, validated
+        // as textarea), which is the field the advisory's PoC abused.
+        $bp = $this->blueprint(['form' => ['fields' => [
+            'content' => ['type' => 'markdown', 'label' => 'Content', 'validate' => ['type' => 'textarea']],
+        ]]]);
+
+        // The advisory's payload: an unquoted on* event handler in raw HTML.
+        $payload = "### XSS PoC\n<img src=x onerror=alert(1)>\n";
+        $this->assertSame(['content'], $this->failingFields(['content' => $payload], $bp));
+
+        // Benign Markdown must still save cleanly — the gate only blocks XSS.
+        $this->assertSame([], $this->failingFields(['content' => "### Hello\nJust *normal* content.\n"], $bp));
+    }
+
+    #[Test]
+    public function field_opting_out_of_xss_check_still_allows_html(): void
+    {
+        // A field that explicitly sets `xss_check: false` must behave exactly
+        // like the classic admin, which skips checkSafety() for it. This keeps
+        // the fix from over-blocking fields a publisher is trusted to author.
+        $bp = $this->blueprint(['form' => ['fields' => [
+            'content' => ['type' => 'markdown', 'xss_check' => false, 'validate' => ['type' => 'textarea']],
+        ]]]);
+
+        $this->assertSame([], $this->failingFields(['content' => '<img src=x onerror=alert(1)>'], $bp));
+    }
 }

@@ -119,10 +119,31 @@ class ApiRouter extends ProcessorBase
             $publicPrefixes = $this->publicPrefixes;
             $publicExact    = $this->publicExact;
 
-            $isPublic = in_array($routePath, $publicExact, true);
+            // Entries may be method-scoped as "METHOD /path" (e.g. "GET /api/v1/foo/")
+            // so plugins can expose public reads while writes on the same paths
+            // still require authentication. Method-less entries match all methods.
+            $method = $request->getMethod();
+            $matches = static function (string $entry, bool $prefix) use ($method, $routePath): bool {
+                $entryMethod = null;
+                if (str_contains($entry, ' ')) {
+                    [$entryMethod, $entry] = explode(' ', $entry, 2);
+                }
+                if ($entryMethod !== null && strcasecmp($entryMethod, $method) !== 0) {
+                    return false;
+                }
+                return $prefix ? str_starts_with($routePath, $entry) : $routePath === $entry;
+            };
+
+            $isPublic = false;
+            foreach ($publicExact as $entry) {
+                if ($matches($entry, false)) {
+                    $isPublic = true;
+                    break;
+                }
+            }
             if (!$isPublic) {
-                foreach ($publicPrefixes as $pp) {
-                    if (str_starts_with($routePath, $pp)) {
+                foreach ($publicPrefixes as $entry) {
+                    if ($matches($entry, true)) {
                         $isPublic = true;
                         break;
                     }
@@ -131,13 +152,18 @@ class ApiRouter extends ProcessorBase
 
             if (!$isPublic) {
                 $request = (new AuthMiddleware($this->container, $this->config))->processRequest($request);
+            } else {
+                // Optimistic auth: public endpoints still see the caller when
+                // credentials are supplied (richer, permission-filtered
+                // responses); anonymous callers continue as guests.
+                $request = (new AuthMiddleware($this->container, $this->config))->processOptional($request);
+            }
 
-                // Register admin proxy so Grav core treats API requests as
-                // admin-scoped (page visibility, Flex auth scope, events, etc.)
-                $user = $request->getAttribute('api_user');
-                if ($user && !isset($this->container['admin'])) {
-                    (new AdminProxy($this->container, $user))->register();
-                }
+            // Register admin proxy so Grav core treats API requests as
+            // admin-scoped (page visibility, Flex auth scope, events, etc.)
+            $user = $request->getAttribute('api_user');
+            if ($user && !isset($this->container['admin'])) {
+                (new AdminProxy($this->container, $user))->register();
             }
 
             // Rate limit (after auth so we can rate limit per-user)
@@ -411,6 +437,7 @@ $r->addRoute('GET', '/gpm/themes/{slug}/field/{type}', [GpmController::class, 'c
         $r->addRoute('POST', '/dashboard/notifications/{id}/hide', [DashboardController::class, 'hideNotification']);
         $r->addRoute('GET', '/dashboard/feed', [DashboardController::class, 'feed']);
         $r->addRoute('GET', '/dashboard/stats', [DashboardController::class, 'stats']);
+        $r->addRoute('GET', '/dashboard/security/exposure-probe', [DashboardController::class, 'securityProbe']);
         $r->addRoute('GET', '/dashboard/popularity', [DashboardController::class, 'popularity']);
         $r->addRoute('GET', '/dashboard/widgets', [DashboardWidgetController::class, 'widgets']);
         $r->addRoute('PATCH', '/dashboard/layout', [DashboardWidgetController::class, 'saveUserLayout']);

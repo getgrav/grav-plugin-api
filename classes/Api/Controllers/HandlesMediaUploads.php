@@ -7,6 +7,7 @@ namespace Grav\Plugin\Api\Controllers;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Serializers\MediaSerializer;
 use Grav\Plugin\Api\Services\ThumbnailService;
+use Grav\Plugin\Api\Services\UploadFieldSettings;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\UploadedFileInterface;
 
@@ -70,12 +71,32 @@ trait HandlesMediaUploads
     }
 
     /**
+     * Parse blueprint file-field upload settings (random_name, avoid_overwriting,
+     * accept, filesize) from a request's form fields. Absent settings yield an
+     * inert object, so callers without field context keep current behavior.
+     */
+    protected function parseUploadFieldSettings(ServerRequestInterface $request): UploadFieldSettings
+    {
+        $body = $request->getParsedBody();
+
+        return is_array($body) ? UploadFieldSettings::fromParams($body) : UploadFieldSettings::none();
+    }
+
+    /**
      * Process a single uploaded file: validate it and move to the target directory.
+     *
+     * Optional per-field $settings (from a blueprint `type: file` field) layer
+     * filename randomization, overwrite avoidance, an accept allowlist, and a
+     * per-field size limit *on top of* the immovable security floor enforced
+     * here (size cap, traversal guard, dangerous-extension denylist).
      *
      * Returns the safe filename that was written.
      */
-    protected function processUploadedFile(UploadedFileInterface $file, string $targetDir): string
-    {
+    protected function processUploadedFile(
+        UploadedFileInterface $file,
+        string $targetDir,
+        ?UploadFieldSettings $settings = null,
+    ): string {
         // Check for upload errors
         if ($file->getError() !== UPLOAD_ERR_OK) {
             $message = match ($file->getError()) {
@@ -89,13 +110,14 @@ trait HandlesMediaUploads
             throw new ValidationException($message);
         }
 
-        // Validate file size
+        // Validate file size against the hard cap, then the per-field limit.
         $size = $file->getSize();
         if ($size !== null && $size > self::MAX_UPLOAD_SIZE) {
             throw new ValidationException(
                 sprintf('File exceeds maximum allowed size of %d MB.', self::MAX_UPLOAD_SIZE / 1_048_576)
             );
         }
+        $settings?->assertFilesize($size);
 
         // Sanitize the filename
         $originalName = $file->getClientFilename() ?? 'upload';
@@ -109,8 +131,16 @@ trait HandlesMediaUploads
             throw new ValidationException("Invalid filename: '{$filename}'.");
         }
 
-        // Validate extension against dangerous extensions list
+        // Validate extension against dangerous extensions list, then the
+        // field's accept allowlist (matched on the original name's extension).
         $this->validateFileExtension($filename);
+        $settings?->assertAccepted($filename);
+
+        // Apply random_name / avoid_overwriting last — both preserve the
+        // already-validated extension, so the floor checks above still hold.
+        if ($settings !== null) {
+            $filename = $settings->resolveFilename($filename, $targetDir);
+        }
 
         // Move the file to the target directory
         $targetPath = $targetDir . '/' . $filename;

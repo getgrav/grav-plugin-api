@@ -2106,7 +2106,23 @@ class PagesController extends AbstractApiController
 
         if ($lang !== null && $language->enabled()) {
             $this->validateLanguageCode($lang);
+
+            $changed = $language->getActive() !== $lang;
             $language->setActive($lang);
+
+            // Grav builds (and caches) the pages index for whichever language
+            // is active at init time; enablePages()/init() are then no-ops. If
+            // the index was already built for another language — or gets built
+            // later at the default — find()/save() resolve to the wrong
+            // translation file, so a PATCH/DELETE silently clobbers the default
+            // language and a GET returns the wrong content. Force a rebuild
+            // against the now-active language so route lookups target the
+            // requested translation. See getgrav/grav-plugin-api#6.
+            if ($changed) {
+                $pages = $this->grav['pages'];
+                $pages->enablePages();
+                $pages->reset();
+            }
         }
 
         return $previousLang;

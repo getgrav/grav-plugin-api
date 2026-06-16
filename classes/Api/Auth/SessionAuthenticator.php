@@ -29,7 +29,14 @@ class SessionAuthenticator implements AuthenticatorInterface
             /** @var UserInterface|null $user */
             $user = $session->user ?? null;
 
-            if ($user && $user->exists() && $user->authorized) {
+            // Accept any authenticated session user, including one restored via the
+            // login plugin's "remember me" cookie (which leaves the user
+            // `authenticated` but not `authorized`). Without this, a remembered user
+            // shows as signed in in the UI yet every write call is rejected until a
+            // fresh login. Per-route permission checks (the user's `access` map,
+            // refreshed below) still gate what they can actually do, and the
+            // remember-me cookie is itself HttpOnly/Secure/SameSite.
+            if ($user && $user->exists() && $user->authenticated) {
                 // Session stores a serialized user snapshot whose `access` map
                 // is frozen at the moment of login. Admin permission changes
                 // wouldn't take effect until the session is destroyed. Refresh

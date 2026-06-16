@@ -14,13 +14,22 @@ use Psr\Http\Message\ResponseInterface;
  */
 class ErrorResponse
 {
-    public static function create(int $status, string $title, string $detail, array $headers = []): ResponseInterface
+    /**
+     * @param array<string,mixed>      $headers
+     * @param array<string,mixed>|null $toast  Optional toast hint honored by Admin
+     *   Next: { message?, type?, duration?, dismissible? }. `duration` is in ms;
+     *   use 0 (or dismissible:true) for a toast that stays until manually closed.
+     */
+    public static function create(int $status, string $title, string $detail, array $headers = [], ?array $toast = null): ResponseInterface
     {
         $body = [
             'status' => $status,
             'title' => $title,
             'detail' => $detail,
         ];
+        if ($toast !== null) {
+            $body['toast'] = $toast;
+        }
 
         $headers = array_merge($headers, [
             'Content-Type' => 'application/problem+json',

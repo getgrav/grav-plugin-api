@@ -1,3 +1,27 @@
+# v1.0.0-rc.15
+## 06/16/2026
+
+1. [](#new)
+    * Added a dashboard security endpoint that hands the admin Dashboard a sentinel URL under `user/data`, so it can detect from the browser whether the sensitive `user/` folders are downloadable over the web.
+    * Added user preferences for keeping the Markdown editor toolbar pinned while scrolling and for setting a fixed editor height.
+    * Plugins can now contribute dashboard notifications via a new `onApiDashboardNotifications` event, letting them raise a persistent, dismissible admin banner (grouped by location — `top`, `dashboard`, `feed`) that flows through the existing dismiss and `reappear_after` handling.
+    * Plugin endpoints can now return a toast hint to control the message, type and duration of the notification the admin shows after a save, including errors that stay until dismissed ([getgrav/grav-plugin-admin2#38](https://github.com/getgrav/grav-plugin-admin2/issues/38)).
+2. [](#improved)
+    * Public API endpoints now recognize logged-in callers when credentials are provided, returning their richer permission-filtered responses instead of treating everyone as a guest.
+    * Plugins can now mark public routes as read-only by method, so browsing stays open while writes on the same paths still require login.
+    * Page responses now include the on-disk folder name, including any numeric ordering prefix, so admin tools can show and diagnose page ordering.
+    * File upload fields now honor their blueprint's `random_name`, `avoid_overwriting`, `accept`, and `filesize` settings, matching the classic admin.
+3. [](#bugfix)
+    * Creating, listing, downloading, and deleting site backups now requires a dedicated backup permission (or API super user) instead of the broader system read/write access, because the backup archive includes account password hashes and configuration secrets.
+    * Page and account content saved through the API is now checked for cross-site scripting, closing a hole where an editor without full admin rights could store a script that later ran in other visitors' browsers.
+    * Blueprint fields that use relative dot-naming inside a section (such as `.optionA`) now save their values again, restoring the nested-field behaviour from the classic admin ([getgrav/grav#4120](https://github.com/getgrav/grav/issues/4120)).
+    * Pages on a template the current theme doesn't define now fall back to the default page form in the editor instead of showing a blank screen, matching the classic admin.
+    * Toggle and select options whose Yes/No labels were turned into booleans by strict YAML parsing now render as Yes/No again instead of a blank or "true" button ([getgrav/grav-plugin-admin2#36](https://github.com/getgrav/grav-plugin-admin2/issues/36)).
+    * A caller restored via the login plugin's *remember me* cookie (left `authenticated` but not `authorized`) is now accepted by session authentication, so a remembered user who shows as signed in can use the API instead of being silently rejected on every write until a fresh login. Per-route permission checks still gate what they can actually do.
+    * The page template selector no longer breaks with a "callable not found" error when a blueprint references the classic admin's page-types helper but the classic admin isn't active, falling back to the built-in page types instead ([getgrav/grav-plugin-admin2#41](https://github.com/getgrav/grav-plugin-admin2/issues/41)).
+    * Custom fields provided by a theme are now reported with their provider type and included in the theme's own info, so the admin can load them from the correct route instead of always assuming a plugin ([getgrav/grav-admin-next#3](https://github.com/getgrav/grav-admin-next/issues/3)).
+    * Editing or deleting a specific translation with `?lang=` now targets that language's file instead of silently overwriting or failing to find the default language ([getgrav/grav-plugin-api#6](https://github.com/getgrav/grav-plugin-api/issues/6)).
+
 # v1.0.0-rc.14
 ## 06/09/2026
 

@@ -212,6 +212,19 @@ class BlueprintController extends AbstractApiController
         $class = '\\' . $class;
 
         if (!class_exists($class) || !method_exists($class, $method)) {
+            // admin-classic ships permission-filtered page-type wrappers
+            // (\Grav\Plugin\AdminPlugin::pagesTypes / ::pagesModularTypes).
+            // admin-next is designed to run without admin-classic, but a
+            // blueprint or a stale compiled-blueprint cache can still reference
+            // those callables — in which case the class isn't loaded and the
+            // hard guard below would 500 the template selector
+            // (grav-plugin-admin2#41). Fall back to core's always-available
+            // equivalent rather than throwing.
+            if (in_array($method, ['pagesTypes', 'pagesModularTypes'], true)) {
+                $type = $method === 'pagesModularTypes' ? 'modular' : 'standard';
+                return ApiResponse::create($this->normalizeOptions(Pages::pageTypes($type)));
+            }
+
             throw new NotFoundException("Callable '{$callable}' not found.");
         }
 
@@ -227,16 +240,27 @@ class BlueprintController extends AbstractApiController
             return ApiResponse::create([]);
         }
 
-        // Normalize to [{value, label}] format for select options
+        return ApiResponse::create($this->normalizeOptions($result));
+    }
+
+    /**
+     * Normalize a [key => label] map to the [{value, label}] format the
+     * admin-next SelectField expects for `data-options@` results.
+     *
+     * @param array<string|int, mixed> $options
+     * @return list<array{value: string, label: string}>
+     */
+    private function normalizeOptions(array $options): array
+    {
         $normalized = [];
-        foreach ($result as $key => $label) {
+        foreach ($options as $key => $label) {
             $normalized[] = [
                 'value' => (string) $key,
                 'label' => is_string($label) ? $label : (string) $key,
             ];
         }
 
-        return ApiResponse::create($normalized);
+        return $normalized;
     }
 
     /**
@@ -763,6 +787,22 @@ class BlueprintController extends AbstractApiController
             return null;
         }
 
+        // An orphan template — one with no blueprint of its own, e.g. a page
+        // left on a template that the current theme doesn't define after a
+        // theme switch — resolves to an empty blueprint with no fields. Grav
+        // core only falls back to `default` when the lookup *throws*, which a
+        // missing blueprint file does not: it returns the empty blueprint
+        // instead. Mirror admin-classic and fall back to the default page
+        // blueprint so the editor always shows the standard page form rather
+        // than a blank pane.
+        if (!$blueprint->fields()) {
+            try {
+                $blueprint = $pages->blueprints('default');
+            } catch (\RuntimeException) {
+                return null;
+            }
+        }
+
         $this->injectSecurityTab($blueprint, $user);
 
         return $blueprint;
@@ -1221,7 +1261,7 @@ class BlueprintController extends AbstractApiController
      * Recursively serialize blueprint fields into a structure
      * suitable for client-side form rendering.
      */
-    protected function serializeFields(array $fields, string $prefix = ''): array
+    protected function serializeFields(array $fields, string $prefix = '', string $parent = ''): array
     {
         $result = [];
 
@@ -1231,7 +1271,19 @@ class BlueprintController extends AbstractApiController
             }
 
             $type = $field['type'] ?? null;
-            $fieldPath = $prefix ? "{$prefix}.{$name}" : $name;
+
+            // Leading-dot relative naming. A child keyed `.optionA` binds under
+            // its container's own name rather than the (transparent) layout
+            // prefix, so `.optionA` inside a section named `header.sectionName`
+            // resolves to `header.sectionName.optionA` and saves nested. This
+            // mirrors core's BlueprintSchema::getFieldKey(); without it the bare
+            // `.optionA` reached the SPA and its values never saved.
+            if (is_string($name) && isset($name[0]) && $name[0] === '.') {
+                $base = $parent !== '' ? $parent : rtrim($prefix, '.');
+                $fieldPath = $base !== '' ? $base . $name : substr($name, 1);
+            } else {
+                $fieldPath = $prefix !== '' ? "{$prefix}.{$name}" : (string) $name;
+            }
 
             // `users` field type: a reusable, permission-filtered user picker.
             // Resolve its dropdown options from the field's own `access:` /
@@ -1256,7 +1308,7 @@ class BlueprintController extends AbstractApiController
                 'rows', 'cols', 'multiple', 'yaml',
                 'markdown', 'prepend', 'append', 'underline',
                 'options', 'selectize', 'value_only', 'create',
-                'destination', 'accept',
+                'destination', 'accept', 'random_name', 'avoid_overwriting', 'filesize', 'limit',
                 'use', 'key', 'controls', 'collapsed',
                 'show_all', 'show_modular', 'show_root', 'show_slug',
                 'placeholder_key', 'placeholder_value', 'value_type',
@@ -1314,7 +1366,10 @@ class BlueprintController extends AbstractApiController
             if (isset($serialized['options']) && is_array($serialized['options'])) {
                 $ordered = [];
                 foreach ($serialized['options'] as $optKey => $optLabel) {
-                    $ordered[] = ['value' => (string) $optKey, 'label' => $optLabel];
+                    $ordered[] = [
+                        'value' => $this->normalizeOptionScalar($optKey),
+                        'label' => $this->normalizeOptionScalar($optLabel),
+                    ];
                 }
                 $serialized['options'] = $ordered;
             }
@@ -1330,12 +1385,35 @@ class BlueprintController extends AbstractApiController
                 $layoutTypes = ['tabs', 'tab', 'section', 'fieldset', 'columns', 'column', 'page-exists', 'elements', 'element'];
                 $childPrefix = in_array($type, $layoutTypes, true) ? $prefix : $fieldPath;
 
-                $serialized['fields'] = $this->serializeFields($field['fields'], $childPrefix);
+                // Always pass this field's resolved name as the parent so any
+                // leading-dot children bind under it, even when the container is
+                // a transparent layout type that leaves $childPrefix untouched.
+                $serialized['fields'] = $this->serializeFields($field['fields'], $childPrefix, $fieldPath);
             }
 
             $result[] = $serialized;
         }
 
         return $result;
+    }
+
+    /**
+     * Stringify an option key or label for the client.
+     *
+     * With strict YAML (system.strict_mode.yaml_compat: false) Grav parses
+     * blueprints with the native YAML 1.1 parser, which reads unquoted
+     * Yes/No/On/Off/y/n option labels as booleans. Left as booleans they
+     * render as a blank button or a literal "true"; mapping them back to
+     * Yes/No keeps these (Grav 1.7-era) blueprints working without asking
+     * authors — or end users — to quote every label. Option keys are never
+     * booleans (PHP casts bool array keys to 1/0), so they just stringify.
+     */
+    private function normalizeOptionScalar(mixed $value): string
+    {
+        if (is_bool($value)) {
+            return $value ? 'Yes' : 'No';
+        }
+
+        return (string) $value;
     }
 }

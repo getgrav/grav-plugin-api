@@ -8,6 +8,7 @@ use Grav\Common\HTTP\Response;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use RocketTheme\Toolbox\Event\Event;
 use RocketTheme\Toolbox\File\YamlFile;
 
 class DashboardController extends AbstractApiController
@@ -71,6 +72,23 @@ class DashboardController extends AbstractApiController
             } catch (\Exception $e) {
                 // Use cached data on failure
             }
+        }
+
+        // Let plugins contribute notifications (grouped by location: `top`,
+        // `dashboard`, `feed`). Fired after the remote refresh so plugin notices
+        // are merged fresh every request (never cached) yet still flow through
+        // the dismiss + reappear_after handling below — a plugin-provided `id`
+        // is dismissed via the same /notifications/{id}/hide endpoint. This is
+        // how a plugin can raise a persistent, dismissible admin banner.
+        $event = new Event([
+            'notifications' => $notifications,
+            'user' => $user,
+            'force' => $force,
+        ]);
+        $this->grav->fireEvent('onApiDashboardNotifications', $event);
+        $contributed = $event['notifications'];
+        if (is_array($contributed)) {
+            $notifications = $contributed;
         }
 
         // Filter out hidden notifications
@@ -293,6 +311,63 @@ class DashboardController extends AbstractApiController
         ];
 
         return ApiResponse::create($data);
+    }
+
+    /**
+     * GET /dashboard/security/exposure-probe
+     *
+     * Returns the public URL of a sentinel file under user/data plus the
+     * random token it contains. The dashboard fetches that URL directly from
+     * the browser: a 200 whose body matches the token means the sensitive
+     * user/ folders are reachable over the web (a misconfigured webserver),
+     * while a 403/404 means they are correctly blocked.
+     *
+     * The sentinel uses a `.dat` extension on purpose — that extension is not
+     * in the legacy per-extension blocklist, so it is only refused when the
+     * folder-wide block (Grav 2.0 / 1.7.53+) is actually in place. A plain
+     * `.txt`/`.yaml` probe would read as "safe" on installs that still expose
+     * certificates, keys and databases stored with other extensions.
+     */
+    public function securityProbe(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.system.read');
+
+        $dataDir = $this->grav['locator']->findResource('user://data', true, true);
+        $available = false;
+        $token = '';
+
+        if ($dataDir) {
+            if (!is_dir($dataDir)) {
+                @mkdir($dataDir, 0770, true);
+            }
+            $probeFile = $dataDir . '/grav-security-probe.dat';
+
+            // Reuse a stable token so concurrent dashboards don't race each
+            // other into writing different tokens.
+            if (is_file($probeFile)) {
+                $existing = trim((string) @file_get_contents($probeFile));
+                if (preg_match('/^[a-f0-9]{32,}$/', $existing)) {
+                    $token = $existing;
+                }
+            }
+            if ($token === '') {
+                $token = bin2hex(random_bytes(16));
+                @file_put_contents($probeFile, $token);
+            }
+            $available = is_file($probeFile);
+        }
+
+        // Public URL to the sentinel, relative to the site web root (honours a
+        // custom GRAV_USER_PATH and a subfolder install).
+        $userPath = defined('GRAV_USER_PATH') ? trim(GRAV_USER_PATH, '/') : 'user';
+        $rootUrl = rtrim($this->grav['uri']->rootUrl(true), '/');
+        $url = $rootUrl . '/' . $userPath . '/data/grav-security-probe.dat';
+
+        return ApiResponse::create([
+            'url' => $url,
+            'token' => $token,
+            'available' => $available,
+        ]);
     }
 
     /**
