@@ -592,6 +592,39 @@ namespace Grav\Common {
             {
                 return in_array($value, [true, 1, '1', 'yes', 'on', 'true'], true);
             }
+
+            /**
+             * Exercised by UploadFieldSettings (random_name). The real Utils
+             * draws from a larger alphabet; a deterministic-length lowercase
+             * alnum string is enough for the upload-pipeline tests.
+             */
+            public static function generateRandomString($length = 5): string
+            {
+                $alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';
+                $out = '';
+                for ($i = 0; $i < $length; $i++) {
+                    $out .= $alphabet[random_int(0, strlen($alphabet) - 1)];
+                }
+                return $out;
+            }
+
+            /**
+             * Exercised by UploadFieldSettings (accept allowlist). Maps the few
+             * extensions the tests rely on; everything else is octet-stream,
+             * matching the real Utils' fallback when no media type is found.
+             */
+            public static function getMimeByFilename($filename, $default = 'application/octet-stream'): string
+            {
+                $ext = strtolower(pathinfo((string) $filename, PATHINFO_EXTENSION));
+                return match ($ext) {
+                    'png' => 'image/png',
+                    'jpg', 'jpeg' => 'image/jpeg',
+                    'gif' => 'image/gif',
+                    'pdf' => 'application/pdf',
+                    'txt' => 'text/plain',
+                    default => $default,
+                };
+            }
         }
     }
 }

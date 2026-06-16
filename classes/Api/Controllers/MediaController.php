@@ -53,6 +53,10 @@ class MediaController extends AbstractApiController
             throw new ValidationException('No files were uploaded.');
         }
 
+        // Honor per-field upload settings (random_name, accept, ...) when the
+        // file field forwards them; absent, this is an inert no-op.
+        $settings = $this->parseUploadFieldSettings($request);
+
         $uploadedNames = [];
         foreach ($uploadedFiles as $file) {
             // Fire before event — plugins can throw to reject specific files
@@ -63,8 +67,7 @@ class MediaController extends AbstractApiController
                 'size' => $file->getSize(),
             ]);
 
-            $this->processUploadedFile($file, $pagePath);
-            $uploadedNames[] = $file->getClientFilename();
+            $uploadedNames[] = $this->processUploadedFile($file, $pagePath, $settings);
         }
 
         // Create fresh Media object to pick up newly uploaded files
@@ -245,9 +248,11 @@ class MediaController extends AbstractApiController
             throw new ValidationException('No files were uploaded.');
         }
 
+        $settings = $this->parseUploadFieldSettings($request);
+
         $created = [];
         foreach ($uploadedFiles as $file) {
-            $filename = $this->processUploadedFile($file, $targetDir);
+            $filename = $this->processUploadedFile($file, $targetDir, $settings);
             $created[] = $this->serializeSiteFile($targetDir, $filename, $relativePath);
         }
 

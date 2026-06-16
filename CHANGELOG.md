@@ -10,6 +10,7 @@
     * Public API endpoints now recognize logged-in callers when credentials are provided, returning their richer permission-filtered responses instead of treating everyone as a guest.
     * Plugins can now mark public routes as read-only by method, so browsing stays open while writes on the same paths still require login.
     * Page responses now include the on-disk folder name, including any numeric ordering prefix, so admin tools can show and diagnose page ordering.
+    * File upload fields now honor their blueprint's `random_name`, `avoid_overwriting`, `accept`, and `filesize` settings, matching the classic admin.
 3. [](#bugfix)
     * Page and account content saved through the API is now checked for cross-site scripting, closing a hole where an editor without full admin rights could store a script that later ran in other visitors' browsers.
     * Blueprint fields that use relative dot-naming inside a section (such as `.optionA`) now save their values again, restoring the nested-field behaviour from the classic admin ([getgrav/grav#4120](https://github.com/getgrav/grav/issues/4120)).
