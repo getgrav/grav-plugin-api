@@ -50,7 +50,9 @@ actions:
       read:
         label: Read System Info/Logs
       write:
-        label: Cache/Backup/Updates
+        label: Cache/Updates
+      backup:
+        label: Create/Download/Delete Backups
 
   api.gpm:
     type: access

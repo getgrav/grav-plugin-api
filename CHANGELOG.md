@@ -12,6 +12,7 @@
     * Page responses now include the on-disk folder name, including any numeric ordering prefix, so admin tools can show and diagnose page ordering.
     * File upload fields now honor their blueprint's `random_name`, `avoid_overwriting`, `accept`, and `filesize` settings, matching the classic admin.
 3. [](#bugfix)
+    * Creating, listing, downloading, and deleting site backups now requires a dedicated backup permission (or API super user) instead of the broader system read/write access, because the backup archive includes account password hashes and configuration secrets.
     * Page and account content saved through the API is now checked for cross-site scripting, closing a hole where an editor without full admin rights could store a script that later ran in other visitors' browsers.
     * Blueprint fields that use relative dot-naming inside a section (such as `.optionA`) now save their values again, restoring the nested-field behaviour from the classic admin ([getgrav/grav#4120](https://github.com/getgrav/grav/issues/4120)).
     * Pages on a template the current theme doesn't define now fall back to the default page form in the editor instead of showing a blank screen, matching the classic admin.
