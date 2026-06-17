@@ -221,7 +221,11 @@ class BlueprintController extends AbstractApiController
             // (grav-plugin-admin2#41). Fall back to core's always-available
             // equivalent rather than throwing.
             if (in_array($method, ['pagesTypes', 'pagesModularTypes'], true)) {
-                $type = $method === 'pagesModularTypes' ? 'modular' : 'standard';
+                // Honor an explicit `?type=` (the client sends it from the page's
+                // modular/standard context); only fall back to the method-name
+                // default when it's absent, so a modular page doesn't get the
+                // standard list and an empty template selector (admin2#41).
+                $type = $query['type'] ?? ($method === 'pagesModularTypes' ? 'modular' : 'standard');
                 return ApiResponse::create($this->normalizeOptions(Pages::pageTypes($type)));
             }
 

@@ -1,3 +1,10 @@
+# v1.0.0-rc.16
+## 06/17/2026
+
+1. [](#bugfix)
+    * Saving a page no longer fails validation when its header still lists a processing option (such as Twig) that has since been disabled site-wide, so a leftover setting the editor never touched can't block every save ([getgrav/grav-plugin-admin2#41](https://github.com/getgrav/grav-plugin-admin2/issues/41)).
+    * The page-type data resolver now returns the modular template list for modular pages when the caller asks for it, instead of always returning the standard list ([getgrav/grav-plugin-admin2#41](https://github.com/getgrav/grav-plugin-admin2/issues/41)).
+
 # v1.0.0-rc.15
 ## 06/16/2026
 
