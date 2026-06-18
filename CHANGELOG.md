@@ -1,7 +1,9 @@
 # v1.0.0-rc.16
-## 06/17/2026
+## 06/18/2026
 
-1. [](#bugfix)
+1. [](#new)
+    * Plugins can now provide Admin2 modal dialogs through a new endpoint that serves their modal components.
+2. [](#bugfix)
     * The dashboard user count now uses the same account backend as the Users page, so sites with Flex or custom nested account storage report the real number of users instead of zero ([getgrav/grav-plugin-api#7](https://github.com/getgrav/grav-plugin-api/issues/7)).
     * Saving a page no longer fails validation when its header still lists a processing option (such as Twig) that has since been disabled site-wide, so a leftover setting the editor never touched can't block every save ([getgrav/grav-plugin-admin2#41](https://github.com/getgrav/grav-plugin-admin2/issues/41)).
     * The page-type data resolver now returns the modular template list for modular pages when the caller asks for it, instead of always returning the standard list ([getgrav/grav-plugin-admin2#41](https://github.com/getgrav/grav-plugin-admin2/issues/41)).

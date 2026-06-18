@@ -1446,6 +1446,37 @@ class GpmController extends AbstractApiController
     }
 
     /**
+     * GET /gpm/plugins/{slug}/modal-script/{modalId} — Serve a modal web component JS.
+     *
+     * Convention: admin-next/modals/{modalId}.js. A plugin can ship several
+     * distinct modals; each is mounted as `grav-{slug}--modal-{modalId}`.
+     */
+    public function modalScript(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, self::PERMISSION_READ);
+
+        $slug = $this->getRouteParam($request, 'slug');
+        $modalId = $this->getRouteParam($request, 'modalId');
+        $path = $this->resolvePackagePath($slug, 'plugins');
+        $file = $path . '/admin-next/modals/' . basename($modalId) . '.js';
+
+        if (!file_exists($file)) {
+            throw new NotFoundException("Modal component '{$modalId}' not found for plugin '{$slug}'.");
+        }
+
+        $content = file_get_contents($file);
+
+        return new \Grav\Framework\Psr7\Response(
+            200,
+            [
+                'Content-Type' => 'application/javascript; charset=utf-8',
+                'Cache-Control' => 'no-cache',
+            ],
+            $content,
+        );
+    }
+
+    /**
      * GET /gpm/plugins/{slug}/report-script/{reportId} - Serve a report web component JS.
      *
      * Convention: admin-next/reports/{reportId}.js
