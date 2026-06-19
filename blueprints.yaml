@@ -129,9 +129,7 @@ form:
     cors.origins:
       type: array
       label: Allowed Origins
-      help: List of allowed origins. Use * for all origins.
-      default:
-        - "*"
+      help: 'Exact origins (scheme + host) allowed to call the API from a browser, e.g. https://app.example.com. Empty means same-origin only. Avoid "*": it lets any website read authenticated responses, so a configured wildcard is honored only for unauthenticated endpoints.'
       value_only: true
 
     cors.methods:

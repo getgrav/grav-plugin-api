@@ -1,11 +1,13 @@
 # v1.0.0-rc.16
-## 06/18/2026
+## 06/19/2026
 
 1. [](#new)
     * Plugins can now provide Admin2 modal dialogs through a new endpoint that serves their modal components.
 2. [](#improved)
     * Plugins that serialize their own admin config labels can now reuse the API's label translation, so those labels localize to the signed-in user's admin language.
 3. [](#bugfix)
+    * Cross-origin access to the API is now off by default and is never granted with a wildcard on signed-in responses, so another website can no longer read your API data or act on your behalf with a stolen token; add the specific origins you trust in the CORS settings if a browser app on another domain needs access.
+    * An access token passed in the URL query string is now accepted only for file downloads, not for regular API calls, so a token can no longer leak through server logs, browser history, or referrer headers and then be reused to take over an account.
     * The dashboard user count now uses the same account backend as the Users page, so sites with Flex or custom nested account storage report the real number of users instead of zero ([getgrav/grav-plugin-api#7](https://github.com/getgrav/grav-plugin-api/issues/7)).
     * Saving a page no longer fails validation when its header still lists a processing option (such as Twig) that has since been disabled site-wide, so a leftover setting the editor never touched can't block every save ([getgrav/grav-plugin-admin2#41](https://github.com/getgrav/grav-plugin-admin2/issues/41)).
     * The page-type data resolver now returns the modular template list for modular pages when the caller asks for it, instead of always returning the standard list ([getgrav/grav-plugin-admin2#41](https://github.com/getgrav/grav-plugin-admin2/issues/41)).

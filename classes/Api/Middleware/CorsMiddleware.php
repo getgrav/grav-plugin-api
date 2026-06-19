@@ -32,14 +32,24 @@ class CorsMiddleware
             return $response;
         }
 
-        $allowedOrigins = (array) $this->config->get('plugins.api.cors.origins', ['*']);
+        $allowedOrigins = (array) $this->config->get('plugins.api.cors.origins', []);
 
-        if (in_array('*', $allowedOrigins, true)) {
-            $response = $response->withHeader('Access-Control-Allow-Origin', '*');
-        } elseif (in_array($origin, $allowedOrigins, true)) {
+        if (in_array($origin, $allowedOrigins, true)) {
+            // Explicitly allowlisted origin: safe to reflect, even for
+            // authenticated responses. Vary so shared caches don't serve one
+            // origin's response to another.
             $response = $response
                 ->withHeader('Access-Control-Allow-Origin', $origin)
                 ->withHeader('Vary', 'Origin');
+        } elseif (in_array('*', $allowedOrigins, true) && $request->getAttribute('api_user') === null) {
+            // Wildcard is honored ONLY for unauthenticated (guest) responses,
+            // e.g. /ping or /translations. Emitting `*` on an authenticated
+            // response lets any website read it for any token the attacker can
+            // supply (header or `?token=`), which is the cross-origin
+            // account-takeover vector. Authenticated responses fall through to
+            // "no CORS header" unless the origin is explicitly allowlisted
+            // above. GHSA-hqm9-5xxw-4qxp.
+            $response = $response->withHeader('Access-Control-Allow-Origin', '*');
         } else {
             return $response;
         }
@@ -59,16 +69,21 @@ class CorsMiddleware
         return $response;
     }
 
-    public function createPreflightResponse(): ResponseInterface
+    public function createPreflightResponse(ServerRequestInterface $request): ResponseInterface
     {
         $headers = [];
 
-        $allowedOrigins = (array) $this->config->get('plugins.api.cors.origins', ['*']);
-        $origin = $_SERVER['HTTP_ORIGIN'] ?? '*';
+        $allowedOrigins = (array) $this->config->get('plugins.api.cors.origins', []);
+        $origin = $request->getHeaderLine('Origin');
 
-        if (in_array('*', $allowedOrigins, true)) {
-            $headers['Access-Control-Allow-Origin'] = '*';
-        } elseif (in_array($origin, $allowedOrigins, true)) {
+        // Preflight is required only for non-simple requests (custom headers,
+        // JSON bodies, unsafe methods) — i.e. exactly the cross-origin requests
+        // that can change state. We grant it only to explicitly allowlisted
+        // origins, never to `*`: a wildcard preflight would let any site send an
+        // authenticated POST/DELETE that the browser then executes. A simple
+        // cross-origin GET to a public endpoint needs no preflight and is still
+        // handled by addHeaders(). GHSA-hqm9-5xxw-4qxp.
+        if ($origin !== '' && in_array($origin, $allowedOrigins, true)) {
             $headers['Access-Control-Allow-Origin'] = $origin;
             $headers['Vary'] = 'Origin';
         }

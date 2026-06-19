@@ -83,7 +83,7 @@ class ApiRouter extends ProcessorBase
 
             // Handle CORS preflight
             if ($request->getMethod() === 'OPTIONS') {
-                return (new CorsMiddleware($this->config))->createPreflightResponse();
+                return (new CorsMiddleware($this->config))->createPreflightResponse($request);
             }
 
             // Require and apply Grav environment

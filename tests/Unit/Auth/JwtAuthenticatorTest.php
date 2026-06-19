@@ -329,6 +329,95 @@ class JwtAuthenticatorTest extends TestCase
         self::assertFalse($result);
     }
 
+    #[Test]
+    public function token_query_param_ignored_on_json_route(): void
+    {
+        // GHSA-hqm9-5xxw-4qxp: a JWT in `?token=` must not authenticate ordinary
+        // (non-file) routes, which keeps access tokens out of URLs/logs and
+        // removes the cross-origin takeover primitive.
+        $user = TestHelper::createMockUser('alice');
+        $authenticator = $this->buildAuthenticator(['alice' => $user]);
+
+        $token = $this->accessToken('alice');
+
+        $request = TestHelper::createMockRequest(
+            path: '/api/v1/me',
+            queryParams: ['token' => $token],
+        );
+
+        self::assertNull($authenticator->authenticate($request));
+    }
+
+    #[Test]
+    public function token_query_param_ignored_on_state_changing_method(): void
+    {
+        // Even on an otherwise allowed path, a write method must never be
+        // authenticated by a URL token.
+        $user = TestHelper::createMockUser('alice');
+        $authenticator = $this->buildAuthenticator(['alice' => $user]);
+
+        $token = $this->accessToken('alice');
+
+        $request = TestHelper::createMockRequest(
+            method: 'POST',
+            path: '/api/v1/system/backups/site.zip/download',
+            queryParams: ['token' => $token],
+        );
+
+        self::assertNull($authenticator->authenticate($request));
+    }
+
+    #[Test]
+    public function token_query_param_allowed_on_backup_download(): void
+    {
+        // The legitimate use case: a GET to a file-streaming route that a
+        // browser `<a download>` can reach but can't attach a header to.
+        $user = TestHelper::createMockUser('alice');
+        $authenticator = $this->buildAuthenticator(['alice' => $user]);
+
+        $token = $this->accessToken('alice');
+
+        $request = TestHelper::createMockRequest(
+            path: '/api/v1/system/backups/site.zip/download',
+            queryParams: ['token' => $token],
+        );
+
+        $result = $authenticator->authenticate($request);
+
+        self::assertNotNull($result);
+        self::assertSame('alice', $result->username);
+    }
+
+    #[Test]
+    public function token_query_param_allowed_on_thumbnail(): void
+    {
+        $user = TestHelper::createMockUser('alice');
+        $authenticator = $this->buildAuthenticator(['alice' => $user]);
+
+        $token = $this->accessToken('alice');
+
+        $request = TestHelper::createMockRequest(
+            path: '/api/v1/thumbnails/user/pages/01.home/photo.jpg',
+            queryParams: ['token' => $token],
+        );
+
+        $result = $authenticator->authenticate($request);
+
+        self::assertNotNull($result);
+        self::assertSame('alice', $result->username);
+    }
+
+    private function accessToken(string $username): string
+    {
+        return JWT::encode([
+            'iss' => 'grav-api',
+            'sub' => $username,
+            'iat' => time(),
+            'exp' => time() + 3600,
+            'type' => 'access',
+        ], self::SECRET, self::ALGORITHM);
+    }
+
     /**
      * Build a testable JwtAuthenticator subclass that doesn't depend on the Grav locator.
      */
