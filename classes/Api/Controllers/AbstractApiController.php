@@ -255,6 +255,24 @@ abstract class AbstractApiController
         if (is_bool($value) && ($type === 'int' || $type === 'number')) {
             return (int) $value;
         }
+
+        // A `checkboxes` field with `use: keys` stores every option as a
+        // key => bool map (e.g. page `process: {markdown: true, twig: false}`).
+        // Core's typeArray validates the *keys* against the currently available
+        // options, so a key whose option has since been gated out of the
+        // blueprint — `twig` once twig-in-content is disabled via
+        // Security::pageProcessOptions — fails the options diff and blocks the
+        // whole save, even though the user never touched it and `false` means
+        // "not enabled" anyway (admin2#41). Drop the disabled keys so only the
+        // genuinely-enabled options are validated. The stored value is left
+        // intact; this affects validation only.
+        if (($field['type'] ?? null) === 'checkboxes'
+            && ($field['use'] ?? null) === 'keys'
+            && is_array($value)
+        ) {
+            return array_filter($value);
+        }
+
         return $value;
     }
 

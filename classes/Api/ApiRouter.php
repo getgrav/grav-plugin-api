@@ -83,7 +83,7 @@ class ApiRouter extends ProcessorBase
 
             // Handle CORS preflight
             if ($request->getMethod() === 'OPTIONS') {
-                return (new CorsMiddleware($this->config))->createPreflightResponse();
+                return (new CorsMiddleware($this->config))->createPreflightResponse($request);
             }
 
             // Require and apply Grav environment
@@ -525,6 +525,9 @@ $r->addRoute('GET', '/gpm/themes/{slug}/field/{type}', [GpmController::class, 'c
         // Context Panels
         $r->addRoute('GET', '/context-panels', [ContextPanelController::class, 'items']);
         $r->addRoute('GET', '/gpm/plugins/{slug}/panel-script', [GpmController::class, 'panelScript']);
+
+        // Plugin Modals (opened via window.__GRAV_DIALOGS.open / menubar `modal` intent)
+        $r->addRoute('GET', '/gpm/plugins/{slug}/modal-script/{modalId}', [GpmController::class, 'modalScript']);
     }
 
     /**

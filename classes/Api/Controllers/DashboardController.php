@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Grav\Plugin\Api\Controllers;
 
 use Grav\Common\HTTP\Response;
+use Grav\Common\User\DataUser\User as DataUser;
+use Grav\Plugin\Api\FlexBackend;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -13,6 +15,8 @@ use RocketTheme\Toolbox\File\YamlFile;
 
 class DashboardController extends AbstractApiController
 {
+    use FlexBackend;
+
     /**
      * GET /dashboard/notifications - Get system notifications.
      */
@@ -237,12 +241,9 @@ class DashboardController extends AbstractApiController
             }
         }
 
-        // Count users
-        $accountDir = $this->grav['locator']->findResource('account://', true);
-        $totalUsers = 0;
-        if ($accountDir && is_dir($accountDir)) {
-            $totalUsers = count(glob($accountDir . '/*.yaml'));
-        }
+        // Count users via the same Flex-aware path UsersController uses, so the
+        // tally matches the Users listing regardless of account storage layout.
+        $totalUsers = $this->countUsers();
 
         // Count plugins
         $plugins = $this->grav['plugins']->all();
@@ -423,5 +424,41 @@ class DashboardController extends AbstractApiController
             'chart' => $chartData,
             'top_pages' => $topPages,
         ]);
+    }
+
+    /**
+     * Count user accounts using the same backend resolution as UsersController.
+     *
+     * When the Flex accounts backend is active (the default, and required for
+     * custom/nested storage where files live at user/accounts/<name>/user.yaml)
+     * we count via the directory index. Otherwise we fall back to scanning the
+     * flat top-level account YAML files.
+     */
+    private function countUsers(): int
+    {
+        $directory = $this->getFlexDirectory('user-accounts');
+        if ($directory) {
+            // Mirror UsersController::indexViaFlex — Flex indexes every file in
+            // user/accounts/ without an extension filter, so drop keys that
+            // aren't valid usernames or that carry a stored-file extension
+            // (revisions-pro/backup strays) before counting.
+            $keys = array_filter(
+                $directory->getIndex()->getKeys(),
+                static fn($k) => is_string($k)
+                    && DataUser::isValidUsername($k)
+                    && !preg_match('/\.(ya?ml|json)(\.|$)/i', $k),
+            );
+
+            return count($keys);
+        }
+
+        // Flat-file fallback: top-level account YAML files.
+        $accountDir = $this->grav['locator']->findResource('account://', true)
+            ?: $this->grav['locator']->findResource('user://accounts', true);
+        if ($accountDir && is_dir($accountDir)) {
+            return count(glob($accountDir . '/*.yaml') ?: []);
+        }
+
+        return 0;
     }
 }

@@ -15,6 +15,16 @@ use Throwable;
 
 class JwtAuthenticator implements AuthenticatorInterface
 {
+    /**
+     * Path segments/suffixes on which the `?token=` URL fallback is honored.
+     * These are the only routes that stream a file body to a browser element
+     * that can't attach an auth header. See {@see isTokenQueryAllowed()}.
+     */
+    protected const TOKEN_QUERY_ROUTES = [
+        '/download',     // e.g. /system/backups/{filename}/download
+        '/thumbnails',   // e.g. /thumbnails/{file}
+    ];
+
     public function __construct(
         protected readonly Grav $grav,
         protected readonly Config $config,
@@ -196,13 +206,45 @@ class JwtAuthenticator implements AuthenticatorInterface
         }
 
         // Fallback: query parameter for direct links (e.g. file downloads
-        // where a browser <a download> tag can't attach a header).
+        // where a browser `<a download>` / `<img src>` can't attach a header).
+        //
+        // A token in the URL leaks into access logs, the `Referer` header, and
+        // browser history, so we accept it only where a browser genuinely can't
+        // send a header: safe (GET/HEAD) requests to the handful of routes that
+        // actually stream a file. Every state-changing method and every JSON
+        // route ignores `?token=`, which keeps the access token out of URLs for
+        // the API surface that matters (`/me`, `/users`, `/config`, `/pages`, …)
+        // and removes the cross-origin account-takeover primitive. GHSA-hqm9-5xxw-4qxp.
         $params = $request->getQueryParams();
-        if (!empty($params['token'])) {
+        if (!empty($params['token']) && $this->isTokenQueryAllowed($request)) {
             return $params['token'];
         }
 
         return null;
+    }
+
+    /**
+     * Whether the `?token=` URL fallback may authenticate this request.
+     *
+     * Restricted to safe methods on file-streaming routes (backup downloads and
+     * thumbnails) — the only places a browser element can't attach an auth
+     * header. The match is on the request path suffix so it is independent of
+     * the install's base path and configured API route/version prefix.
+     */
+    protected function isTokenQueryAllowed(ServerRequestInterface $request): bool
+    {
+        if (!in_array(strtoupper($request->getMethod()), ['GET', 'HEAD'], true)) {
+            return false;
+        }
+
+        $path = rtrim($request->getUri()->getPath(), '/');
+        foreach (self::TOKEN_QUERY_ROUTES as $needle) {
+            if (str_ends_with($path, $needle) || str_contains($path . '/', $needle . '/')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     protected function validateToken(string $token): ?UserInterface

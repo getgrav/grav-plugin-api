@@ -13,8 +13,13 @@ auth:
 
 cors:
   enabled: true
-  origins:
-    - '*'
+  # Cross-origin browser access is OFF by default (same-origin only). To allow a
+  # browser app on another origin, list its exact scheme+host here, e.g.
+  # 'https://app.example.com'. '*' is intentionally NOT the default: the API
+  # serves authenticated data, and a wildcard lets any website read responses
+  # for any token it can supply. A configured '*' is honored only for
+  # unauthenticated endpoints.
+  origins: []
   methods:
     - GET
     - POST

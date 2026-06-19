@@ -162,32 +162,90 @@ class CorsMiddlewareTest extends TestCase
     }
 
     #[Test]
-    public function preflight_response_has_cors_headers(): void
+    public function preflight_response_reflects_allowlisted_origin(): void
     {
-        $_SERVER['HTTP_ORIGIN'] = 'http://example.com';
+        $middleware = $this->buildMiddleware([
+            'enabled' => true,
+            'origins' => ['http://example.com'],
+            'methods' => ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+            'headers' => ['Authorization', 'Content-Type'],
+            'max_age' => 86400,
+            'credentials' => false,
+        ]);
 
-        try {
-            $middleware = $this->buildMiddleware([
-                'enabled' => true,
-                'origins' => ['*'],
-                'methods' => ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-                'headers' => ['Authorization', 'Content-Type'],
-                'max_age' => 86400,
-                'credentials' => false,
-            ]);
+        $request = TestHelper::createMockRequest(method: 'OPTIONS', headers: ['Origin' => 'http://example.com']);
+        $response = $middleware->createPreflightResponse($request);
 
-            $response = $middleware->createPreflightResponse();
+        self::assertInstanceOf(ResponseInterface::class, $response);
+        self::assertSame(204, $response->getStatusCode());
+        self::assertSame('http://example.com', $response->getHeaderLine('Access-Control-Allow-Origin'));
+        self::assertSame('Origin', $response->getHeaderLine('Vary'));
+        self::assertStringContainsString('GET', $response->getHeaderLine('Access-Control-Allow-Methods'));
+        self::assertStringContainsString('Authorization', $response->getHeaderLine('Access-Control-Allow-Headers'));
+        self::assertSame('86400', $response->getHeaderLine('Access-Control-Max-Age'));
+        self::assertSame('0', $response->getHeaderLine('Content-Length'));
+    }
 
-            self::assertInstanceOf(ResponseInterface::class, $response);
-            self::assertSame(204, $response->getStatusCode());
-            self::assertSame('*', $response->getHeaderLine('Access-Control-Allow-Origin'));
-            self::assertStringContainsString('GET', $response->getHeaderLine('Access-Control-Allow-Methods'));
-            self::assertStringContainsString('Authorization', $response->getHeaderLine('Access-Control-Allow-Headers'));
-            self::assertSame('86400', $response->getHeaderLine('Access-Control-Max-Age'));
-            self::assertSame('0', $response->getHeaderLine('Content-Length'));
-        } finally {
-            unset($_SERVER['HTTP_ORIGIN']);
-        }
+    #[Test]
+    public function preflight_does_not_grant_wildcard_origin(): void
+    {
+        // Security guard (GHSA-hqm9-5xxw-4qxp): a `*` config must never let an
+        // arbitrary origin pass preflight, otherwise the browser would execute
+        // the cross-origin POST/DELETE that follows.
+        $middleware = $this->buildMiddleware([
+            'enabled' => true,
+            'origins' => ['*'],
+            'methods' => ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+        ]);
+
+        $request = TestHelper::createMockRequest(method: 'OPTIONS', headers: ['Origin' => 'http://evil.test']);
+        $response = $middleware->createPreflightResponse($request);
+
+        self::assertSame(204, $response->getStatusCode());
+        self::assertSame('', $response->getHeaderLine('Access-Control-Allow-Origin'));
+    }
+
+    #[Test]
+    public function wildcard_not_applied_to_authenticated_response(): void
+    {
+        // Security guard (GHSA-hqm9-5xxw-4qxp): `*` is honored for guests but
+        // never for an authenticated response, so a stolen token can't be used
+        // to read API data cross-origin from an attacker page.
+        $middleware = $this->buildMiddleware([
+            'enabled' => true,
+            'origins' => ['*'],
+        ]);
+
+        $request = TestHelper::createMockRequest(
+            headers: ['Origin' => 'http://evil.test'],
+            attributes: ['api_user' => (object) ['username' => 'admin']],
+        );
+        $response = $this->createStubResponse();
+
+        $result = $middleware->addHeaders($request, $response);
+
+        self::assertSame('', $result->getHeaderLine('Access-Control-Allow-Origin'));
+    }
+
+    #[Test]
+    public function allowlisted_origin_applied_to_authenticated_response(): void
+    {
+        // An explicitly trusted origin is still reflected for authenticated
+        // responses — that is the supported way to allow a browser SPA.
+        $middleware = $this->buildMiddleware([
+            'enabled' => true,
+            'origins' => ['http://app.example.com'],
+        ]);
+
+        $request = TestHelper::createMockRequest(
+            headers: ['Origin' => 'http://app.example.com'],
+            attributes: ['api_user' => (object) ['username' => 'admin']],
+        );
+        $response = $this->createStubResponse();
+
+        $result = $middleware->addHeaders($request, $response);
+
+        self::assertSame('http://app.example.com', $result->getHeaderLine('Access-Control-Allow-Origin'));
     }
 
     /**
