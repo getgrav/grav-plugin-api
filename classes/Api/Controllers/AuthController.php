@@ -472,14 +472,19 @@ class AuthController extends AbstractApiController
 
     private function userRequiresTwoFactor(UserInterface $user): bool
     {
+        // 2FA support is provided by the Login plugin's TwoFactorAuth helper.
         if (!class_exists(TwoFactorAuth::class)) {
             return false;
         }
 
-        if (!$this->config->get('plugins.login.twofa_enabled', false)) {
-            return false;
-        }
-
+        // Always honor a per-user configured secret. An account that explicitly
+        // enabled 2FA must never be silently downgraded to single-factor —
+        // including accounts migrated from Grav 1.7, where the master switch
+        // was the admin plugin's `plugins.admin.twofa_enabled` (default true),
+        // not the login plugin's `plugins.login.twofa_enabled` (default false)
+        // this gate previously keyed off (getgrav/grav#4145). The global flags
+        // govern whether enrollment is offered, not whether an existing secret
+        // is enforced at login.
         return (bool) $user->get('twofa_enabled') && (bool) $user->get('twofa_secret');
     }
 

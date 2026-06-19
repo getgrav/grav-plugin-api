@@ -206,7 +206,12 @@ class UsersController extends AbstractApiController
         // global setting between fetch and save.
         $etag = $this->generateEtag($data);
 
-        $data['twofa_global_enabled'] = (bool) $this->config->get('plugins.login.twofa_enabled', false);
+        // Offer 2FA enrollment whenever the capability is present (Login plugin
+        // installed). Previously this keyed off `plugins.login.twofa_enabled`,
+        // which defaults to false, so the enroll panel was hidden on a stock
+        // 2.0 install and 2FA could not be configured from admin2 at all
+        // (getgrav/grav#4145).
+        $data['twofa_global_enabled'] = class_exists(\Grav\Plugin\Login\TwoFactorAuth\TwoFactorAuth::class);
 
         return ApiResponse::create($data, 200, ['ETag' => '"' . $etag . '"']);
     }

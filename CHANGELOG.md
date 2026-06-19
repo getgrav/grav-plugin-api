@@ -1,3 +1,10 @@
+# v1.0.0-rc.17
+## 06/19/2026
+
+1. [](#bugfix)
+    * Accounts with two-factor authentication configured are now always challenged at login, closing a gap where migrated or existing 2FA accounts could sign in with only a password ([getgrav/grav#4145](https://github.com/getgrav/grav/issues/4145)).
+    * Two-factor enrollment is now offered in the admin whenever the Login plugin is installed, instead of staying hidden unless a site-wide flag was set ([getgrav/grav#4145](https://github.com/getgrav/grav/issues/4145)).
+
 # v1.0.0-rc.16
 ## 06/19/2026
 
