@@ -39,6 +39,22 @@ class PopularityTracker
             return;
         }
 
+        // Skip views from logged-in admins so an author's own testing and
+        // demo visits don't skew the real-visitor numbers. On by default.
+        if ($this->config->get('plugins.api.popularity.exclude_admin', true)
+            && isset($grav['user'])
+            && $grav['user']->authenticated
+            && $grav['user']->authorize('admin.login')) {
+            return;
+        }
+
+        // Skip views from explicitly excluded visitor IPs / CIDR ranges.
+        $ip = (string) $grav['uri']->ip();
+        $excludeIps = (array) $this->config->get('plugins.api.popularity.exclude_ips', []);
+        if ($excludeIps !== [] && self::ipMatches($ip, $excludeIps)) {
+            return;
+        }
+
         /** @var \Grav\Common\Page\Interfaces\PageInterface|null $page */
         $page = $grav['page'] ?? null;
         if ($page === null || !$page->route()) {
@@ -65,7 +81,7 @@ class PopularityTracker
             // with a per-install secret the attacker can't compute against
             // breaks that re-identification path while preserving stable
             // bucketing for the unique-visitor counter.
-            $ipHash = hash_hmac('sha256', (string) $grav['uri']->ip(), $this->getSalt());
+            $ipHash = hash_hmac('sha256', $ip, $this->getSalt());
             // Pruning happens inside recordHit() under the same lock — every
             // write trims to the configured retention window, so the file
             // can never grow beyond bounded size between hits.
@@ -80,6 +96,73 @@ class PopularityTracker
         } catch (\Throwable) {
             // Tracking must never break the page response — swallow.
         }
+    }
+
+    /**
+     * Match a visitor IP against a list of exclusion patterns. Each pattern is
+     * either an exact IP (e.g. `203.0.113.7`, `2001:db8::1`) or a CIDR range
+     * (e.g. `203.0.113.0/24`, `2001:db8::/32`). IPv4 and IPv6 are both
+     * supported; a pattern of the wrong family for the visitor is skipped.
+     */
+    public static function ipMatches(string $ip, array $patterns): bool
+    {
+        $ipPacked = @inet_pton($ip);
+        if ($ipPacked === false) {
+            return false;
+        }
+
+        foreach ($patterns as $pattern) {
+            $pattern = trim((string) $pattern);
+            if ($pattern === '') {
+                continue;
+            }
+
+            if (!str_contains($pattern, '/')) {
+                // Exact match — normalise both sides via inet_pton so e.g.
+                // `::1` and `0:0:0:0:0:0:0:1` compare equal.
+                $patternPacked = @inet_pton($pattern);
+                if ($patternPacked !== false && $patternPacked === $ipPacked) {
+                    return true;
+                }
+                continue;
+            }
+
+            [$subnet, $bits] = explode('/', $pattern, 2);
+            $subnetPacked = @inet_pton(trim($subnet));
+            if ($subnetPacked === false || !ctype_digit(trim($bits))) {
+                continue;
+            }
+            // Different address families (v4 vs v6) can never match.
+            if (strlen($subnetPacked) !== strlen($ipPacked)) {
+                continue;
+            }
+
+            $bits = (int) $bits;
+            $maxBits = strlen($ipPacked) * 8;
+            if ($bits < 0 || $bits > $maxBits) {
+                continue;
+            }
+            if ($bits === 0) {
+                return true;
+            }
+
+            $bytes = intdiv($bits, 8);
+            $remainder = $bits % 8;
+
+            if ($bytes > 0 && substr($ipPacked, 0, $bytes) !== substr($subnetPacked, 0, $bytes)) {
+                continue;
+            }
+            if ($remainder !== 0) {
+                $mask = ~((1 << (8 - $remainder)) - 1) & 0xFF;
+                if ((ord($ipPacked[$bytes]) & $mask) !== (ord($subnetPacked[$bytes]) & $mask)) {
+                    continue;
+                }
+            }
+
+            return true;
+        }
+
+        return false;
     }
 
     /**

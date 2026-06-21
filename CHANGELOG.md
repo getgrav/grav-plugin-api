@@ -1,3 +1,13 @@
+# v1.0.0
+## 06/20/2026
+
+1. [](#new)
+    * Page Statistics can now exclude visits from logged-in admins and from specific visitor IP addresses or ranges, so your own testing and demo traffic no longer skews the numbers ([getgrav/grav-plugin-admin2#45](https://github.com/getgrav/grav-plugin-admin2/issues/45)).
+2. [](#bugfix)
+    * [security] An admin who can manage users but is not a super admin can no longer change, create, or delete super-admin accounts, closing a privilege-escalation path that allowed taking over the super admin by resetting its password (GHSA-p97c-g455-q447).
+    * Accounts with two-factor authentication configured are now always challenged at login, closing a gap where migrated or existing 2FA accounts could sign in with only a password ([getgrav/grav#4145](https://github.com/getgrav/grav/issues/4145)).
+    * Two-factor enrollment is now offered in the admin whenever the Login plugin is installed, instead of staying hidden unless a site-wide flag was set ([getgrav/grav#4145](https://github.com/getgrav/grav/issues/4145)).
+
 # v1.0.0-rc.16
 ## 06/19/2026
 

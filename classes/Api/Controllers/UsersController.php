@@ -206,7 +206,12 @@ class UsersController extends AbstractApiController
         // global setting between fetch and save.
         $etag = $this->generateEtag($data);
 
-        $data['twofa_global_enabled'] = (bool) $this->config->get('plugins.login.twofa_enabled', false);
+        // Offer 2FA enrollment whenever the capability is present (Login plugin
+        // installed). Previously this keyed off `plugins.login.twofa_enabled`,
+        // which defaults to false, so the enroll panel was hidden on a stock
+        // 2.0 install and 2FA could not be configured from admin2 at all
+        // (getgrav/grav#4145).
+        $data['twofa_global_enabled'] = class_exists(\Grav\Plugin\Login\TwoFactorAuth\TwoFactorAuth::class);
 
         return ApiResponse::create($data, 200, ['ETag' => '"' . $etag . '"']);
     }
@@ -253,6 +258,11 @@ class UsersController extends AbstractApiController
         $user->set('modified', time());
 
         if (isset($body['access'])) {
+            // A non-super creator must not mint a super-admin account — granting
+            // super is a tier the caller does not hold. See GHSA-p97c-g455-q447.
+            if (!$this->isSuperAdmin($this->getUser($request)) && $this->accessGrantsSuper($body['access'])) {
+                throw new ForbiddenException('Granting super-admin access requires super-admin privileges.');
+            }
             $user->set('access', $body['access']);
         }
 
@@ -299,6 +309,18 @@ class UsersController extends AbstractApiController
             $this->requirePermission($request, 'api.access');
         }
 
+        // Prevent privilege escalation (IDOR): a non-super manager must not modify
+        // a super-admin account. Holding api.users.write authorizes managing users,
+        // not acting on a higher-privilege target — otherwise a delegated user-manager
+        // could overwrite the super-admin's password (via the password field below,
+        // which sits outside the per-field permission gate) and seize the instance.
+        // The target check covers both super flags (admin.super and api.super): a
+        // classic admin.super account may not carry api.super. See GHSA-p97c-g455-q447.
+        $isSuper = $this->isSuperAdmin($currentUser);
+        if (!$isSuper && $this->accessGrantsSuper($user->get('access'))) {
+            throw new ForbiddenException('Only super-admins can modify super-admin accounts.');
+        }
+
         // ETag validation
         $currentHash = $this->generateEtag($this->serializeUser($user));
         $this->validateEtag($request, $currentHash);
@@ -318,7 +340,6 @@ class UsersController extends AbstractApiController
         // group membership can confer access, so only super admins may change it
         // — a plain api.users.write manager must not assign users into groups.
         $superFields = ['groups'];
-        $isSuper = $this->isSuperAdmin($currentUser);
 
         if (!$canManageUsers) {
             foreach ($adminFields as $field) {
@@ -337,6 +358,13 @@ class UsersController extends AbstractApiController
                         "Modifying '{$field}' requires super-admin privileges."
                     );
                 }
+            }
+
+            // A non-super manager may edit `access` (it's an admin field), but must
+            // not use it to grant super — that would promote an account to a tier
+            // the caller does not hold. See GHSA-p97c-g455-q447.
+            if (isset($body['access']) && $this->accessGrantsSuper($body['access'])) {
+                throw new ForbiddenException('Granting super-admin access requires super-admin privileges.');
             }
         }
 
@@ -391,6 +419,13 @@ class UsersController extends AbstractApiController
         }
 
         $user = $this->loadUserOrFail($username);
+
+        // A non-super manager must not delete a super-admin account — a destructive
+        // cross-boundary action (lockout / takeover of the instance owner).
+        // See GHSA-p97c-g455-q447.
+        if (!$this->isSuperAdmin($currentUser) && $this->accessGrantsSuper($user->get('access'))) {
+            throw new ForbiddenException('Only super-admins can delete super-admin accounts.');
+        }
 
         $this->fireEvent('onApiBeforeUserDelete', ['user' => $user]);
 
@@ -739,6 +774,32 @@ class UsersController extends AbstractApiController
         } else {
             $this->requirePermission($request, $write ? 'api.users.write' : 'api.users.read');
         }
+    }
+
+    /**
+     * Detect whether an `access` payload would confer super-admin privileges
+     * (admin.super or api.super), in either nested (`['admin' => ['super' => 1]]`)
+     * or dot-keyed (`['admin.super' => 1]`) form.
+     *
+     * Used to stop a non-super api.users.write manager from minting or promoting
+     * a super account, and to detect when a loaded target user is itself super —
+     * privilege escalation by proxy. See GHSA-p97c-g455-q447.
+     *
+     * @param mixed $access
+     */
+    private function accessGrantsSuper($access): bool
+    {
+        if (!is_array($access)) {
+            return false;
+        }
+
+        foreach (['admin', 'api'] as $scope) {
+            if (!empty($access[$scope]['super']) || !empty($access["{$scope}.super"])) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function loadUserOrFail(?string $username): UserInterface
