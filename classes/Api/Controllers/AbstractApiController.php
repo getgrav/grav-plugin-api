@@ -288,10 +288,10 @@ abstract class AbstractApiController
     /**
      * Get pagination parameters from query string.
      */
-    protected function getPagination(ServerRequestInterface $request): array
+    protected function getPagination(ServerRequestInterface $request, ?int $defaultPerPage = null): array
     {
         $query = $request->getQueryParams();
-        $defaultPerPage = $this->config->get('plugins.api.pagination.default_per_page', 20);
+        $defaultPerPage = $defaultPerPage ?? (int) $this->config->get('plugins.api.pagination.default_per_page', 20);
         $maxPerPage = $this->config->get('plugins.api.pagination.max_per_page', 1000);
 
         $page = max(1, (int) ($query['page'] ?? 1));
