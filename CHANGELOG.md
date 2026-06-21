@@ -2,6 +2,7 @@
 ## 06/21/2026
 
 1. [](#bugfix)
+    * [security] Profile avatar and admin logo uploads now verify the actual image content instead of trusting the file type claimed by the browser, so a disguised script or PHP file can no longer be saved into your site's files (GHSA-xc64-vh46-vph6).
     * The ETag header is now readable by the admin when it runs on a different domain than the API, so save conflict protection keeps working in that setup.
 
 # v1.0.0

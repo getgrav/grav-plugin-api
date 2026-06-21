@@ -25,6 +25,9 @@ class UsersController extends AbstractApiController
 {
     use FlexBackend;
 
+    /** 8 MB cap — a profile avatar shouldn't be anywhere near this. */
+    private const AVATAR_MAX_SIZE = 8_388_608;
+
     private ?UserSerializer $serializer = null;
 
     public function index(ServerRequestInterface $request): ResponseInterface
@@ -462,10 +465,29 @@ class UsersController extends AbstractApiController
             throw new ValidationException('No avatar file uploaded.');
         }
 
-        $mime = $file->getClientMediaType() ?? '';
-        if (!str_starts_with($mime, 'image/')) {
-            throw new ValidationException('Avatar must be an image file.');
+        $size = $file->getSize();
+        if ($size !== null && $size > self::AVATAR_MAX_SIZE) {
+            throw new ValidationException(
+                sprintf('Avatar exceeds maximum size of %d MB.', self::AVATAR_MAX_SIZE / 1_048_576)
+            );
         }
+
+        // Validate the ACTUAL image bytes, not the client-declared MIME type.
+        // getClientMediaType() is attacker-controlled, so trusting it lets a
+        // PHP/SVG/polyglot payload be written to disk with an image extension
+        // (GHSA-xc64-vh46-vph6). getimagesizefromstring() only succeeds on a
+        // real raster image, and the extension is taken from the detected type.
+        $contents = (string) $file->getStream();
+        $info = @getimagesizefromstring($contents);
+        $ext = match ($info[2] ?? null) {
+            IMAGETYPE_PNG => 'png',
+            IMAGETYPE_WEBP => 'webp',
+            IMAGETYPE_JPEG => 'jpg',
+            default => throw new ValidationException(
+                'Avatar must be a valid PNG, JPEG, or WebP image.'
+            ),
+        };
+        $mime = (string) $info['mime'];
 
         // Save to account://avatars/
         $locator = $this->grav['locator'];
@@ -474,16 +496,13 @@ class UsersController extends AbstractApiController
             mkdir($avatarDir, 0755, true);
         }
 
-        $ext = match ($mime) {
-            'image/png' => 'png',
-            'image/gif' => 'gif',
-            'image/webp' => 'webp',
-            default => 'jpg',
-        };
-
         $filename = $username . '-' . substr(md5((string) time()), 0, 8) . '.' . $ext;
         $filepath = $avatarDir . '/' . $filename;
-        $file->moveTo($filepath);
+        // Write the validated bytes ourselves rather than moveTo(): we've already
+        // read the stream, and this guarantees only the inspected content lands on disk.
+        if (file_put_contents($filepath, $contents) === false) {
+            throw new \RuntimeException('Failed to write avatar file.');
+        }
 
         // Build path relative to Grav root (e.g. user/accounts/avatars/filename.jpg)
         // to match the format used by the old admin plugin.

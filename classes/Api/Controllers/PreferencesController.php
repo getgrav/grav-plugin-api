@@ -27,14 +27,6 @@ use Psr\Http\Message\ServerRequestInterface;
  */
 class PreferencesController extends AbstractApiController
 {
-    /** Whitelist of MIME types accepted for logo uploads. */
-    private const LOGO_MIMES = [
-        'image/svg+xml' => 'svg',
-        'image/png' => 'png',
-        'image/jpeg' => 'jpg',
-        'image/webp' => 'webp',
-    ];
-
     /** 4 MB cap — logos shouldn't be anywhere near this. */
     private const LOGO_MAX_SIZE = 4_194_304;
 
@@ -142,13 +134,24 @@ class PreferencesController extends AbstractApiController
             );
         }
 
-        $mime = strtolower((string) ($file->getClientMediaType() ?? ''));
-        if (!isset(self::LOGO_MIMES[$mime])) {
-            throw new ValidationException(
-                'Logo must be SVG, PNG, JPEG, or WebP. Received: ' . ($mime === '' ? '(unknown)' : $mime)
-            );
+        // Determine the real type from the file content, never the client-declared
+        // MIME (getClientMediaType() is attacker-controlled — GHSA-xc64-vh46-vph6).
+        // Raster formats are confirmed via getimagesizefromstring(); SVG can't be
+        // parsed that way, so it is validated + sanitized as XML below so a logo
+        // can't smuggle a stored-XSS payload when later served inline.
+        $contents = (string) $file->getStream();
+        $ext = match (@getimagesizefromstring($contents)[2] ?? null) {
+            IMAGETYPE_PNG => 'png',
+            IMAGETYPE_JPEG => 'jpg',
+            IMAGETYPE_WEBP => 'webp',
+            default => null,
+        };
+
+        if ($ext === null) {
+            // Not a supported raster image — the only other accepted format is SVG.
+            $contents = $this->sanitizeSvg($contents);
+            $ext = 'svg';
         }
-        $ext = self::LOGO_MIMES[$mime];
 
         $resolver = $this->getResolver();
         $dir = $resolver->brandingMediaDir(createDir: true);
@@ -160,7 +163,11 @@ class PreferencesController extends AbstractApiController
         $stamp = substr(md5(uniqid('logo', true)), 0, 10);
         $filename = "logo-{$variant}-{$stamp}.{$ext}";
         $filepath = $dir . '/' . $filename;
-        $file->moveTo($filepath);
+        // Write the validated/sanitized bytes ourselves rather than moveTo(): the
+        // stream has already been read, and SVG content has been rewritten.
+        if (file_put_contents($filepath, $contents) === false) {
+            throw new \RuntimeException('Failed to write logo file.');
+        }
 
         // Replace the path for this variant; preserve everything else.
         $branding = $resolver->siteBranding();
@@ -216,6 +223,66 @@ class PreferencesController extends AbstractApiController
         $payload['branding_urls'] = $this->resolveBrandingUrls($payload['branding'] ?? [], $resolver);
 
         return ApiResponse::create($payload);
+    }
+
+    /**
+     * Validate and sanitize an uploaded SVG logo so it can't carry stored XSS
+     * when served inline. Parses the markup as XML (rejecting anything that
+     * isn't a real <svg> document), then strips <script>/<foreignObject>
+     * elements, on* event-handler attributes, and javascript:/data: URIs from
+     * href/src attributes. Returns the cleaned markup.
+     */
+    private function sanitizeSvg(string $svg): string
+    {
+        $svg = trim($svg);
+        if ($svg === '') {
+            throw new ValidationException('Logo SVG is empty.');
+        }
+
+        $previous = libxml_use_internal_errors(true);
+        $dom = new \DOMDocument();
+        // No DTD load and LIBXML_NONET => no external entities / network (XXE-safe).
+        $loaded = $dom->loadXML($svg, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        if (
+            !$loaded
+            || $dom->documentElement === null
+            || strtolower($dom->documentElement->localName) !== 'svg'
+        ) {
+            throw new ValidationException('Logo must be a valid SVG image.');
+        }
+
+        $xpath = new \DOMXPath($dom);
+
+        // Remove script-bearing elements entirely.
+        $dangerous = $xpath->query('//*[local-name()="script" or local-name()="foreignObject"]');
+        foreach (iterator_to_array($dangerous ?: []) as $node) {
+            $node->parentNode?->removeChild($node);
+        }
+
+        // Strip event handlers and dangerous URI schemes from every attribute.
+        $attrs = $xpath->query('//@*');
+        foreach (iterator_to_array($attrs ?: []) as $attr) {
+            $name = strtolower($attr->nodeName);
+            $bare = str_replace('xlink:', '', $name);
+            $value = $attr->nodeValue ?? '';
+            $isUri = $bare === 'href' || $bare === 'src';
+            if (
+                str_starts_with($name, 'on')
+                || ($isUri && preg_match('/^\s*(javascript|data)\s*:/i', $value))
+            ) {
+                $attr->ownerElement?->removeAttributeNode($attr);
+            }
+        }
+
+        $clean = $dom->saveXML();
+        if ($clean === false) {
+            throw new ValidationException('Failed to sanitize SVG logo.');
+        }
+
+        return $clean;
     }
 
     private function getLogoVariant(ServerRequestInterface $request): string
