@@ -60,9 +60,13 @@ class CorsMiddleware
         }
 
         $exposeHeaders = (array) $this->config->get('plugins.api.cors.expose_headers', []);
-        // Always expose X-Invalidates so the client can read cache invalidation tags
-        if (!in_array('X-Invalidates', $exposeHeaders)) {
-            $exposeHeaders[] = 'X-Invalidates';
+        // Always expose X-Invalidates (cache invalidation tags) and ETag (optimistic
+        // concurrency). Without ETag in the expose list a cross-origin client cannot
+        // read it, so If-Match is never sent and concurrency protection silently lapses.
+        foreach (['X-Invalidates', 'ETag'] as $always) {
+            if (!in_array($always, $exposeHeaders, true)) {
+                $exposeHeaders[] = $always;
+            }
         }
         $response = $response->withHeader('Access-Control-Expose-Headers', implode(', ', $exposeHeaders));
 
