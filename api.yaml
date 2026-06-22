@@ -5,7 +5,9 @@ version_prefix: v1
 auth:
   api_keys_enabled: true
   jwt_enabled: true
-  jwt_secret: ''
+  # The JWT signing secret is auto-generated and stored, outside this config
+  # tree, in user/config/plugins/api-private.php (a non-committed PHP file,
+  # mirroring Grav core's security-private.php). It is intentionally not set here.
   jwt_algorithm: HS256
   jwt_expiry: 3600
   jwt_refresh_expiry: 604800

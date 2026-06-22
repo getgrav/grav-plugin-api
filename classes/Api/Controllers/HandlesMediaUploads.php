@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Grav\Plugin\Api\Controllers;
 
+use Grav\Common\Security;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Serializers\MediaSerializer;
 use Grav\Plugin\Api\Services\ThumbnailService;
@@ -146,11 +147,22 @@ trait HandlesMediaUploads
         $targetPath = $targetDir . '/' . $filename;
         $file->moveTo($targetPath);
 
+        // An SVG can carry executable <script>/event-handler payloads that run
+        // when the file is later served inline as image/svg+xml — a stored XSS
+        // vector (GHSA-7vhm-8x52-2r5p). The extension denylist can't cover it
+        // because SVG is a legitimate media type, so sanitize the markup in
+        // place with core's canonical routine (honors security.sanitize_svg;
+        // quarantines and throws if it can't be cleaned). This matches how the
+        // admin and Form plugin upload paths already protect SVG uploads.
+        if (strtolower(pathinfo($filename, PATHINFO_EXTENSION)) === 'svg') {
+            Security::sanitizeSVG($targetPath);
+        }
+
         return $filename;
     }
 
     /**
-     * Validate that a filename's extension is not on the dangerous list.
+     * Validate that none of a filename's extensions are on the dangerous list.
      */
     protected function validateFileExtension(string $filename): void
     {
@@ -160,15 +172,23 @@ trait HandlesMediaUploads
             throw new ValidationException('Uploaded file must have a file extension.');
         }
 
-        $dangerousExtensions = $this->config->get('security.uploads_dangerous_extensions', []);
+        $dangerousExtensions = array_map(
+            'strtolower',
+            $this->config->get('security.uploads_dangerous_extensions', [])
+        );
 
-        // Normalize to lowercase for comparison
-        $dangerousExtensions = array_map('strtolower', $dangerousExtensions);
-
-        if (in_array($extension, $dangerousExtensions, true)) {
-            throw new ValidationException(
-                "File extension '.{$extension}' is not allowed for security reasons."
-            );
+        // Check EVERY dot-separated component, not just the last one. A name like
+        // "shell.php.jpg" passes a last-extension check (".jpg") yet the web
+        // server may still execute the earlier ".php" — the classic double-
+        // extension RCE (GHSA-66v2-vxxf-xc3v). The basename (first segment) is
+        // skipped; only the trailing extension chain is inspected.
+        $parts = array_slice(explode('.', strtolower($filename)), 1);
+        foreach ($parts as $part) {
+            if (in_array($part, $dangerousExtensions, true)) {
+                throw new ValidationException(
+                    "File extension '.{$part}' is not allowed for security reasons."
+                );
+            }
         }
     }
 

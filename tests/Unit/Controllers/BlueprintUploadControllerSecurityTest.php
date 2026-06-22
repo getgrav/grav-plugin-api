@@ -39,7 +39,10 @@ class BlueprintUploadControllerSecurityTest extends TestCase
 
         $this->config = new Config([
             'system' => ['pages' => ['theme' => 'quark']],
-            'security' => ['uploads_dangerous_extensions' => ['php', 'phtml', 'phar', 'js', 'html']],
+            'security' => [
+                'uploads_dangerous_extensions' => ['php', 'phtml', 'phar', 'js', 'html'],
+                'sanitize_svg' => true,
+            ],
             'plugins' => ['api' => ['route' => '/api', 'version_prefix' => 'v1']],
         ]);
     }
@@ -76,6 +79,42 @@ class BlueprintUploadControllerSecurityTest extends TestCase
         self::assertFileExists($this->tempDir . '/accounts/avatar.png');
         $payload = json_decode((string) $response->getBody(), true);
         self::assertSame('user/accounts/avatar.png', $payload['data'][0]['path'] ?? null);
+    }
+
+    #[Test]
+    public function double_extension_disguised_as_image_is_rejected(): void
+    {
+        // "evil.php.png" passes a last-extension check (".png") but the ".php"
+        // must still be caught — the double-extension bypass (GHSA-66v2-vxxf-xc3v).
+        $controller = $this->buildController('alice', ['media' => ['write' => true]]);
+        $request = $this->uploadRequest('alice', 'user://media', 'plugins/api', 'evil.php.png', '<?php evil();');
+
+        $this->expectException(ValidationException::class);
+
+        try {
+            $controller->upload($request);
+        } finally {
+            self::assertFileDoesNotExist($this->tempDir . '/media/evil.php.png');
+        }
+    }
+
+    #[Test]
+    public function avatar_svg_is_sanitized_of_embedded_script(): void
+    {
+        // SVG avatars are allowed under user/accounts/ but must be stripped of
+        // any executable <script> so they can't deliver stored XSS when served
+        // inline as image/svg+xml (GHSA-7vhm-8x52-2r5p).
+        $svg = '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(document.cookie)</script>'
+            . '<rect width="10" height="10"/></svg>';
+        $controller = $this->buildController('alice', ['media' => ['write' => true]]);
+        $request = $this->uploadRequest('alice', 'self@:', 'users/alice', 'avatar.svg', $svg);
+
+        $response = $controller->upload($request);
+
+        self::assertSame(201, $response->getStatusCode());
+        $written = file_get_contents($this->tempDir . '/accounts/avatar.svg');
+        self::assertStringNotContainsStringIgnoringCase('<script', $written);
+        self::assertStringNotContainsStringIgnoringCase('alert(', $written);
     }
 
     #[Test]
