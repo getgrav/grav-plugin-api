@@ -347,8 +347,17 @@ class PagesController extends AbstractApiController
                 throw new ValidationException("A page already exists at route: {$route}");
             }
 
-            // Build header with title
-            $header = array_merge(['title' => $title], $header);
+            // Build header: blueprint field defaults sit lowest, then the
+            // title, then anything the client explicitly sent on top. This
+            // restores Grav 1.7 parity — a new page picks up its template's
+            // `default:` values (e.g. `header.published: false`,
+            // `header.date: ''`) instead of going live with empty frontmatter
+            // (admin2#49).
+            $header = array_replace_recursive(
+                $this->blueprintHeaderDefaults($template),
+                ['title' => $title],
+                $header,
+            );
 
             // Enforce security.twig_content.* gate before any plugin event can
             // mutate the header — reject the create up-front if the request
@@ -425,6 +434,28 @@ class PagesController extends AbstractApiController
         } finally {
             $this->restoreLanguage($previousLang);
         }
+    }
+
+    /**
+     * Resolve the `header.*` portion of a page template's blueprint defaults.
+     *
+     * Loading via Pages::blueprints() fires `onBlueprintCreated`, so theme- and
+     * plugin-supplied blueprints (including `extends@` chains) are fully merged
+     * before defaults are extracted. Only the `header` slice is frontmatter —
+     * field defaults like `content`/`order`/`slug` are intentionally excluded.
+     *
+     * @return array<string, mixed>
+     */
+    private function blueprintHeaderDefaults(string $template): array
+    {
+        try {
+            $blueprint = $this->grav['pages']->blueprints($template);
+            $defaults = $blueprint->getDefaults();
+        } catch (\Throwable) {
+            return [];
+        }
+
+        return is_array($defaults['header'] ?? null) ? $defaults['header'] : [];
     }
 
     /**
@@ -819,8 +850,15 @@ class PagesController extends AbstractApiController
         $content = $body['content'] ?? $page->rawMarkdown();
         $header = $body['header'] ?? $this->headerToArray($page->header());
 
-        // Ensure title is set
-        $header = array_merge(['title' => $title], is_array($header) ? $header : []);
+        // Ensure title is set, and back-fill blueprint defaults underneath so a
+        // minimal explicit header still gets the template's `default:` values
+        // (admin2#49). When no header is supplied the source page's frontmatter
+        // is already complete, so the defaults are a no-op there.
+        $header = array_replace_recursive(
+            $this->blueprintHeaderDefaults($page->template()),
+            ['title' => $title],
+            is_array($header) ? $header : [],
+        );
 
         $this->fireEvent('onApiBeforePageTranslate', [
             'page' => $page,

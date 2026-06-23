@@ -376,6 +376,9 @@ class ApiRouter extends ProcessorBase
 
         // Users
         $r->addRoute('GET', '/users', [UsersController::class, 'index']);
+        // Static route registered before the /users/{username} catch-all so the
+        // tab-discovery endpoint is never swallowed as a username lookup.
+        $r->addRoute('GET', '/users/filters', [UsersController::class, 'filters']);
         $r->addRoute('POST', '/users', [UsersController::class, 'create']);
         $r->addRoute('GET', '/users/{username}', [UsersController::class, 'show']);
         $r->addRoute('PATCH', '/users/{username}', [UsersController::class, 'update']);
