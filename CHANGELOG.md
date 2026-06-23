@@ -1,3 +1,9 @@
+# v1.0.3
+## 06/23/2026
+
+1. [](#bugfix)
+    * New pages created through the admin now inherit their template's blueprint default values, so a page set to start unpublished is no longer published the moment it is created ([getgrav/grav-plugin-admin2#49](https://github.com/getgrav/grav-plugin-admin2/issues/49)).
+
 # v1.0.2
 ## 06/22/2026
 
