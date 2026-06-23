@@ -11,6 +11,7 @@ use Grav\Common\Grav;
 use Grav\Common\User\Interfaces\UserCollectionInterface;
 use Grav\Common\User\Interfaces\UserInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use RocketTheme\Toolbox\File\YamlFile;
 use Throwable;
 
 class JwtAuthenticator implements AuthenticatorInterface
@@ -24,6 +25,9 @@ class JwtAuthenticator implements AuthenticatorInterface
         '/download',     // e.g. /system/backups/{filename}/download
         '/thumbnails',   // e.g. /thumbnails/{file}
     ];
+
+    /** @var string|null in-process cache for the JWT signing secret */
+    protected ?string $secret = null;
 
     public function __construct(
         protected readonly Grav $grav,
@@ -270,54 +274,115 @@ class JwtAuthenticator implements AuthenticatorInterface
         }
     }
 
+    /**
+     * Per-site HMAC secret used to sign and verify every API JWT (access,
+     * refresh, and challenge tokens). Backed by a local PHP file outside the
+     * Config tree, so sandboxed Twig cannot read it via
+     * `grav.config.get('plugins.api.auth.jwt_secret')` or `Config::toArray()`.
+     * This mirrors how Grav core stores the security salt in
+     * `security-private.php` (GHSA-3f29-pqwf-v4j4). Storing it as executable PHP
+     * (rather than YAML) also means the secret is never emitted as plaintext if
+     * the file is ever served directly.
+     *
+     * Migration: if the legacy `auth.jwt_secret` key is present in the loaded
+     * Config (i.e. from an older install's `user/config/plugins/api.yaml`), its
+     * value is copied into the private file on first call and scrubbed from both
+     * the live Config and the on-disk YAML (GitHub #4150). Existing tokens keep
+     * validating because the secret value is preserved.
+     *
+     * To rotate the secret manually, delete `user/config/plugins/api-private.php`;
+     * the next request generates a fresh value, invalidating all outstanding
+     * access and refresh tokens.
+     */
     protected function getSecret(): string
     {
-        $secret = $this->config->get('plugins.api.auth.jwt_secret', '');
-
-        // Auto-generate secret if not set
-        if (!$secret) {
-            $secret = bin2hex(random_bytes(32));
-            $this->config->set('plugins.api.auth.jwt_secret', $secret);
-
-            // Persist the generated secret so subsequent requests can verify
-            // tokens signed with it. Without persistence every request re-mints
-            // a different secret, producing the classic "login succeeds, next
-            // request 401" reauth loop on a fresh install.
-            //
-            // findResource() with defaults (absolute=true, all=false) returns
-            // either the first existing path or false — the previous third
-            // `true` flag returned an array and silently broke the fallback.
-            $locator = $this->grav['locator'];
-            $file = $locator->findResource('config://plugins/api.yaml');
-            if (!$file) {
-                $configDir = $locator->findResource('config://', true);
-                if (!$configDir) {
-                    if (isset($this->grav['log'])) {
-                        $this->grav['log']->warning('api.auth: could not resolve config:// stream to persist JWT secret; tokens will be single-request only until jwt_secret is configured.');
-                    }
-                    return $secret;
-                }
-                $file = $configDir . '/plugins/api.yaml';
-            }
-
-            $dir = dirname($file);
-            if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
-                if (isset($this->grav['log'])) {
-                    $this->grav['log']->warning(sprintf('api.auth: could not create %s to persist JWT secret.', $dir));
-                }
-                return $secret;
-            }
-
-            $yaml = \Grav\Common\Yaml::parse(file_exists($file) ? file_get_contents($file) : '') ?? [];
-            $yaml['auth']['jwt_secret'] = $secret;
-            if (@file_put_contents($file, \Grav\Common\Yaml::dump($yaml)) === false) {
-                if (isset($this->grav['log'])) {
-                    $this->grav['log']->warning(sprintf('api.auth: could not write JWT secret to %s — tokens will not survive past this request.', $file));
-                }
-            }
+        if ($this->secret !== null) {
+            return $this->secret;
         }
 
-        return $secret;
+        $locator = $this->grav['locator'];
+        $configFolder = $locator->findResource('config://', true) ?: $locator->findResource('config://', true, true);
+        $privateFile = "{$configFolder}/plugins/api-private.php";
+
+        if (is_file($privateFile)) {
+            $value = @include $privateFile;
+            if (is_string($value) && $value !== '') {
+                return $this->secret = $value;
+            }
+            // Corrupt/empty file — fall through to regenerate.
+        }
+
+        // One-time migration out of Config for installs that persisted the
+        // secret into plugins/api.yaml (GitHub #4150). Preserving the value
+        // keeps every previously issued token valid across the upgrade.
+        $legacy = $this->config->get('plugins.api.auth.jwt_secret');
+        if (is_string($legacy) && $legacy !== '') {
+            if ($this->writeSecret($privateFile, $legacy)) {
+                $this->config->set('plugins.api.auth.jwt_secret', null);
+
+                $apiYaml = "{$configFolder}/plugins/api.yaml";
+                if (is_file($apiYaml)) {
+                    $file = YamlFile::instance($apiYaml);
+                    $content = (array) $file->content();
+                    if (isset($content['auth']) && is_array($content['auth'])
+                        && array_key_exists('jwt_secret', $content['auth'])) {
+                        unset($content['auth']['jwt_secret']);
+                        if ($content['auth'] === []) {
+                            unset($content['auth']);
+                        }
+                        $file->content($content);
+                        $file->save();
+                    }
+                    $file->free();
+                }
+            }
+
+            return $this->secret = $legacy;
+        }
+
+        // Fresh install: generate and persist a new secret so subsequent
+        // requests can verify tokens signed with it. Without persistence every
+        // request re-mints a different secret, producing the classic "login
+        // succeeds, next request 401" reauth loop.
+        $generated = bin2hex(random_bytes(32));
+        if (!$this->writeSecret($privateFile, $generated) && isset($this->grav['log'])) {
+            $this->grav['log']->warning(sprintf(
+                'api.auth: could not persist JWT secret to %s — tokens will be valid for this request only until the file is writable.',
+                $privateFile
+            ));
+        }
+
+        return $this->secret = $generated;
+    }
+
+    /**
+     * Atomically write the signing secret to a PHP file that `return`s it as a
+     * string. Mirrors Grav core's Security::writeNonceKey(). Returns false on
+     * any I/O failure so the caller can degrade to a per-request secret rather
+     * than failing the login outright.
+     */
+    protected function writeSecret(string $path, string $value): bool
+    {
+        $escaped = var_export($value, true);
+        $contents = "<?php\n\n// Auto-generated private secret. Do NOT commit to version control.\n// Used to sign and verify API JWTs. Regenerate by deleting this file; the\n// next request will write a new value (invalidating all existing tokens).\n\nreturn {$escaped};\n";
+
+        $dir = dirname($path);
+        if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
+            return false;
+        }
+
+        // Atomic write: stage to a temp file, then rename into place.
+        $tmp = $path . '.tmp';
+        if (@file_put_contents($tmp, $contents, LOCK_EX) === false) {
+            return false;
+        }
+        @chmod($tmp, 0600);
+        if (!@rename($tmp, $path)) {
+            @unlink($tmp);
+            return false;
+        }
+
+        return true;
     }
 
     protected function isTokenRevoked(string $jti): bool

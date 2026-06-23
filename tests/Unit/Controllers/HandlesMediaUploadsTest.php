@@ -38,7 +38,11 @@ class HandlesMediaUploadsTest extends TestCase
         mkdir($this->tempDir, 0775, true);
 
         $config = new Config([
-            'security' => ['uploads_dangerous_extensions' => ['php', 'phtml', 'phar', 'js', 'html']],
+            'security' => [
+                'uploads_dangerous_extensions' => ['php', 'phtml', 'phar', 'js', 'html'],
+                // Core's Security::sanitizeSVG() is gated on this flag.
+                'sanitize_svg' => true,
+            ],
         ]);
 
         // createMockGrav installs the Grav singleton the base controller reads.
@@ -74,6 +78,62 @@ class HandlesMediaUploadsTest extends TestCase
         } catch (ValidationException) {
             self::assertFileDoesNotExist($this->tempDir . '/shell.php');
         }
+    }
+
+    #[Test]
+    public function double_extension_disguised_as_image_is_rejected(): void
+    {
+        // "shell.php.jpg" passes a naive last-extension check (".jpg") but the
+        // ".php" must still be caught — the double-extension RCE bypass
+        // (GHSA-66v2-vxxf-xc3v).
+        $file = new TraitTestUploadedFile('shell.php.jpg', '<?php evil();');
+
+        try {
+            $this->invoke('processUploadedFile', $file, $this->tempDir);
+            self::fail('Expected ValidationException for a .php.jpg upload.');
+        } catch (ValidationException) {
+            self::assertFileDoesNotExist($this->tempDir . '/shell.php.jpg');
+        }
+    }
+
+    #[Test]
+    public function dangerous_extension_in_any_position_is_rejected(): void
+    {
+        // The dangerous component need not be adjacent to the final extension.
+        $file = new TraitTestUploadedFile('archive.phtml.tar.gz', 'payload');
+
+        $this->expectException(ValidationException::class);
+        $this->invoke('processUploadedFile', $file, $this->tempDir);
+    }
+
+    #[Test]
+    public function multi_dot_safe_filename_is_accepted(): void
+    {
+        // Dots are legitimate in names; only dangerous extension components are
+        // blocked, not every dot-separated segment.
+        $file = new TraitTestUploadedFile('my.vacation.photo.png', 'png-bytes');
+
+        $name = $this->invoke('processUploadedFile', $file, $this->tempDir);
+
+        self::assertSame('my.vacation.photo.png', $name);
+        self::assertFileExists($this->tempDir . '/my.vacation.photo.png');
+    }
+
+    #[Test]
+    public function svg_upload_is_sanitized_of_embedded_script(): void
+    {
+        // A stored SVG must not keep an executable <script> payload that would
+        // run when served inline as image/svg+xml (GHSA-7vhm-8x52-2r5p).
+        $svg = '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(document.cookie)</script>'
+            . '<rect width="10" height="10"/></svg>';
+        $file = new TraitTestUploadedFile('logo.svg', $svg);
+
+        $name = $this->invoke('processUploadedFile', $file, $this->tempDir);
+
+        self::assertSame('logo.svg', $name);
+        $written = file_get_contents($this->tempDir . '/logo.svg');
+        self::assertStringNotContainsStringIgnoringCase('<script', $written);
+        self::assertStringNotContainsStringIgnoringCase('alert(', $written);
     }
 
     #[Test]

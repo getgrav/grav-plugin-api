@@ -1,3 +1,11 @@
+# v1.0.2
+## 06/22/2026
+
+1. [](#bugfix)
+    * [security] The token signing secret is now kept in a protected, non-committed file outside your site config instead of in plugins/api.yaml, so it can no longer be read from the config or leaked through templates, and existing logins keep working across the upgrade ([getgrav/grav#4150](https://github.com/getgrav/grav/issues/4150)).
+    * [security] File uploads through the API now reject names that hide a disguised second extension such as `shell.php.jpg`, closing a path that could let an executable script be saved and run on the server (GHSA-66v2-vxxf-xc3v).
+    * [security] SVG images uploaded through the API are now cleaned of any embedded scripts, so a malicious SVG can no longer run code in an admin's browser when viewed (GHSA-7vhm-8x52-2r5p).
+
 # v1.0.1
 ## 06/21/2026
 

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Grav\Plugin\Api\Controllers;
 
 use Grav\Common\Filesystem\Folder;
+use Grav\Common\Security;
 use Grav\Plugin\Api\Exceptions\ForbiddenException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
@@ -275,7 +276,16 @@ class BlueprintUploadController extends AbstractApiController
             $filename = $settings->resolveFilename($filename, $targetDir);
         }
 
-        $file->moveTo($targetDir . '/' . $filename);
+        $targetPath = $targetDir . '/' . $filename;
+        $file->moveTo($targetPath);
+
+        // SVG can carry stored-XSS payloads that execute when served inline as
+        // image/svg+xml (GHSA-7vhm-8x52-2r5p) — sanitize in place like core's
+        // upload paths. Relevant here for avatar SVGs under user/accounts/.
+        if (strtolower(pathinfo($filename, PATHINFO_EXTENSION)) === 'svg') {
+            Security::sanitizeSVG($targetPath);
+        }
+
         return $filename;
     }
 
@@ -313,12 +323,18 @@ class BlueprintUploadController extends AbstractApiController
         }
 
         $dangerous = array_map('strtolower', (array) $this->config->get('security.uploads_dangerous_extensions', []));
-        if (in_array($extension, $dangerous, true)) {
-            throw new ValidationException("File extension '.{$extension}' is not allowed for security reasons.");
-        }
 
-        if (in_array($extension, self::FORBIDDEN_EXTENSIONS, true)) {
-            throw new ValidationException("File extension '.{$extension}' is not allowed for blueprint uploads.");
+        // Inspect EVERY dot-separated component, not just the last. "shell.php.jpg"
+        // has a harmless final ".jpg" but the web server may still execute the
+        // earlier ".php" — the double-extension bypass (GHSA-66v2-vxxf-xc3v).
+        $parts = array_slice(explode('.', strtolower($filename)), 1);
+        foreach ($parts as $part) {
+            if (in_array($part, $dangerous, true)) {
+                throw new ValidationException("File extension '.{$part}' is not allowed for security reasons.");
+            }
+            if (in_array($part, self::FORBIDDEN_EXTENSIONS, true)) {
+                throw new ValidationException("File extension '.{$part}' is not allowed for blueprint uploads.");
+            }
         }
 
         if ($isAccountsDir && !in_array($extension, self::ACCOUNTS_IMAGE_EXTENSIONS, true)) {
