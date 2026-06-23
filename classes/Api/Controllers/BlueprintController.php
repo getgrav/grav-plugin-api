@@ -1114,6 +1114,19 @@ class BlueprintController extends AbstractApiController
                 }
             }
 
+            // `display` field with a `file:` reference — load the file contents
+            // into `content` so the SPA can render it. Mirrors the classic form
+            // template's `read_file(field.file)`. The path is blueprint-authored
+            // (trusted), so we resolve it through Grav's stream locator just like
+            // core does. Done after translation so markdown bodies aren't run
+            // through the language lookup.
+            if ($type === 'display' && !empty($field['file']) && empty($serialized['content'])) {
+                $fileContent = $this->readDisplayFile((string) $field['file']);
+                if ($fileContent !== null) {
+                    $serialized['content'] = $fileContent;
+                }
+            }
+
             // Translate option labels
             if (isset($serialized['options']) && is_array($serialized['options'])) {
                 foreach ($serialized['options'] as $optKey => $optLabel) {
@@ -1172,6 +1185,37 @@ class BlueprintController extends AbstractApiController
         }
 
         return $result;
+    }
+
+    /**
+     * Resolve a `display` field's `file:` reference to its raw contents.
+     *
+     * Accepts a Grav stream (e.g. `plugins://login-oauth2/README.md`) or a path
+     * already inside the Grav root. Anything that resolves outside the root, or
+     * that doesn't exist, returns null so the field simply renders nothing —
+     * matching the classic template's silent behaviour.
+     */
+    protected function readDisplayFile(string $file): ?string
+    {
+        $locator = $this->grav['locator'];
+
+        // Stream URI (scheme://...) — let the locator resolve it.
+        if (strpos($file, '://') !== false) {
+            $path = $locator->findResource($file, true);
+        } else {
+            // Bare path — anchor to the Grav root and confirm it stays inside.
+            $root = rtrim(GRAV_ROOT, '/\\');
+            $candidate = realpath($root . '/' . ltrim($file, '/\\'));
+            $path = ($candidate && strpos($candidate, $root) === 0) ? $candidate : false;
+        }
+
+        if (!$path || !is_file($path) || !is_readable($path)) {
+            return null;
+        }
+
+        $content = file_get_contents($path);
+
+        return $content === false ? null : $content;
     }
 
     /**

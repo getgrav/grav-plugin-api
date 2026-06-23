@@ -10,6 +10,7 @@ use Grav\Common\User\Interfaces\UserCollectionInterface;
 use Grav\Common\User\Interfaces\UserInterface;
 use Grav\Common\Utils;
 use Grav\Framework\Flex\FlexDirectory;
+use Grav\Framework\Flex\Interfaces\FlexCollectionInterface;
 use Grav\Plugin\Api\Auth\ApiKeyManager;
 use Grav\Plugin\Api\Exceptions\ConflictException;
 use Grav\Plugin\Api\Exceptions\ForbiddenException;
@@ -48,6 +49,82 @@ class UsersController extends AbstractApiController
             return $this->indexViaFlex($request, $directory);
         }
         return $this->indexViaAccounts($request);
+    }
+
+    /**
+     * GET /users/filters — the tab definitions for the Users-list nav row.
+     *
+     * Restores a capability admin-classic had: plugins can add tabs to the
+     * Users page (e.g. "Active", "Licensed") that narrow the listing. A tab is
+     * declared via the `onApiUserListFilters` event; selecting it adds
+     * `?filter=<id>` to GET /users, which fires `onApiUserListFilter` to narrow
+     * the collection before pagination.
+     *
+     * Tab format (mirrors the sidebar item contract):
+     *   [
+     *     'id'        => 'active',          // selected via ?filter=active; 'all' is reserved
+     *     'plugin'    => 'my-plugin',       // owning plugin slug
+     *     'label'     => 'Active',          // display name (raw text, not an i18n key)
+     *     'icon'      => 'fa-bolt',         // optional FA icon class
+     *     'priority'  => 10,                // optional sort order (higher = earlier)
+     *     'badge'     => null,              // optional static badge text/count
+     *     'badgeEndpoint' => '/my/count',   // optional — API path returning { count: N }
+     *     'authorize' => 'api.users.read',  // optional — string or array for any-of
+     *   ]
+     *
+     * The built-in "All Users" tab (id `all`) always leads the row, regardless
+     * of plugin priorities, and selecting it sends no `filter` param.
+     */
+    public function filters(ServerRequestInterface $request): ResponseInterface
+    {
+        // Tabs only mean something to a caller who can list users; a self-only
+        // caller has nothing to filter.
+        $this->requirePermission($request, 'api.users.read');
+
+        $user = $this->getUser($request);
+        $event = $this->fireEvent('onApiUserListFilters', ['filters' => [], 'user' => $user]);
+
+        return ApiResponse::create($this->assembleFilterTabs((array) ($event['filters'] ?? []), $user));
+    }
+
+    /**
+     * Merge plugin-contributed Users tabs with the built-in "All Users" tab,
+     * dropping malformed entries and tabs the caller isn't authorized for, then
+     * ordering by descending priority. The "All Users" tab always leads the row
+     * and the `all` id is reserved so a plugin can't shadow it.
+     *
+     * @param array<int, mixed> $contributed Raw tabs from onApiUserListFilters
+     * @return array<int, array<string, mixed>>
+     */
+    private function assembleFilterTabs(array $contributed, UserInterface $user): array
+    {
+        $isSuperAdmin = $this->isSuperAdmin($user);
+
+        $tabs = [];
+        foreach ($contributed as $tab) {
+            if (!is_array($tab) || !isset($tab['id']) || !is_string($tab['id']) || $tab['id'] === '') {
+                continue;
+            }
+            if ($tab['id'] === 'all') {
+                continue; // reserved for the built-in tab
+            }
+            if (!$this->userPassesAuthorize($user, $tab['authorize'] ?? null, $isSuperAdmin)) {
+                continue;
+            }
+            // Strip the authorize field — it's a server-side annotation, not client data.
+            unset($tab['authorize']);
+            $tabs[] = $tab;
+        }
+
+        usort($tabs, fn($a, $b) => ($b['priority'] ?? 0) <=> ($a['priority'] ?? 0));
+
+        array_unshift($tabs, [
+            'id' => 'all',
+            'plugin' => 'api',
+            'label' => 'All Users',
+        ]);
+
+        return $tabs;
     }
 
     /**
@@ -107,6 +184,26 @@ class UsersController extends AbstractApiController
 
         // Sort by username by default
         $collection = $collection->sort(['username' => 'asc']);
+
+        // Plugin-contributed Users-tab filter (e.g. an "Active" or "Licensed"
+        // tab from onApiUserListFilters). Fired AFTER search/sort but BEFORE
+        // permission/group filtering and pagination, so a tab can only *narrow*
+        // the collection — core still applies the caller's access scope and
+        // paginates the result, meaning a plugin tab can never widen visibility
+        // or break the response envelope. The plugin owning $filter assigns the
+        // narrowed collection back to the event; anything else is ignored.
+        if ($filters['filter'] !== '') {
+            $event = $this->fireEvent('onApiUserListFilter', [
+                'filter' => $filters['filter'],
+                'collection' => $collection,
+                'query' => $query,
+                'user' => $this->getUser($request),
+            ]);
+            $narrowed = $event['collection'] ?? null;
+            if ($narrowed instanceof FlexCollectionInterface) {
+                $collection = $narrowed;
+            }
+        }
 
         if ($filters['access'] === '' && $filters['group'] === '') {
             // No permission/group filter — keep the lazy, indexed fast path that
@@ -848,24 +945,28 @@ class UsersController extends AbstractApiController
      *
      * `access` is the canonical permission filter (e.g. `admin.login`,
      * `api.super`); `permission` is accepted as an alias. `group` filters by
-     * group membership.
+     * group membership. `filter` carries the active Users-tab id (see
+     * onApiUserListFilters / onApiUserListFilter) — empty means the built-in
+     * "All Users" tab and is handled entirely by core.
      *
-     * @return array{access: string, group: string}
+     * @return array{access: string, group: string, filter: string}
      */
     private function getListFilters(ServerRequestInterface $request): array
     {
         $query = $request->getQueryParams();
         $access = $query['access'] ?? $query['permission'] ?? '';
         $group = $query['group'] ?? '';
+        $filter = $query['filter'] ?? '';
 
         return [
             'access' => is_string($access) ? trim($access) : '',
             'group' => is_string($group) ? trim($group) : '',
+            'filter' => is_string($filter) ? trim($filter) : '',
         ];
     }
 
     /**
-     * @param array{access: string, group: string} $filters
+     * @param array{access: string, group: string, filter?: string} $filters
      */
     private function userMatchesFilters(UserInterface $user, array $filters): bool
     {
