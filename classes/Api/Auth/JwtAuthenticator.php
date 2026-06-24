@@ -59,6 +59,11 @@ class JwtAuthenticator implements AuthenticatorInterface
             'iat' => time(),
             'exp' => time() + $expiry,
             'type' => 'access',
+            // Like refresh tokens, access tokens carry a unique id so a single
+            // token can be killed via the revocation list (e.g. on logout) and
+            // so validateToken() can reject it before its natural expiry.
+            // GHSA-m8g9-wxhx-6f86.
+            'jti' => bin2hex(random_bytes(16)),
         ];
 
         return JWT::encode($payload, $secret, $algorithm);
@@ -162,7 +167,14 @@ class JwtAuthenticator implements AuthenticatorInterface
             $accounts = $this->grav['accounts'];
             $user = $accounts->load($decoded->sub);
 
-            return $user->exists() ? $user : null;
+            // Same per-user kill switch as access tokens: a password change or
+            // account disable invalidates outstanding refresh tokens too, so a
+            // stolen refresh token can't be traded in for a fresh access token.
+            if (!$user->exists() || !$this->userTokenStillValid($user, $decoded)) {
+                return null;
+            }
+
+            return $user;
         } catch (Throwable) {
             return null;
         }
@@ -189,6 +201,16 @@ class JwtAuthenticator implements AuthenticatorInterface
         } catch (Throwable) {
             return false;
         }
+    }
+
+    /**
+     * Public accessor for the bearer token attached to a request, used by the
+     * logout flow to revoke the caller's current access token alongside its
+     * refresh token. Returns null when no usable token is present.
+     */
+    public function extractRequestToken(ServerRequestInterface $request): ?string
+    {
+        return $this->extractBearerToken($request);
     }
 
     protected function extractBearerToken(ServerRequestInterface $request): ?string
@@ -264,14 +286,51 @@ class JwtAuthenticator implements AuthenticatorInterface
                 return null;
             }
 
+            // A logged-out (or otherwise revoked) access token is dead even
+            // before it expires. Tokens issued before this plugin added a `jti`
+            // have none, so `?? ''` simply means "nothing to revoke" and they
+            // keep working until they expire — the upgrade doesn't sign anyone
+            // out. GHSA-m8g9-wxhx-6f86.
+            if ($this->isTokenRevoked($decoded->jti ?? '')) {
+                return null;
+            }
+
             /** @var UserCollectionInterface $accounts */
             $accounts = $this->grav['accounts'];
             $user = $accounts->load($decoded->sub);
 
-            return $user->exists() ? $user : null;
+            if (!$user->exists() || !$this->userTokenStillValid($user, $decoded)) {
+                return null;
+            }
+
+            return $user;
         } catch (Throwable) {
             return null;
         }
+    }
+
+    /**
+     * Whether a decoded token still passes the per-user gates that live on the
+     * account rather than on the token: the account must not be disabled, and
+     * the token must have been issued after the user's invalidation cutoff.
+     *
+     * The cutoff (`api_tokens_valid_after`) is a single timestamp bumped on
+     * password change, account disable, or any "log out everywhere" action;
+     * every token minted before it is rejected at once, which is the kill
+     * switch a bearer JWT otherwise lacks. GHSA-m8g9-wxhx-6f86.
+     */
+    protected function userTokenStillValid(UserInterface $user, object $decoded): bool
+    {
+        if ($user->get('state', 'enabled') === 'disabled') {
+            return false;
+        }
+
+        $cutoff = (int) $user->get('api_tokens_valid_after', 0);
+        if ($cutoff > 0 && (int) ($decoded->iat ?? 0) < $cutoff) {
+            return false;
+        }
+
+        return true;
     }
 
     /**

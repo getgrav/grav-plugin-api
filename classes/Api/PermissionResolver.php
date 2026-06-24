@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Grav\Plugin\Api;
 
+use Grav\Common\Grav;
 use Grav\Common\User\Interfaces\UserInterface;
 use Grav\Common\Utils;
 use Grav\Framework\Acl\Permissions;
@@ -79,18 +80,59 @@ class PermissionResolver
     }
 
     /**
-     * Lazily flatten $user->get('access') from nested array to dot-notation keys.
+     * Lazily build the user's effective access map as dot-notation keys,
+     * merging group-inherited access with the user's own access.
      * Cached per user instance within this resolver.
      */
     private function getFlatAccess(UserInterface $user): array
     {
         if ($this->flatAccess === null || $this->flatAccessUser !== $user) {
-            $nested = $user->get('access');
-            $this->flatAccess = is_array($nested)
-                ? Utils::arrayFlattenDotNotation($nested)
-                : [];
+            $this->flatAccess = $this->buildFlatAccess($user);
             $this->flatAccessUser = $user;
         }
         return $this->flatAccess;
+    }
+
+    /**
+     * Combine the access maps of every group the user belongs to, then overlay
+     * the user's own access on top.
+     *
+     * This mirrors Grav core's User::authorize(): a permission granted by any
+     * group counts (so positive group grants win over a later group's negative),
+     * while an explicit value in the user's own access — including an explicit
+     * `false` — always overrides whatever the groups resolved to.
+     *
+     * @return array<string, mixed>
+     */
+    private function buildFlatAccess(UserInterface $user): array
+    {
+        $flat = [];
+
+        $config = Grav::instance()['config'] ?? null;
+        if ($config !== null) {
+            foreach ((array) $user->get('groups', []) as $group) {
+                if (!is_string($group)) {
+                    continue;
+                }
+                $groupAccess = $config->get("groups.{$group}.access");
+                if (!is_array($groupAccess)) {
+                    continue;
+                }
+                foreach (Utils::arrayFlattenDotNotation($groupAccess) as $key => $value) {
+                    // Don't let a later group clobber an earlier positive grant.
+                    if (array_key_exists($key, $flat) && Utils::isPositive($flat[$key])) {
+                        continue;
+                    }
+                    $flat[$key] = $value;
+                }
+            }
+        }
+
+        $own = $user->get('access');
+        if (is_array($own)) {
+            $flat = array_merge($flat, Utils::arrayFlattenDotNotation($own));
+        }
+
+        return $flat;
     }
 }

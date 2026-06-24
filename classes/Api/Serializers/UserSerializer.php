@@ -21,7 +21,9 @@ class UserSerializer implements SerializerInterface
             'state' => $resource->get('state', 'enabled'),
             'language' => $resource->get('language', ''),
             'content_editor' => $resource->get('content_editor', ''),
-            'access' => $resource->get('access', []),
+            // Cast to object so an empty access map serializes as `{}` and not a
+            // JSON array `[]`, which the permissions editor can't add to (admin2#58).
+            'access' => (object) $resource->get('access', []),
             'groups' => array_values(array_filter(
                 (array) $resource->get('groups', []),
                 'is_string',
@@ -40,6 +42,14 @@ class UserSerializer implements SerializerInterface
      */
     public static function resolveAvatarUrl(UserInterface $resource): ?string
     {
+        // Flex-backed users can keep avatar metadata relative to their own
+        // media folder. Resolve through the user abstraction first so the API
+        // does not need to know that storage layout.
+        $path = $resource->getAvatarImage()?->get('filepath');
+        if (is_string($path) && is_file($path)) {
+            return self::thumbnailUrl($path);
+        }
+
         $avatar = $resource->get('avatar');
 
         // Avatar is stored as { filename: { name, type, size, path } } or similar
@@ -49,24 +59,31 @@ class UserSerializer implements SerializerInterface
                 // path is relative to Grav root (e.g. user/accounts/avatars/file.jpg)
                 $filePath = GRAV_ROOT . '/' . $first['path'];
 
-                if (file_exists($filePath)) {
-                    // Generate a thumbnail URL via the thumbnail service
-                    $locator = \Grav\Common\Grav::instance()['locator'];
-                    $cacheDir = $locator->findResource('cache://', true, true) . '/api/thumbnails';
-                    $thumbService = new \Grav\Plugin\Api\Services\ThumbnailService($cacheDir, 200);
-                    $filename = $thumbService->getThumbnailFilename($filePath);
-                    if ($filename) {
-                        $thumbService->getThumbnail($filePath);
-                        $config = \Grav\Common\Grav::instance()['config'];
-                        $route = $config->get('plugins.api.route', '/api');
-                        $prefix = $config->get('plugins.api.version_prefix', 'v1');
-                        return $route . '/' . $prefix . '/thumbnails/' . $filename;
-                    }
+                if (is_file($filePath)) {
+                    return self::thumbnailUrl($filePath);
                 }
             }
         }
 
         return null;
+    }
+
+    private static function thumbnailUrl(string $filePath): ?string
+    {
+        $locator = \Grav\Common\Grav::instance()['locator'];
+        $cacheDir = $locator->findResource('cache://', true, true) . '/api/thumbnails';
+        $thumbService = new \Grav\Plugin\Api\Services\ThumbnailService($cacheDir, 200);
+        $filename = $thumbService->getThumbnailFilename($filePath);
+        if (!$filename) {
+            return null;
+        }
+
+        $thumbService->getThumbnail($filePath);
+        $config = \Grav\Common\Grav::instance()['config'];
+        $route = $config->get('plugins.api.route', '/api');
+        $prefix = $config->get('plugins.api.version_prefix', 'v1');
+
+        return $route . '/' . $prefix . '/thumbnails/' . $filename;
     }
 
     private function formatTimestamp(mixed $timestamp): ?string

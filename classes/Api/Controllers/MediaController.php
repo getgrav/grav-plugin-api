@@ -537,14 +537,7 @@ class MediaController extends AbstractApiController
             throw new NotFoundException('Page route is required.');
         }
 
-        $pages = $this->grav['pages'];
-
-        // Enable pages if they were disabled (e.g. in admin context)
-        if (method_exists($pages, 'enablePages')) {
-            $pages->enablePages();
-        }
-
-        $page = $pages->find('/' . ltrim($route, '/'));
+        $page = $this->resolvePageByRoute($route);
 
         if (!$page) {
             throw new NotFoundException("Page '/{$route}' not found.");

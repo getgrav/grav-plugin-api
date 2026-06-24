@@ -18,9 +18,9 @@ use Psr\Http\Message\ServerRequestInterface;
  *   PATCH  /admin-next/preferences/user       — patch current user overrides
  *   DELETE /admin-next/preferences/user       — clear all current-user overrides
  *   PATCH  /admin-next/preferences/site       — super-admin: write site defaults
- *   PATCH  /admin-next/branding               — super-admin: write logo mode + text
- *   POST   /admin-next/branding/logo          — super-admin: upload logo file
- *   DELETE /admin-next/branding/logo          — super-admin: delete a logo file
+ *   PATCH  /admin-next/branding               — super-admin: write logo mode/text/title/favicon flags
+ *   POST   /admin-next/branding/logo          — super-admin: upload a logo/favicon file (variant=light|dark|favicon)
+ *   DELETE /admin-next/branding/logo          — super-admin: delete a logo/favicon file (variant=light|dark|favicon)
  *
  * The SPA fetches once on boot, then PATCHes deltas as the user changes
  * preferences. See PreferencesResolver for storage layout (Tier A/B/C).
@@ -144,6 +144,7 @@ class PreferencesController extends AbstractApiController
             IMAGETYPE_PNG => 'png',
             IMAGETYPE_JPEG => 'jpg',
             IMAGETYPE_WEBP => 'webp',
+            IMAGETYPE_ICO => 'ico',
             default => null,
         };
 
@@ -161,7 +162,8 @@ class PreferencesController extends AbstractApiController
 
         // Timestamp+rand keeps writes idempotent on filesystems with second-resolution mtime.
         $stamp = substr(md5(uniqid('logo', true)), 0, 10);
-        $filename = "logo-{$variant}-{$stamp}.{$ext}";
+        $prefix = $variant === 'favicon' ? 'favicon' : 'logo';
+        $filename = "{$prefix}-{$variant}-{$stamp}.{$ext}";
         $filepath = $dir . '/' . $filename;
         // Write the validated/sanitized bytes ourselves rather than moveTo(): the
         // stream has already been read, and SVG content has been rewritten.
@@ -171,11 +173,13 @@ class PreferencesController extends AbstractApiController
 
         // Replace the path for this variant; preserve everything else.
         $branding = $resolver->siteBranding();
-        $previous = $branding[$variant === 'light' ? 'logoLight' : 'logoDark'] ?? '';
-        $branding[$variant === 'light' ? 'logoLight' : 'logoDark'] = $filename;
-        // If a custom logo file was uploaded, auto-flip mode to `custom` unless the
-        // operator has explicitly set `text` mode (text trumps both default + custom).
-        if (($branding['mode'] ?? 'default') !== 'text') {
+        $key = $this->brandingKeyForVariant($variant);
+        $previous = $branding[$key] ?? '';
+        $branding[$key] = $filename;
+        // A favicon is independent of the logo mode. For a light/dark logo, auto-flip
+        // mode to `custom` unless the operator explicitly set `text` (text trumps
+        // both default + custom).
+        if ($variant !== 'favicon' && ($branding['mode'] ?? 'default') !== 'text') {
             $branding['mode'] = 'custom';
         }
         $resolver->saveSiteBranding($branding);
@@ -202,7 +206,7 @@ class PreferencesController extends AbstractApiController
         $variant = $this->getLogoVariant($request);
         $resolver = $this->getResolver();
         $branding = $resolver->siteBranding();
-        $key = $variant === 'light' ? 'logoLight' : 'logoDark';
+        $key = $this->brandingKeyForVariant($variant);
         $existing = $branding[$key] ?? '';
         if ($existing) {
             $dir = $resolver->brandingMediaDir();
@@ -211,7 +215,7 @@ class PreferencesController extends AbstractApiController
             }
         }
         $branding[$key] = '';
-        // If both variants are now empty, revert to default mode so the SPA
+        // If both logo variants are now empty, revert to default mode so the SPA
         // falls back to the built-in Grav logo rather than rendering nothing.
         if ($branding['logoLight'] === '' && $branding['logoDark'] === '' && ($branding['mode'] ?? '') === 'custom') {
             $branding['mode'] = 'default';
@@ -295,10 +299,23 @@ class PreferencesController extends AbstractApiController
             }
         }
         $variant = is_string($variant) ? strtolower($variant) : '';
-        if ($variant !== 'light' && $variant !== 'dark') {
-            throw new ValidationException("Query parameter 'variant' must be 'light' or 'dark'.");
+        if (!in_array($variant, ['light', 'dark', 'favicon'], true)) {
+            throw new ValidationException("Query parameter 'variant' must be 'light', 'dark', or 'favicon'.");
         }
         return $variant;
+    }
+
+    /**
+     * Map an upload/delete variant to its `ui.branding` storage key.
+     */
+    private function brandingKeyForVariant(string $variant): string
+    {
+        return match ($variant) {
+            'light' => 'logoLight',
+            'dark' => 'logoDark',
+            'favicon' => 'favicon',
+            default => throw new ValidationException("Unknown branding variant '{$variant}'."),
+        };
     }
 
     private function requireSiteEditor(ServerRequestInterface $request): void
@@ -318,13 +335,14 @@ class PreferencesController extends AbstractApiController
      * Project filename-only branding paths into URL fragments the SPA can use directly.
      *
      * @param array<string, mixed> $branding
-     * @return array{light: string, dark: string}
+     * @return array{light: string, dark: string, favicon: string}
      */
     private function resolveBrandingUrls(array $branding, PreferencesResolver $resolver): array
     {
         return [
             'light' => $resolver->brandingMediaUrl((string) ($branding['logoLight'] ?? '')),
             'dark' => $resolver->brandingMediaUrl((string) ($branding['logoDark'] ?? '')),
+            'favicon' => $resolver->brandingMediaUrl((string) ($branding['favicon'] ?? '')),
         ];
     }
 
