@@ -105,6 +105,30 @@ class PagesControllerDefaultsTest extends \PHPUnit\Framework\TestCase
         self::assertSame('from-blueprint', $header['body_classes'], 'Untouched defaults still apply');
     }
 
+    public function testToggleableDefaultsAreNotPersisted(): void
+    {
+        // Regression for getgrav/grav-plugin-admin2#53: a new page must not
+        // inherit the entire merged schema. `toggleable: true` fields (core's
+        // `child_type`, `process`, sitemap, etc.) carry placeholder defaults the
+        // form shows until the editor opts in — they stay out of frontmatter,
+        // matching Grav 1.7's form-based create.
+        $controller = $this->createPagesController();
+        $request = $this->makeRequest('POST', '/api/v1/pages', [
+            'route' => '/lean-post',
+            'title' => 'Lean Post',
+            'template' => 'blog-post',
+        ]);
+
+        $response = $controller->create($request);
+        self::assertSame(201, $response->getStatusCode());
+
+        $header = $this->readFrontmatter($this->tempDir . '/pages/lean-post/blog-post.md');
+
+        self::assertArrayNotHasKey('child_type', $header, 'Toggleable defaults must not be written to frontmatter');
+        self::assertFalse($header['published'], 'Non-toggleable defaults still apply');
+        self::assertSame('from-blueprint', $header['body_classes']);
+    }
+
     // =========================================================================
     // Helper methods
     // =========================================================================
@@ -124,10 +148,15 @@ form:
   fields:
     header.published:
       type: toggle
+      toggleable: false
       default: false
     header.body_classes:
       type: text
       default: 'from-blueprint'
+    header.child_type:
+      type: select
+      toggleable: true
+      default: default
 YAML);
     }
 

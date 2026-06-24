@@ -1,3 +1,9 @@
+# v1.0.4
+## 06/23/2026
+
+1. [](#bugfix)
+    * New pages now keep only the default values the template author actually set, instead of also copying inherited collection and plugin settings (such as empty sitemap fields) into the page's frontmatter ([getgrav/grav-plugin-admin2#53](https://github.com/getgrav/grav-plugin-admin2/issues/53)).
+
 # v1.0.3
 ## 06/23/2026
 

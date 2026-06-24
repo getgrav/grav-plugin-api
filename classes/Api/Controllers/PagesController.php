@@ -444,18 +444,93 @@ class PagesController extends AbstractApiController
      * before defaults are extracted. Only the `header` slice is frontmatter —
      * field defaults like `content`/`order`/`slug` are intentionally excluded.
      *
+     * Two filters reproduce Grav 1.7's form-based create, which only persisted
+     * the fields an author explicitly opted in:
+     *
+     *  - `toggleable` fields are skipped. Their `default:` is a placeholder the
+     *    form shows until the field is toggled on, not a value to persist. Core
+     *    and plugin structural fields — `process`, `child_type`,
+     *    `admin.children_display_order`, etc. — are all `toggleable: true`, so
+     *    they stayed out of new frontmatter; honouring the flag does the same.
+     *  - Empty defaults (`null`, `''`, `[]`) are dropped, matching 1.7's filter
+     *    (`keepEmptyValues = false`). This sheds non-toggleable-but-empty plugin
+     *    noise such as sitemap's `lastmod`/`changefreq`/`priority: ''`. `false`
+     *    and `0` are kept — `header.published: { default: false }` must survive.
+     *
+     * Together these stop a new page from inheriting the entire merged schema
+     * (admin2#53) while preserving the author's real defaults (admin2#49).
+     *
      * @return array<string, mixed>
      */
     private function blueprintHeaderDefaults(string $template): array
     {
         try {
             $blueprint = $this->grav['pages']->blueprints($template);
-            $defaults = $blueprint->getDefaults();
+            $schema = $blueprint->schema();
+            // Force the dynamic fields (`data-default@` etc.) to resolve so the
+            // walk below sees the same `default:` values getDefaults() would.
+            $blueprint->getDefaults();
+            $nested = $schema->getState()['nested'] ?? [];
         } catch (\Throwable) {
             return [];
         }
 
+        $defaults = $this->collectNonToggleableDefaults($nested, $schema);
+
         return is_array($defaults['header'] ?? null) ? $defaults['header'] : [];
+    }
+
+    /**
+     * Walk a blueprint's nested field map and collect `default:` values,
+     * skipping any field flagged `toggleable: true`.
+     *
+     * Mirrors BlueprintSchema::buildDefaults(), but the toggleable guard keeps
+     * opt-in fields out of the result. Leaves in `$nested` are the dotted field
+     * keys (e.g. `header.published`) used to look the rule up on the schema.
+     *
+     * @param array<string, mixed> $nested
+     * @return array<string, mixed>
+     */
+    private function collectNonToggleableDefaults(array $nested, $schema): array
+    {
+        $defaults = [];
+
+        foreach ($nested as $key => $value) {
+            if ($key === '*') {
+                continue;
+            }
+
+            if (is_array($value)) {
+                $list = $this->collectNonToggleableDefaults($value, $schema);
+                if (!empty($list)) {
+                    $defaults[$key] = $list;
+                }
+                continue;
+            }
+
+            $field = $schema->get($value);
+            if (!is_array($field) || !empty($field['toggleable'])) {
+                continue;
+            }
+
+            if (array_key_exists('default', $field) && !$this->isEmptyDefault($field['default'])) {
+                $defaults[$key] = $field['default'];
+            }
+        }
+
+        return $defaults;
+    }
+
+    /**
+     * Whether a blueprint default should be treated as "no value" and skipped.
+     *
+     * Mirrors Grav 1.7's filter dropping empty values: `null`, an empty string
+     * and an empty array are noise. Crucially `false` and `0` are NOT empty —
+     * `header.published: false` is the whole point of admin2#49.
+     */
+    private function isEmptyDefault(mixed $value): bool
+    {
+        return $value === null || $value === '' || $value === [];
     }
 
     /**
