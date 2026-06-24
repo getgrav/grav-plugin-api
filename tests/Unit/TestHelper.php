@@ -217,6 +217,11 @@ final class TestHelper
             {
                 return $this->existsFlag;
             }
+
+            public function getAvatarImage(): ?object
+            {
+                return null;
+            }
         };
     }
 
