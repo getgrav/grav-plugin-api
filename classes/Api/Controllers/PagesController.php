@@ -1802,7 +1802,7 @@ class PagesController extends AbstractApiController
      */
     private function findPageOrFail(string $route): PageInterface
     {
-        $page = $this->grav['pages']->find($route);
+        $page = $this->resolvePageByRoute($route);
 
         if (!$page) {
             throw new NotFoundException("Page not found at route: {$route}");

@@ -286,6 +286,43 @@ abstract class AbstractApiController
     }
 
     /**
+     * Resolve a page from a route, with awareness of `system.home.hide_in_urls`.
+     *
+     * Tries the public route first (so canonical routes always win), then falls
+     * back to the structural identifier via rawRoute(). When the home route is
+     * hidden, a page at `user/pages/home/<child>` has the public route `/<child>`
+     * (home stripped) but a rawRoute of `/home/<child>` — the identifier Admin2
+     * uses to address the page. Without the fallback, `find('/home/<child>')`
+     * returns null and callers 404 on a page that is editable in the admin
+     * (getgrav/grav-plugin-api#10).
+     */
+    protected function resolvePageByRoute(string $route): ?PageInterface
+    {
+        $pages = $this->grav['pages'];
+
+        // Enable pages if they were disabled (e.g. in admin context).
+        if (method_exists($pages, 'enablePages')) {
+            $pages->enablePages();
+        }
+
+        $needle = '/' . ltrim($route, '/');
+
+        $page = $pages->find($needle);
+        if ($page) {
+            return $page;
+        }
+
+        // Fallback: match the structural route Admin2 uses (e.g. '/home/<child>').
+        foreach ($pages->instances() as $candidate) {
+            if ($candidate instanceof PageInterface && $candidate->rawRoute() === $needle) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Get pagination parameters from query string.
      */
     protected function getPagination(ServerRequestInterface $request, ?int $defaultPerPage = null): array
