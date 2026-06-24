@@ -93,14 +93,12 @@ class UserSerializerTest extends TestCase
         file_put_contents($absolutePath, $this->minimalPng());
         $this->cleanupPaths[] = dirname($absolutePath);
 
-        $user = TestHelper::createMockUser('member', [
-            'avatar' => [
-                'member.png' => [
-                    'name' => 'member.png',
-                    'type' => 'image/png',
-                    'size' => filesize($absolutePath),
-                    'path' => $relativePath,
-                ],
+        $user = $this->plainUser('member', [
+            'member.png' => [
+                'name' => 'member.png',
+                'type' => 'image/png',
+                'size' => filesize($absolutePath),
+                'path' => $relativePath,
             ],
         ]);
 
@@ -114,7 +112,7 @@ class UserSerializerTest extends TestCase
     #[Test]
     public function user_without_avatar_returns_null(): void
     {
-        $user = TestHelper::createMockUser('nobody', []);
+        $user = $this->plainUser('nobody', []);
 
         self::assertNull(UserSerializer::resolveAvatarUrl($user));
     }
@@ -209,19 +207,34 @@ class UserSerializerTest extends TestCase
                     {
                     }
 
-                    public function getPath(): string
+                    /**
+                     * Mirror Medium::get('filepath'), which is the accessor
+                     * available on the ImageMedium returned by real users.
+                     */
+                    public function get(string $key, mixed $default = null): mixed
                     {
-                        return $this->path;
+                        return $key === 'filepath' ? $this->path : $default;
+                    }
+
+                    /**
+                     * Medium has no getPath() method. Unknown calls are media
+                     * actions and return the Medium itself through __call().
+                     * Keeping that behaviour makes this test fail if the
+                     * serializer regresses to getPath().
+                     */
+                    public function __call(string $method, array $arguments): static
+                    {
+                        return $this;
                     }
                 };
             }
         };
     }
 
-    /** User stub without {@see getAvatarImage()} — exercises metadata fallback only. */
+    /** User whose avatar medium is absent — exercises metadata fallback only. */
     private function plainUser(string $username, array $avatarMetadata): UserInterface
     {
-        return TestHelper::createMockUser($username, ['avatar' => $avatarMetadata]);
+        return $this->flexUser($username, ['avatar' => $avatarMetadata], null);
     }
 
     private function expectedThumbnailUrl(string $sourcePath): string

@@ -43,12 +43,9 @@ class UserSerializer implements SerializerInterface
         // Flex-backed users can keep avatar metadata relative to their own
         // media folder. Resolve through the user abstraction first so the API
         // does not need to know that storage layout.
-        if (method_exists($resource, 'getAvatarImage')) {
-            $image = $resource->getAvatarImage();
-            $path = $image?->getPath();
-            if (is_string($path) && is_file($path)) {
-                return self::thumbnailUrl($path);
-            }
+        $path = $resource->getAvatarImage()?->get('filepath');
+        if (is_string($path) && is_file($path)) {
+            return self::thumbnailUrl($path);
         }
 
         $avatar = $resource->get('avatar');
