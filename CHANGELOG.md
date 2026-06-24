@@ -8,6 +8,7 @@
     * [security] API access tokens can now be invalidated before they expire, so logging out, changing or resetting a password, and disabling an account immediately revoke any tokens already issued to that user (GHSA-m8g9-wxhx-6f86).
     * New pages now keep only the default values the template author actually set, instead of also copying inherited collection and plugin settings (such as empty sitemap fields) into the page's frontmatter ([getgrav/grav-plugin-admin2#53](https://github.com/getgrav/grav-plugin-admin2/issues/53)).
     * Profile avatars now display for accounts whose avatar was stored as a plain filename, instead of appearing blank ([getgrav/grav-plugin-api#9](https://github.com/getgrav/grav-plugin-api/pull/9)).
+    * Permissions granted to a user through group membership are now honored, so a user whose access comes only from a group can again see and use Pages, Media, and Reports ([getgrav/grav-plugin-admin2#57](https://github.com/getgrav/grav-plugin-admin2/issues/57)).
 
 # v1.0.3
 ## 06/23/2026
