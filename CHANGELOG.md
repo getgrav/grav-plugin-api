@@ -1,7 +1,8 @@
 # v1.0.4
-## 06/23/2026
+## 06/24/2026
 
 1. [](#bugfix)
+    * [security] API access tokens can now be invalidated before they expire, so logging out, changing or resetting a password, and disabling an account immediately revoke any tokens already issued to that user (GHSA-m8g9-wxhx-6f86).
     * New pages now keep only the default values the template author actually set, instead of also copying inherited collection and plugin settings (such as empty sitemap fields) into the page's frontmatter ([getgrav/grav-plugin-admin2#53](https://github.com/getgrav/grav-plugin-admin2/issues/53)).
 
 # v1.0.3

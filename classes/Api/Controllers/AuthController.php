@@ -227,6 +227,14 @@ class AuthController extends AbstractApiController
         $user = $jwt->validateRefreshToken($body['refresh_token']);
         $jwt->revokeToken($body['refresh_token']);
 
+        // Kill the access token presented with this logout request too, so the
+        // current session's bearer token dies now instead of living out its
+        // remaining hour. GHSA-m8g9-wxhx-6f86.
+        $accessToken = $jwt->extractRequestToken($request);
+        if ($accessToken !== null) {
+            $jwt->revokeToken($accessToken);
+        }
+
         if ($user !== null) {
             $this->fireEvent('onApiUserLogout', [
                 'user' => $user,
@@ -411,6 +419,10 @@ class AuthController extends AbstractApiController
         // Match the login plugin's reset sequence exactly (Controller::taskReset).
         unset($user->hashed_password, $user->reset);
         $user->password = $password;
+        // Kill every token issued before this reset so a compromised account's
+        // outstanding access/refresh tokens die with the old password.
+        // GHSA-m8g9-wxhx-6f86.
+        $user->set('api_tokens_valid_after', time());
         $user->save();
 
         $this->resetLoginRateLimit($username);

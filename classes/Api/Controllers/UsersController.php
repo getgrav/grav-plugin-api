@@ -482,8 +482,21 @@ class UsersController extends AbstractApiController
         }
 
         // Hash password if provided
-        if (isset($body['password']) && $body['password'] !== '') {
+        $passwordChanged = isset($body['password']) && $body['password'] !== '';
+        if ($passwordChanged) {
             $user->set('hashed_password', Authentication::create($body['password']));
+        }
+
+        // Invalidate every outstanding API token for this account when its
+        // password changes or it gets disabled. Stamping the cutoff is the kill
+        // switch JwtAuthenticator checks on each request, so a stolen access or
+        // refresh token can't outlive a password reset or account lockout.
+        // GHSA-m8g9-wxhx-6f86.
+        $disabledNow = in_array('state', $allowedFields, true)
+            && array_key_exists('state', $body)
+            && $user->get('state') === 'disabled';
+        if ($passwordChanged || $disabledNow) {
+            $user->set('api_tokens_valid_after', time());
         }
 
         $user->set('modified', time());

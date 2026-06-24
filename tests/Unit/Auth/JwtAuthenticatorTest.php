@@ -247,6 +247,7 @@ class JwtAuthenticatorTest extends TestCase
         self::assertSame('grav-api', $decoded->iss);
         self::assertSame('dave', $decoded->sub);
         self::assertSame('access', $decoded->type);
+        self::assertNotEmpty($decoded->jti, 'Access tokens must carry a jti so they can be revoked (GHSA-m8g9-wxhx-6f86)');
         self::assertGreaterThan(time(), $decoded->exp);
     }
 
@@ -316,17 +317,112 @@ class JwtAuthenticatorTest extends TestCase
     }
 
     #[Test]
-    public function revoke_access_token_returns_false(): void
+    public function revoked_access_token_no_longer_authenticates(): void
     {
+        // GHSA-m8g9-wxhx-6f86: a generated access token now carries a jti, so it
+        // can be revoked (e.g. on logout) and must stop authenticating at once
+        // rather than living out its full lifetime.
         $user = TestHelper::createMockUser('ivan');
         $authenticator = $this->buildAuthenticator(['ivan' => $user]);
 
         $accessToken = $authenticator->generateAccessToken($user);
 
-        // Access tokens have no jti, so revocation should return false
-        $result = $authenticator->revokeToken($accessToken);
+        $request = TestHelper::createMockRequest(
+            headers: ['Authorization' => 'Bearer ' . $accessToken],
+        );
+        self::assertNotNull($authenticator->authenticate($request), 'token should work before revocation');
 
-        self::assertFalse($result);
+        self::assertTrue($authenticator->revokeToken($accessToken), 'access token should be revocable');
+
+        self::assertNull($authenticator->authenticate($request), 'revoked access token must not authenticate');
+    }
+
+    #[Test]
+    public function legacy_access_token_without_jti_still_authenticates(): void
+    {
+        // Tokens minted before the jti was added have none. They must keep
+        // working until they expire so upgrading the plugin doesn't log
+        // everyone out. GHSA-m8g9-wxhx-6f86.
+        $user = TestHelper::createMockUser('judy');
+        $authenticator = $this->buildAuthenticator(['judy' => $user]);
+
+        $token = JWT::encode([
+            'iss' => 'grav-api',
+            'sub' => 'judy',
+            'iat' => time(),
+            'exp' => time() + 3600,
+            'type' => 'access',
+            // no jti
+        ], self::SECRET, self::ALGORITHM);
+
+        $request = TestHelper::createMockRequest(
+            headers: ['Authorization' => 'Bearer ' . $token],
+        );
+
+        self::assertNotNull($authenticator->authenticate($request));
+    }
+
+    #[Test]
+    public function rejects_access_token_for_disabled_account(): void
+    {
+        // The account-disable kill switch: validateToken reloads the user on
+        // every request, so disabling an account stops its live access token
+        // without waiting for expiry. GHSA-m8g9-wxhx-6f86.
+        $user = TestHelper::createMockUser('mallory', ['state' => 'disabled']);
+        $authenticator = $this->buildAuthenticator(['mallory' => $user]);
+
+        $token = $authenticator->generateAccessToken($user);
+        $request = TestHelper::createMockRequest(
+            headers: ['Authorization' => 'Bearer ' . $token],
+        );
+
+        self::assertNull($authenticator->authenticate($request));
+    }
+
+    #[Test]
+    public function rejects_access_token_issued_before_user_cutoff(): void
+    {
+        // The per-user cutoff (bumped on password change / reset): any token
+        // whose `iat` predates `api_tokens_valid_after` is rejected, killing
+        // every outstanding token in one stroke. GHSA-m8g9-wxhx-6f86.
+        $user = TestHelper::createMockUser('niaj', ['api_tokens_valid_after' => time() + 10]);
+        $authenticator = $this->buildAuthenticator(['niaj' => $user]);
+
+        $token = $authenticator->generateAccessToken($user); // iat = now, < cutoff
+        $request = TestHelper::createMockRequest(
+            headers: ['Authorization' => 'Bearer ' . $token],
+        );
+
+        self::assertNull($authenticator->authenticate($request));
+    }
+
+    #[Test]
+    public function accepts_access_token_issued_after_user_cutoff(): void
+    {
+        // A token minted after the cutoff (e.g. the fresh pair from logging back
+        // in) must still authenticate. GHSA-m8g9-wxhx-6f86.
+        $user = TestHelper::createMockUser('olivia', ['api_tokens_valid_after' => time() - 10]);
+        $authenticator = $this->buildAuthenticator(['olivia' => $user]);
+
+        $token = $authenticator->generateAccessToken($user); // iat = now, > cutoff
+        $request = TestHelper::createMockRequest(
+            headers: ['Authorization' => 'Bearer ' . $token],
+        );
+
+        self::assertNotNull($authenticator->authenticate($request));
+    }
+
+    #[Test]
+    public function refresh_token_rejected_after_user_cutoff(): void
+    {
+        // The cutoff invalidates refresh tokens too, so a stolen refresh token
+        // can't be traded for a new access token after a password reset.
+        $user = TestHelper::createMockUser('peggy', ['api_tokens_valid_after' => time() + 10]);
+        $authenticator = $this->buildAuthenticator(['peggy' => $user]);
+
+        $refreshToken = $authenticator->generateRefreshToken($user);
+
+        self::assertNull($authenticator->validateRefreshToken($refreshToken));
     }
 
     #[Test]
