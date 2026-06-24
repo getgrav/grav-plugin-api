@@ -21,7 +21,9 @@ class UserSerializer implements SerializerInterface
             'state' => $resource->get('state', 'enabled'),
             'language' => $resource->get('language', ''),
             'content_editor' => $resource->get('content_editor', ''),
-            'access' => $resource->get('access', []),
+            // Cast to object so an empty access map serializes as `{}` and not a
+            // JSON array `[]`, which the permissions editor can't add to (admin2#58).
+            'access' => (object) $resource->get('access', []),
             'groups' => array_values(array_filter(
                 (array) $resource->get('groups', []),
                 'is_string',

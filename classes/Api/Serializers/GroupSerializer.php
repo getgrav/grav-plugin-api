@@ -17,7 +17,10 @@ class GroupSerializer implements SerializerInterface
             'description'  => (string) ($resource->getProperty('description') ?? ''),
             'icon'         => (string) ($resource->getProperty('icon') ?? ''),
             'enabled'      => (bool) $resource->getProperty('enabled', true),
-            'access'       => $resource->getProperty('access') ?? [],
+            // Cast to object so an empty access map serializes as `{}` and not a
+            // JSON array `[]` — the permissions editor treats `[]` as a list and
+            // can't add the first permission to it (admin2#58).
+            'access'       => (object) ($resource->getProperty('access') ?? []),
         ];
     }
 
@@ -35,7 +38,8 @@ class GroupSerializer implements SerializerInterface
             'description'  => (string) ($entry['description'] ?? ''),
             'icon'         => (string) ($entry['icon'] ?? ''),
             'enabled'      => (bool) ($entry['enabled'] ?? true),
-            'access'       => $entry['access'] ?? [],
+            // See serialize(): empty access must be an object, not a JSON array.
+            'access'       => (object) ($entry['access'] ?? []),
         ];
     }
 }
