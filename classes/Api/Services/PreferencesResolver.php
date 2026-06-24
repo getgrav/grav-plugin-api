@@ -96,6 +96,16 @@ class PreferencesResolver
             'text' => 'Grav',
             'logoLight' => '',
             'logoDark' => '',
+            // Custom labelling shown pre-auth on the sign-in screen and in the
+            // browser tab. Empty = fall back to the built-in "Grav Admin" copy.
+            'title' => '',
+            'subtitle' => '',
+            // Hide the "Powered by Grav CMS" line on the login/setup screens.
+            // Same anti-fingerprinting rationale as withholding versions pre-auth.
+            'showPoweredBy' => true,
+            // Custom favicon (basename only, stored alongside the logos). Empty =
+            // the SPA's generated accent-coloured favicon.
+            'favicon' => '',
         ];
     }
 
@@ -429,11 +439,26 @@ class PreferencesResolver
         if ($text === '') {
             $text = $defaults['text'];
         }
+
+        // Free-text title/subtitle: optional, so an empty string is a valid
+        // "use the default copy" signal rather than being coerced back.
+        $title = is_string($input['title'] ?? null) ? trim($input['title']) : $defaults['title'];
+        $subtitle = is_string($input['subtitle'] ?? null) ? trim($input['subtitle']) : $defaults['subtitle'];
+
+        $showPoweredBy = $input['showPoweredBy'] ?? $defaults['showPoweredBy'];
+        if (!is_bool($showPoweredBy)) {
+            $showPoweredBy = is_scalar($showPoweredBy) ? (bool) $showPoweredBy : $defaults['showPoweredBy'];
+        }
+
         return [
             'mode' => $mode,
             'text' => substr($text, 0, 64),
             'logoLight' => $this->sanitizeLogoPath($input['logoLight'] ?? ''),
             'logoDark' => $this->sanitizeLogoPath($input['logoDark'] ?? ''),
+            'title' => substr($title, 0, 64),
+            'subtitle' => substr($subtitle, 0, 128),
+            'showPoweredBy' => $showPoweredBy,
+            'favicon' => $this->sanitizeLogoPath($input['favicon'] ?? ''),
         ];
     }
 
