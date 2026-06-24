@@ -5,6 +5,7 @@
     * Admin branding now stores a custom sign-in title, subtitle, a toggle to hide the "Powered by Grav CMS" line, and a custom favicon, exposed to the sign-in screen before login ([getgrav/grav-plugin-admin2#54](https://github.com/getgrav/grav-plugin-admin2/issues/54)).
     * The branding upload endpoint now accepts a favicon image alongside the light and dark logos.
 2. [](#bugfix)
+    * [security] Password reset and invitation emails now build their links only from your site's own address or an allowlisted origin, so an attacker can no longer redirect a reset link to a server they control and capture the token to take over an account (GHSA-5xc4-j99p-cp4m).
     * [security] API access tokens can now be invalidated before they expire, so logging out, changing or resetting a password, and disabling an account immediately revoke any tokens already issued to that user (GHSA-m8g9-wxhx-6f86).
     * New pages now keep only the default values the template author actually set, instead of also copying inherited collection and plugin settings (such as empty sitemap fields) into the page's frontmatter ([getgrav/grav-plugin-admin2#53](https://github.com/getgrav/grav-plugin-admin2/issues/53)).
     * Profile avatars now display for accounts whose avatar was stored as a plain filename, instead of appearing blank ([getgrav/grav-plugin-api#9](https://github.com/getgrav/grav-plugin-api/pull/9)).
