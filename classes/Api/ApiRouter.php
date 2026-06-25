@@ -64,10 +64,36 @@ class ApiRouter extends ProcessorBase
     /** @var array<int,string>|null Cached public-route exact paths after plugin contributions. */
     protected ?array $publicExact = null;
 
+
     public function __construct(Grav $container, Config $config)
     {
         parent::__construct($container);
         $this->config = $config;
+    }
+
+    /**
+     * Open a Grav debugger timer for an API phase, so it lands in the Clockwork
+     * timeline next to Grav's own boot processors — giving the admin-next debug
+     * panel an auth-vs-controller split that Grav's processor-level timeline
+     * can't see on its own (admin2#65). Gated on the debugger being enabled, so
+     * it adds nothing in production; Grav's own Server-Timing header already
+     * carries the boot phases when the debugger is on.
+     */
+    protected function startPhase(string $name, string $desc): void
+    {
+        $debugger = $this->container['debugger'] ?? null;
+        if ($debugger && $debugger->enabled()) {
+            $debugger->startTimer('api_' . $name, $desc);
+        }
+    }
+
+    /** Close the phase timer opened by startPhase(). */
+    protected function stopPhase(string $name): void
+    {
+        $debugger = $this->container['debugger'] ?? null;
+        if ($debugger && $debugger->enabled()) {
+            $debugger->stopTimer('api_' . $name);
+        }
     }
 
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
@@ -150,6 +176,7 @@ class ApiRouter extends ProcessorBase
                 }
             }
 
+            $this->startPhase('auth', 'API: Authentication');
             if (!$isPublic) {
                 $request = (new AuthMiddleware($this->container, $this->config))->processRequest($request);
             } else {
@@ -158,6 +185,7 @@ class ApiRouter extends ProcessorBase
                 // responses); anonymous callers continue as guests.
                 $request = (new AuthMiddleware($this->container, $this->config))->processOptional($request);
             }
+            $this->stopPhase('auth');
 
             // Register admin proxy so Grav core treats API requests as
             // admin-scoped (page visibility, Flex auth scope, events, etc.)
@@ -211,6 +239,7 @@ class ApiRouter extends ProcessorBase
 
     protected function dispatch(ServerRequestInterface $request): ResponseInterface
     {
+        $this->startPhase('route', 'API: Routing');
         $dispatcher = $this->createDispatcher();
 
         $base = $this->config->get('plugins.api.route', '/api');
@@ -249,6 +278,7 @@ class ApiRouter extends ProcessorBase
 
         $method = $request->getMethod();
         $routeInfo = $dispatcher->dispatch($method, $routePath);
+        $this->stopPhase('route');
 
         return match ($routeInfo[0]) {
             Dispatcher::NOT_FOUND => ErrorResponse::create(404, 'Not Found', "No route matches '{$method} {$routePath}'."),
@@ -279,7 +309,11 @@ class ApiRouter extends ProcessorBase
 
         $request = $request->withAttribute('route_params', $vars);
 
-        return $controller->$method($request);
+        $this->startPhase('controller', 'API: Controller');
+        $response = $controller->$method($request);
+        $this->stopPhase('controller');
+
+        return $response;
     }
 
     protected function createDispatcher(): Dispatcher

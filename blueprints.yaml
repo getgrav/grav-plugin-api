@@ -110,6 +110,15 @@ form:
       validate:
         type: bool
 
+    auth.key_cache_ttl:
+      type: text
+      label: API Key Verification Cache
+      help: 'How long (seconds) to remember a verified API key so repeat requests skip the deliberately-slow bcrypt check. Revoking, disabling or expiring a key still takes effect immediately. Set to 0 to verify every request.'
+      default: 600
+      validate:
+        type: int
+        min: 0
+
     section_cors:
       type: section
       title: CORS Settings
@@ -179,6 +188,18 @@ form:
       type: toggle
       label: Flex Accounts Backend
       help: Use Flex-Objects for user listings (faster search and pagination)
+      highlight: 1
+      default: 1
+      options:
+        1: Enabled
+        0: Disabled
+      validate:
+        type: bool
+
+    force_cache:
+      type: toggle
+      label: Keep Cache for API Requests
+      help: "Keep Grav's object cache on for API requests even when the global cache is turned off. Disabling the cache is a frontend-dev convenience (to see template changes live), but the API renders no frontend pages — so leaving this on keeps the admin fast while the frontend runs uncached. Turn off only if you need the API to honor the global cache setting."
       highlight: 1
       default: 1
       options:

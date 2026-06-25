@@ -63,7 +63,9 @@ class CorsMiddleware
         // Always expose X-Invalidates (cache invalidation tags) and ETag (optimistic
         // concurrency). Without ETag in the expose list a cross-origin client cannot
         // read it, so If-Match is never sent and concurrency protection silently lapses.
-        foreach (['X-Invalidates', 'ETag'] as $always) {
+        // Server-Timing + the Clockwork ids let the admin-next debug panel read
+        // per-request phase timings and link to the Clockwork profile cross-origin.
+        foreach (['X-Invalidates', 'ETag', 'Server-Timing', 'X-Clockwork-Id', 'X-Clockwork-Version'] as $always) {
             if (!in_array($always, $exposeHeaders, true)) {
                 $exposeHeaders[] = $always;
             }

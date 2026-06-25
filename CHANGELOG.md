@@ -3,6 +3,9 @@
 
 1. [](#new)
     * API controllers can now send debug output to Grav's debugger without corrupting the JSON response, so values can be inspected in Clockwork and the new admin's debug panel ([getgrav/grav-plugin-admin2#66](https://github.com/getgrav/grav-plugin-admin2/issues/66)).
+    * The API now keeps Grav's object cache on for its own requests even when caching is turned off for the site, so the new admin stays fast while you develop the frontend with the cache disabled ([getgrav/grav-plugin-admin2#65](https://github.com/getgrav/grav-plugin-admin2/issues/65)).
+    * Requests authenticated with an API key are now much faster when repeated, because a verified key is briefly remembered instead of being re-checked with a deliberately slow hash on every request.
+    * API requests now report their authentication, routing, and controller timings to Grav's debugger, so the new admin's debug panel timeline shows where each request spends its time ([getgrav/grav-plugin-admin2#65](https://github.com/getgrav/grav-plugin-admin2/issues/65)).
 1. [](#bugfix)
     * Blueprint field unit labels such as the cache purge age now display correctly, showing "days" instead of a humanized key like "Day Plural" in the new admin ([getgrav/grav-plugin-admin2#64](https://github.com/getgrav/grav-plugin-admin2/issues/64)).
     * Deleting a page image now works for images that have a retina `@2x` variant, instead of failing with a "not found" error, and it removes the variant too rather than leaving it orphaned ([getgrav/grav-plugin-admin2#68](https://github.com/getgrav/grav-plugin-admin2/issues/68)).

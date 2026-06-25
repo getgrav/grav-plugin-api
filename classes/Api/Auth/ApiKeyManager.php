@@ -138,10 +138,35 @@ class ApiKeyManager
 
     /**
      * Find a key entry by raw API key. Returns [keyId, keyData, username] or null.
+     *
+     * Verification runs bcrypt (Authentication::verify), which is deliberately
+     * ~50ms — so an API-key client hammering many endpoints pays that on every
+     * request. To avoid it we keep a short-TTL cache mapping a SHA-256 of the
+     * raw key to the key_id it last verified against. SHA-256 is fast and
+     * non-reversible, and the key is high-entropy, so the token is safe to
+     * store. The cache only skips the bcrypt math: the key_id it returns is
+     * re-checked against the current key file here, and active/expiry/existence
+     * are re-checked by the authenticator on every request — so a revoked,
+     * disabled or expired key never authenticates from a warm cache.
      */
     public function findKey(string $rawKey): ?array
     {
         $keys = $this->loadKeys();
+
+        $cache = $this->verifyCache();
+        $token = hash('sha256', $rawKey);
+
+        // Fast path: a recent successful verification of this exact key.
+        if ($cache) {
+            $cachedId = $cache->fetch($this->verifyCacheKey($token));
+            if (is_string($cachedId) && isset($keys[$cachedId]) && is_array($keys[$cachedId]) && isset($keys[$cachedId]['hash'])) {
+                return [
+                    'key_id' => $cachedId,
+                    'data' => $keys[$cachedId],
+                    'username' => $keys[$cachedId]['username'] ?? '',
+                ];
+            }
+        }
 
         foreach ($keys as $keyId => $keyData) {
             if (!is_array($keyData) || !isset($keyData['hash'])) {
@@ -149,6 +174,8 @@ class ApiKeyManager
             }
 
             if (self::verifyKey($rawKey, $keyData['hash'])) {
+                // Cache only successful verifications, never misses.
+                $cache?->save($this->verifyCacheKey($token), (string) $keyId, $this->verifyCacheTtl());
                 return [
                     'key_id' => $keyId,
                     'data' => $keyData,
@@ -158,6 +185,31 @@ class ApiKeyManager
         }
 
         return null;
+    }
+
+    /**
+     * Grav cache used to skip repeat bcrypt verifications, or null when the
+     * verified-key cache is disabled (ttl 0) or the cache backend is unavailable.
+     * Note: Grav's cache no-ops when system.cache.enabled is false — so on a
+     * cache-off site this speedup only applies to requests that force the cache
+     * on for themselves (the API does this; see plugins.api.force_cache).
+     */
+    protected function verifyCache(): ?object
+    {
+        if ($this->verifyCacheTtl() <= 0) {
+            return null;
+        }
+        return Grav::instance()['cache'] ?? null;
+    }
+
+    protected function verifyCacheTtl(): int
+    {
+        return (int) Grav::instance()['config']->get('plugins.api.auth.key_cache_ttl', 600);
+    }
+
+    protected function verifyCacheKey(string $token): string
+    {
+        return 'api-key-verify-' . $token;
     }
 
     /**

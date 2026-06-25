@@ -90,6 +90,17 @@ class ApiPlugin extends Plugin
         }
 
         if ($this->active) {
+            // Keep the object cache warm for API requests even when the global
+            // cache is switched off. Disabling cache is a frontend-dev workflow
+            // (see fresh template/page output) — but the API renders no Twig and
+            // no frontend pages, so for it cache-off buys nothing and forces a
+            // full page-tree rebuild on every one of the SPA's many small calls
+            // (admin2#65). This runs before PagesProcessor builds the index, so
+            // the override is in place when the page index is first fetched.
+            if ($this->config->get('plugins.api.force_cache', true)) {
+                $this->grav['cache']->setEnabled(true);
+            }
+
             // Disable pages processing for API requests - we don't need Twig/templates
             $this->grav['pages']->disablePages();
 
