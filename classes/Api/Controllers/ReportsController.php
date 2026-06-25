@@ -333,6 +333,25 @@ class ReportsController extends AbstractApiController
     }
 
     /**
+     * GET /reports/twig-content/scan
+     *
+     * Scan all page content for Twig tags/filters/functions the sandbox does not
+     * currently allow — what content would need before the gate is enabled.
+     * Informational (a lexical approximation); the authoritative signal is the
+     * render-time block list in the report's events.
+     */
+    public function twigContentScan(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.reports.read');
+
+        /** @var Pages $pages */
+        $pages = $this->grav['pages'];
+        $pages->enablePages();
+
+        return ApiResponse::ok(Security::scanContentTwigUsage($pages));
+    }
+
+    /**
      * Append a token to a flat allowlist (tags/filters/functions), de-duped
      * case-insensitively, preserving existing order.
      *
