@@ -114,6 +114,13 @@ class ReportsController extends AbstractApiController
         $xssScan     = (bool) $config->get('security.twig_content.xss_scan_output', true);
         $editorWide  = (bool) $config->get('security.twig_content.editor_enabled', false);
 
+        // The 1.7-migration trap: a site-wide `system.pages.process.twig: true`
+        // (or frontmatter.process_twig) requests content Twig, but in 2.0 it is
+        // subordinate to the gate — so with the gate off it renders raw. Flag it
+        // so the report can call out the demoted global switch explicitly.
+        $globalRequest      = $config->get('system.pages.process.twig') === true;
+        $frontmatterRequest = (bool) $config->get('system.pages.frontmatter.process_twig', false);
+
         /** @var Pages $pages */
         $pages = $this->grav['pages'];
         $pages->enablePages();
@@ -174,12 +181,16 @@ class ReportsController extends AbstractApiController
             'status'    => $status,
             'message'   => $message,
             'meta'      => [
-                'gate'           => $gate,
-                'sandbox'        => $sandbox,
-                'xss_scan'       => $xssScan,
-                'editor_enabled' => $editorWide,
-                'leak_count'     => $leakCount,
-                'event_count'    => $eventCount,
+                'gate'                => $gate,
+                'sandbox'             => $sandbox,
+                'xss_scan'            => $xssScan,
+                'editor_enabled'      => $editorWide,
+                'leak_count'          => $leakCount,
+                'event_count'         => $eventCount,
+                // True when a demoted global request flag is on but the gate is
+                // off — the classic migrated-from-1.7 misconfiguration.
+                'global_request_gated'      => $globalRequest && !$gate,
+                'frontmatter_request_gated' => $frontmatterRequest && !$gate,
             ],
             'items'     => $items,
         ];
