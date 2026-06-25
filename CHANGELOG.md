@@ -5,6 +5,8 @@
     * API controllers can now send debug output to Grav's debugger without corrupting the JSON response, so values can be inspected in Clockwork and the new admin's debug panel ([getgrav/grav-plugin-admin2#66](https://github.com/getgrav/grav-plugin-admin2/issues/66)).
 1. [](#bugfix)
     * Blueprint field unit labels such as the cache purge age now display correctly, showing "days" instead of a humanized key like "Day Plural" in the new admin ([getgrav/grav-plugin-admin2#64](https://github.com/getgrav/grav-plugin-admin2/issues/64)).
+    * Deleting a page image now works for images that have a retina `@2x` variant, instead of failing with a "not found" error, and it removes the variant too rather than leaving it orphaned ([getgrav/grav-plugin-admin2#68](https://github.com/getgrav/grav-plugin-admin2/issues/68)).
+    * Changing a module's template now renames it in place instead of creating a broken extra child page ([getgrav/grav-plugin-admin2#69](https://github.com/getgrav/grav-plugin-admin2/issues/69)).
 
 # v1.0.4
 ## 06/24/2026
