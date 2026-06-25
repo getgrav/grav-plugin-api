@@ -1,3 +1,11 @@
+# v1.0.5
+## 06/25/2026
+
+1. [](#new)
+    * API controllers can now send debug output to Grav's debugger without corrupting the JSON response, so values can be inspected in Clockwork and the new admin's debug panel ([getgrav/grav-plugin-admin2#66](https://github.com/getgrav/grav-plugin-admin2/issues/66)).
+1. [](#bugfix)
+    * Blueprint field unit labels such as the cache purge age now display correctly, showing "days" instead of a humanized key like "Day Plural" in the new admin ([getgrav/grav-plugin-admin2#64](https://github.com/getgrav/grav-plugin-admin2/issues/64)).
+
 # v1.0.4
 ## 06/24/2026
 
