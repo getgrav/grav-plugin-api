@@ -279,6 +279,60 @@ class ReportsController extends AbstractApiController
     }
 
     /**
+     * GET /reports/twig-content/page?route=/blog/post
+     *
+     * Focused, single-page status for the page-editor banner: whether THIS page
+     * would leak raw Twig and the recent blocked/blanked events recorded for its
+     * route. Cheap — checks one page instead of scanning the whole site.
+     */
+    public function twigContentPageStatus(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.reports.read');
+
+        $route = $request->getQueryParams()['route'] ?? '';
+        $route = is_string($route) ? trim($route) : '';
+        if ($route === '') {
+            throw new ValidationException("A 'route' query parameter is required.");
+        }
+
+        $config  = $this->grav['config'];
+        $gate    = (bool) $config->get('security.twig_content.process_enabled', false);
+        $sandbox = (bool) $config->get('security.twig_sandbox.enabled', true);
+
+        /** @var Pages $pages */
+        $pages = $this->grav['pages'];
+        $pages->enablePages();
+
+        $leak = null;
+        try {
+            $page = $pages->find($route);
+            if ($page && $page->exists()) {
+                $leak = Security::detectTwigLeakForPage($page, $gate);
+            }
+        } catch (\Throwable) {
+            // A missing/unreadable page simply has no leak to report.
+        }
+
+        // Recent events whose route matches this page (newest-first order kept).
+        $events = array_values(array_filter(
+            Security::recentTwigContentEvents(),
+            static fn($e) => ($e['route'] ?? '') === $route
+        ));
+        foreach ($events as &$event) {
+            $event['allowlist'] = $this->allowlistDescriptor($event);
+        }
+        unset($event);
+
+        return ApiResponse::ok([
+            'route'   => $route,
+            'gate'    => $gate,
+            'sandbox' => $sandbox,
+            'leak'    => $leak,
+            'events'  => $events,
+        ]);
+    }
+
+    /**
      * Append a token to a flat allowlist (tags/filters/functions), de-duped
      * case-insensitively, preserving existing order.
      *
