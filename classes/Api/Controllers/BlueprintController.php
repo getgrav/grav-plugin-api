@@ -1107,8 +1107,12 @@ class BlueprintController extends AbstractApiController
                 }
             }
 
-            // Translate string properties that may contain language keys
-            foreach (['label', 'title', 'description', 'help', 'placeholder', 'text', 'content', 'success_msg', 'error_msg'] as $textProp) {
+            // Translate string properties that may contain language keys.
+            // `append`/`prepend` carry unit labels like GRAV.NICETIME.DAY_PLURAL;
+            // without translating them here the SPA receives the raw key and
+            // humanizes it to "Day Plural" (admin2#64) — the GRAV.* core
+            // namespace isn't in the SPA's client string table.
+            foreach (['label', 'title', 'description', 'help', 'placeholder', 'text', 'content', 'success_msg', 'error_msg', 'append', 'prepend'] as $textProp) {
                 if (isset($serialized[$textProp]) && is_string($serialized[$textProp])) {
                     $serialized[$textProp] = $this->translateLabel($serialized[$textProp]);
                 }

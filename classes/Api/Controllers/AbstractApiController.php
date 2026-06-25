@@ -599,4 +599,34 @@ abstract class AbstractApiController
         $this->grav->fireEvent($name, $event);
         return $event;
     }
+
+    /**
+     * JSON-safe debug dump for the API path (admin2#66).
+     *
+     * `dump($var)` writes into the output stream, which corrupts the JSON
+     * response body when called from an `onApi*` hook or a controller. Use this
+     * instead: it routes the value into Grav's debugger (Clockwork), where it
+     * appears in the Clockwork browser DevTools panel and in admin-next's
+     * built-in API Debug panel — without touching the response body. No-op when
+     * the debugger is disabled, so it's safe to leave in place.
+     *
+     * @param mixed  $value Any value — scalars logged as-is, arrays/objects JSON-encoded.
+     * @param string $label Short label shown beside the entry.
+     */
+    protected function debug(mixed $value, string $label = 'api'): void
+    {
+        $debugger = $this->grav['debugger'] ?? null;
+        if ($debugger === null) {
+            return;
+        }
+        $message = is_scalar($value) || $value === null
+            ? (string) $value
+            : json_encode($value, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_PARTIAL_OUTPUT_ON_ERROR);
+        // Grav's addMessage() forwards its 2nd argument to Clockwork as the log
+        // *level* (not a label), and Clockwork silently drops entries with an
+        // unknown level. So fold our label into the message text and log at the
+        // standard 'info' level — exactly how Grav's own boot messages register,
+        // which guarantees the entry shows in Clockwork and the debug panel.
+        $debugger->addMessage('[' . $label . '] ' . $message, 'info');
+    }
 }

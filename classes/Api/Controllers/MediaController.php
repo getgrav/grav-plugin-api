@@ -109,20 +109,24 @@ class MediaController extends AbstractApiController
             throw new NotFoundException('Page directory does not exist on disk.');
         }
 
-        // Verify the file exists on disk
-        $filePath = $pagePath . '/' . $filename;
-        if (!file_exists($filePath)) {
+        // Collect every physical file backing this medium: the base file, its
+        // retina `@Nx` variants, and any `.meta.yaml` siblings. A migrated
+        // image stored only as `photo@2x.jpg` (no base `photo.jpg`) is listed
+        // by Grav under the synthesized base name `photo.jpg`, which has no file
+        // on disk — so a plain `file_exists(photo.jpg)` check 404'd it (admin2#68).
+        // Sweeping the variants also stops a deleted base from leaving an orphan
+        // `@2x` behind (which would reappear as a ghost base in the listing).
+        $targets = $this->mediaFileVariants($pagePath, $filename);
+        if ($targets === []) {
             throw new NotFoundException("Media file '{$filename}' not found on this page.");
         }
 
         $this->fireEvent('onApiBeforeMediaDelete', ['page' => $page, 'filename' => $filename]);
 
-        unlink($filePath);
-
-        // Also remove any metadata file (.meta.yaml) if it exists
-        $metaPath = $filePath . '.meta.yaml';
-        if (file_exists($metaPath)) {
-            unlink($metaPath);
+        foreach ($targets as $target) {
+            if (is_file($target)) {
+                unlink($target);
+            }
         }
 
         // Build fresh media object for admin event compatibility
@@ -141,6 +145,43 @@ class MediaController extends AbstractApiController
                 'pages:update:/' . $route,
             ]),
         );
+    }
+
+    /**
+     * Absolute paths of every file backing a medium in $dir: the base file
+     * `<stem>.<ext>`, its retina variants `<stem>@<N>x.<ext>`, and the
+     * `.meta.yaml` sidecar of each. Used by deletion so retina-only images
+     * (no physical base) are still removed and no `@Nx` orphans are left
+     * behind (admin2#68). Only files that exist are returned.
+     *
+     * @return list<string>
+     */
+    private function mediaFileVariants(string $dir, string $filename): array
+    {
+        $stem = pathinfo($filename, PATHINFO_FILENAME);
+        $ext = pathinfo($filename, PATHINFO_EXTENSION);
+        // <stem>@2x.<ext>, <stem>@3x.<ext>, … (case-insensitive extension)
+        $variantRe = '/^' . preg_quote($stem, '/') . '@\d+x\.' . preg_quote($ext, '/') . '$/i';
+
+        $files = [];
+        foreach (scandir($dir) ?: [] as $entry) {
+            if ($entry === '.' || $entry === '..') {
+                continue;
+            }
+            if ($entry !== $filename && !preg_match($variantRe, $entry)) {
+                continue;
+            }
+            $path = $dir . '/' . $entry;
+            if (is_file($path)) {
+                $files[] = $path;
+            }
+            $meta = $path . '.meta.yaml';
+            if (is_file($meta)) {
+                $files[] = $meta;
+            }
+        }
+
+        return $files;
     }
 
     /**

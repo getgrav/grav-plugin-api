@@ -24,8 +24,17 @@ use RocketTheme\Toolbox\Event\Event;
  *     'icon'      => 'fa-tachometer',       // FA icon class
  *     'action'    => 'warm',                // action key for POST
  *     'confirm'   => 'Warm the cache?',     // optional confirmation prompt
+ *     'variant'   => 'primary',             // optional emphasis: default|primary|success|warning|danger
+ *     'showLabel' => true,                  // optional — render label text beside the icon
+ *     'size'      => 'md',                   // optional — sm (default) | md
  *     'authorize' => 'api.some.permission', // optional — string or array (any-of)
  *   ]
+ *
+ * `variant` maps to admin-next theme tokens (never a raw color), so buttons
+ * stay readable in light/dark and follow the active theme. `showLabel` + `size`
+ * turn a tiny icon into a readable labelled button. All three pass straight
+ * through to the client (no allowlist) — an unknown `variant` falls back to the
+ * default muted style.
  *
  * `authorize` follows the same string-or-array semantics as the sidebar API.
  * Items without `authorize` are visible to every authenticated user.

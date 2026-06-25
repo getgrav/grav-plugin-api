@@ -464,6 +464,10 @@ $r->addRoute('GET', '/gpm/themes/{slug}/field/{type}', [GpmController::class, 'c
         // System Info & Reports
         $r->addRoute('GET', '/systeminfo', [SchedulerController::class, 'systemInfo']);
         $r->addRoute('GET', '/reports', [ReportsController::class, 'index']);
+        $r->addRoute('POST', '/reports/twig-content/allowlist', [ReportsController::class, 'allowlistAdd']);
+        $r->addRoute('DELETE', '/reports/twig-content/events', [ReportsController::class, 'clearTwigEvents']);
+        $r->addRoute('GET', '/reports/twig-content/page', [ReportsController::class, 'twigContentPageStatus']);
+        $r->addRoute('GET', '/reports/twig-content/scan', [ReportsController::class, 'twigContentScan']);
 
         // Webhooks
         $r->addRoute('GET', '/webhooks', [WebhookController::class, 'index']);
