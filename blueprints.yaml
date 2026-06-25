@@ -119,6 +119,18 @@ form:
         type: int
         min: 0
 
+    session_early_close:
+      type: toggle
+      label: Release Session Lock Early
+      help: "Commit the session right after authentication on read-only (GET) requests so the new admin's parallel calls don't queue behind PHP's per-session file lock. Recommended on. Turn off only if a custom read endpoint writes to the session."
+      highlight: 1
+      default: 1
+      options:
+        1: Enabled
+        0: Disabled
+      validate:
+        type: bool
+
     section_cors:
       type: section
       title: CORS Settings

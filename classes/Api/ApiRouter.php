@@ -96,6 +96,26 @@ class ApiRouter extends ProcessorBase
         }
     }
 
+    /**
+     * Commit and release the session lock for read-only requests so the SPA's
+     * parallel GETs (all sharing one session cookie) don't serialize on PHP's
+     * exclusive per-session file lock. Only GET/HEAD — mutations may still queue
+     * flash messages or rotate the session — and skippable via config.
+     */
+    protected function closeSessionEarly(string $method): void
+    {
+        if ($method !== 'GET' && $method !== 'HEAD') {
+            return;
+        }
+        if (!$this->config->get('plugins.api.session_early_close', true)) {
+            return;
+        }
+        $session = $this->container['session'] ?? null;
+        if ($session && $session->isStarted()) {
+            $session->close();
+        }
+    }
+
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
         $this->startTimer();
@@ -193,6 +213,16 @@ class ApiRouter extends ProcessorBase
             if ($user && !isset($this->container['admin'])) {
                 (new AdminProxy($this->container, $user))->register();
             }
+
+            // Release the PHP session lock for read-only requests. Grav core
+            // starts and EXCLUSIVELY locks the session during boot on every
+            // request; the admin SPA fires many GETs that all carry the same
+            // session cookie, so without this they serialize on that single
+            // lock. GET/HEAD never write session state (flash messages are only
+            // queued on mutations), and the user is already resolved above, so
+            // committing the session now lets those parallel reads run
+            // concurrently instead of queuing (admin2#65).
+            $this->closeSessionEarly($request->getMethod());
 
             // Rate limit (after auth so we can rate limit per-user)
             $rateLimitResult = (new RateLimitMiddleware($this->config))->check($request);
