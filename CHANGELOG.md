@@ -7,6 +7,7 @@
     * Requests authenticated with an API key are now much faster when repeated, because a verified key is briefly remembered instead of being re-checked with a deliberately slow hash on every request.
     * API requests now report their authentication, routing, and controller timings to Grav's debugger, so the new admin's debug panel timeline shows where each request spends its time ([getgrav/grav-plugin-admin2#65](https://github.com/getgrav/grav-plugin-admin2/issues/65)).
     * The new admin's many simultaneous requests no longer queue up waiting on the session one at a time, so pages and lists load noticeably faster ([getgrav/grav-plugin-admin2#65](https://github.com/getgrav/grav-plugin-admin2/issues/65)).
+    * Site-wide media files can now be saved in a custom order, stored per folder and applied whenever that folder's media is listed.
 1. [](#bugfix)
     * Blueprint field unit labels such as the cache purge age now display correctly, showing "days" instead of a humanized key like "Day Plural" in the new admin ([getgrav/grav-plugin-admin2#64](https://github.com/getgrav/grav-plugin-admin2/issues/64)).
     * Deleting a page image now works for images that have a retina `@2x` variant, instead of failing with a "not found" error, and it removes the variant too rather than leaving it orphaned ([getgrav/grav-plugin-admin2#68](https://github.com/getgrav/grav-plugin-admin2/issues/68)).
