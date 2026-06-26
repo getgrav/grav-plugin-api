@@ -98,6 +98,18 @@ form:
       validate:
         type: int
 
+    auth.jwt_algorithm:
+      type: select
+      label: JWT Signing Algorithm
+      help: 'HMAC algorithm used to sign and verify API tokens. Only symmetric HS variants are supported because tokens are signed with a single shared secret. Leave on HS256 unless you have a specific reason to change it.'
+      default: HS256
+      options:
+        HS256: 'HS256'
+        HS384: 'HS384'
+        HS512: 'HS512'
+      validate:
+        type: string
+
     auth.session_enabled:
       type: toggle
       label: Session Authentication
