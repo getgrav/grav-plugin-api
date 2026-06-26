@@ -64,10 +64,56 @@ class ApiRouter extends ProcessorBase
     /** @var array<int,string>|null Cached public-route exact paths after plugin contributions. */
     protected ?array $publicExact = null;
 
+
     public function __construct(Grav $container, Config $config)
     {
         parent::__construct($container);
         $this->config = $config;
+    }
+
+    /**
+     * Open a Grav debugger timer for an API phase, so it lands in the Clockwork
+     * timeline next to Grav's own boot processors — giving the admin-next debug
+     * panel an auth-vs-controller split that Grav's processor-level timeline
+     * can't see on its own (admin2#65). Gated on the debugger being enabled, so
+     * it adds nothing in production; Grav's own Server-Timing header already
+     * carries the boot phases when the debugger is on.
+     */
+    protected function startPhase(string $name, string $desc): void
+    {
+        $debugger = $this->container['debugger'] ?? null;
+        if ($debugger && $debugger->enabled()) {
+            $debugger->startTimer('api_' . $name, $desc);
+        }
+    }
+
+    /** Close the phase timer opened by startPhase(). */
+    protected function stopPhase(string $name): void
+    {
+        $debugger = $this->container['debugger'] ?? null;
+        if ($debugger && $debugger->enabled()) {
+            $debugger->stopTimer('api_' . $name);
+        }
+    }
+
+    /**
+     * Commit and release the session lock for read-only requests so the SPA's
+     * parallel GETs (all sharing one session cookie) don't serialize on PHP's
+     * exclusive per-session file lock. Only GET/HEAD — mutations may still queue
+     * flash messages or rotate the session — and skippable via config.
+     */
+    protected function closeSessionEarly(string $method): void
+    {
+        if ($method !== 'GET' && $method !== 'HEAD') {
+            return;
+        }
+        if (!$this->config->get('plugins.api.session_early_close', true)) {
+            return;
+        }
+        $session = $this->container['session'] ?? null;
+        if ($session && $session->isStarted()) {
+            $session->close();
+        }
     }
 
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
@@ -150,6 +196,7 @@ class ApiRouter extends ProcessorBase
                 }
             }
 
+            $this->startPhase('auth', 'API: Authentication');
             if (!$isPublic) {
                 $request = (new AuthMiddleware($this->container, $this->config))->processRequest($request);
             } else {
@@ -158,6 +205,7 @@ class ApiRouter extends ProcessorBase
                 // responses); anonymous callers continue as guests.
                 $request = (new AuthMiddleware($this->container, $this->config))->processOptional($request);
             }
+            $this->stopPhase('auth');
 
             // Register admin proxy so Grav core treats API requests as
             // admin-scoped (page visibility, Flex auth scope, events, etc.)
@@ -165,6 +213,16 @@ class ApiRouter extends ProcessorBase
             if ($user && !isset($this->container['admin'])) {
                 (new AdminProxy($this->container, $user))->register();
             }
+
+            // Release the PHP session lock for read-only requests. Grav core
+            // starts and EXCLUSIVELY locks the session during boot on every
+            // request; the admin SPA fires many GETs that all carry the same
+            // session cookie, so without this they serialize on that single
+            // lock. GET/HEAD never write session state (flash messages are only
+            // queued on mutations), and the user is already resolved above, so
+            // committing the session now lets those parallel reads run
+            // concurrently instead of queuing (admin2#65).
+            $this->closeSessionEarly($request->getMethod());
 
             // Rate limit (after auth so we can rate limit per-user)
             $rateLimitResult = (new RateLimitMiddleware($this->config))->check($request);
@@ -211,6 +269,7 @@ class ApiRouter extends ProcessorBase
 
     protected function dispatch(ServerRequestInterface $request): ResponseInterface
     {
+        $this->startPhase('route', 'API: Routing');
         $dispatcher = $this->createDispatcher();
 
         $base = $this->config->get('plugins.api.route', '/api');
@@ -249,6 +308,7 @@ class ApiRouter extends ProcessorBase
 
         $method = $request->getMethod();
         $routeInfo = $dispatcher->dispatch($method, $routePath);
+        $this->stopPhase('route');
 
         return match ($routeInfo[0]) {
             Dispatcher::NOT_FOUND => ErrorResponse::create(404, 'Not Found', "No route matches '{$method} {$routePath}'."),
@@ -279,7 +339,11 @@ class ApiRouter extends ProcessorBase
 
         $request = $request->withAttribute('route_params', $vars);
 
-        return $controller->$method($request);
+        $this->startPhase('controller', 'API: Controller');
+        $response = $controller->$method($request);
+        $this->stopPhase('controller');
+
+        return $response;
     }
 
     protected function createDispatcher(): Dispatcher
@@ -356,6 +420,7 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('POST', '/media', [MediaController::class, 'uploadSiteMedia']);
         $r->addRoute('POST', '/media/folders', [MediaController::class, 'createFolder']);
         $r->addRoute('POST', '/media/rename', [MediaController::class, 'renameFile']);
+        $r->addRoute('POST', '/media/order', [MediaController::class, 'setSiteMediaOrder']);
         $r->addRoute('POST', '/media/folders/rename', [MediaController::class, 'renameFolder']);
         $r->addRoute('DELETE', '/media/folders/{path:.+}', [MediaController::class, 'deleteFolder']);
         $r->addRoute('DELETE', '/media/{filename:.+}', [MediaController::class, 'deleteSiteMedia']);
@@ -464,6 +529,10 @@ $r->addRoute('GET', '/gpm/themes/{slug}/field/{type}', [GpmController::class, 'c
         // System Info & Reports
         $r->addRoute('GET', '/systeminfo', [SchedulerController::class, 'systemInfo']);
         $r->addRoute('GET', '/reports', [ReportsController::class, 'index']);
+        $r->addRoute('POST', '/reports/twig-content/allowlist', [ReportsController::class, 'allowlistAdd']);
+        $r->addRoute('DELETE', '/reports/twig-content/events', [ReportsController::class, 'clearTwigEvents']);
+        $r->addRoute('GET', '/reports/twig-content/page', [ReportsController::class, 'twigContentPageStatus']);
+        $r->addRoute('GET', '/reports/twig-content/scan', [ReportsController::class, 'twigContentScan']);
 
         // Webhooks
         $r->addRoute('GET', '/webhooks', [WebhookController::class, 'index']);

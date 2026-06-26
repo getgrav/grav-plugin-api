@@ -613,9 +613,16 @@ class PagesController extends AbstractApiController
             $templateChanged = false;
             $oldFilePath = null;
             if (array_key_exists('template', $body) && $body['template'] !== $page->template()) {
-                $oldFilePath = $page->path() . '/' . $page->template() . ($page->language() ? '.' . $page->language() : '') . '.md';
+                // The page FILENAME is the template basename only. For modular
+                // modules Grav's template() returns a `modular/<name>` form, so
+                // feeding that straight into name()/the old path would write
+                // `…/modular/<name>.md` — a phantom "modular" child folder, and
+                // leave the original module untouched (admin2#69). buildPageFilename()
+                // strips the prefix (basename) and handles the language extension.
+                $lang = $page->language() ?: null;
+                $oldFilePath = $page->path() . '/' . $this->buildPageFilename($page->template(), $lang);
                 $page->template($body['template']);
-                $page->name($body['template'] . ($page->language() ? '.' . $page->language() : '') . '.md');
+                $page->name($this->buildPageFilename($body['template'], $lang));
                 $templateChanged = true;
             }
 

@@ -26,6 +26,19 @@ class JwtAuthenticator implements AuthenticatorInterface
         '/thumbnails',   // e.g. /thumbnails/{file}
     ];
 
+    /**
+     * HMAC algorithms the signing/verification path supports. The signing key
+     * is a single shared secret (see {@see getSecret()}), so only the symmetric
+     * HS variants apply; the RS and ES families would need a key pair this
+     * plugin never provisions. Any other value (most notably the unsigned
+     * `none` algorithm)
+     * is rejected by {@see resolveAlgorithm()} and falls back to the default.
+     */
+    protected const ALLOWED_ALGORITHMS = ['HS256', 'HS384', 'HS512'];
+
+    /** Algorithm used when none is configured, or the configured one is unsupported. */
+    protected const DEFAULT_ALGORITHM = 'HS256';
+
     /** @var string|null in-process cache for the JWT signing secret */
     protected ?string $secret = null;
 
@@ -50,7 +63,7 @@ class JwtAuthenticator implements AuthenticatorInterface
     public function generateAccessToken(UserInterface $user): string
     {
         $secret = $this->getSecret();
-        $algorithm = $this->config->get('plugins.api.auth.jwt_algorithm', 'HS256');
+        $algorithm = $this->resolveAlgorithm();
         $expiry = (int) $this->config->get('plugins.api.auth.jwt_expiry', 3600);
 
         $payload = [
@@ -75,7 +88,7 @@ class JwtAuthenticator implements AuthenticatorInterface
     public function generateRefreshToken(UserInterface $user): string
     {
         $secret = $this->getSecret();
-        $algorithm = $this->config->get('plugins.api.auth.jwt_algorithm', 'HS256');
+        $algorithm = $this->resolveAlgorithm();
         $expiry = (int) $this->config->get('plugins.api.auth.jwt_refresh_expiry', 604800);
 
         $payload = [
@@ -98,7 +111,7 @@ class JwtAuthenticator implements AuthenticatorInterface
     public function generateChallengeToken(UserInterface $user, string $purpose, int $ttl = 300): string
     {
         $secret = $this->getSecret();
-        $algorithm = $this->config->get('plugins.api.auth.jwt_algorithm', 'HS256');
+        $algorithm = $this->resolveAlgorithm();
 
         $payload = [
             'iss' => 'grav-api',
@@ -121,7 +134,7 @@ class JwtAuthenticator implements AuthenticatorInterface
     {
         try {
             $secret = $this->getSecret();
-            $algorithm = $this->config->get('plugins.api.auth.jwt_algorithm', 'HS256');
+            $algorithm = $this->resolveAlgorithm();
 
             $decoded = JWT::decode($token, new Key($secret, $algorithm));
 
@@ -150,7 +163,7 @@ class JwtAuthenticator implements AuthenticatorInterface
     {
         try {
             $secret = $this->getSecret();
-            $algorithm = $this->config->get('plugins.api.auth.jwt_algorithm', 'HS256');
+            $algorithm = $this->resolveAlgorithm();
 
             $decoded = JWT::decode($token, new Key($secret, $algorithm));
 
@@ -187,7 +200,7 @@ class JwtAuthenticator implements AuthenticatorInterface
     {
         try {
             $secret = $this->getSecret();
-            $algorithm = $this->config->get('plugins.api.auth.jwt_algorithm', 'HS256');
+            $algorithm = $this->resolveAlgorithm();
 
             $decoded = JWT::decode($token, new Key($secret, $algorithm));
             $jti = $decoded->jti ?? null;
@@ -277,7 +290,7 @@ class JwtAuthenticator implements AuthenticatorInterface
     {
         try {
             $secret = $this->getSecret();
-            $algorithm = $this->config->get('plugins.api.auth.jwt_algorithm', 'HS256');
+            $algorithm = $this->resolveAlgorithm();
 
             $decoded = JWT::decode($token, new Key($secret, $algorithm));
 
@@ -331,6 +344,28 @@ class JwtAuthenticator implements AuthenticatorInterface
         }
 
         return true;
+    }
+
+    /**
+     * The configured JWT signing algorithm, constrained to {@see ALLOWED_ALGORITHMS}.
+     *
+     * `auth.jwt_algorithm` is a free-form config key, so an operator (or a
+     * config-write API call) can set it to an unsupported value such as the
+     * unsigned `none` algorithm. firebase/php-jwt already fails closed on `none`
+     * (it refuses to decode rather than accepting unsigned tokens), but a bad
+     * value would still silently break all token auth for the whole site. We
+     * coerce any unrecognised value back to the HS256 default so a config typo
+     * cannot brick authentication. (GHSA-rg95-28fh-8gj4 hardening.)
+     */
+    protected function resolveAlgorithm(): string
+    {
+        $algorithm = $this->config->get('plugins.api.auth.jwt_algorithm', self::DEFAULT_ALGORITHM);
+
+        if (is_string($algorithm) && in_array($algorithm, self::ALLOWED_ALGORITHMS, true)) {
+            return $algorithm;
+        }
+
+        return self::DEFAULT_ALGORITHM;
     }
 
     /**

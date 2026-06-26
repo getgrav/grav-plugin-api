@@ -23,7 +23,9 @@ use PHPUnit\Framework\TestCase;
 #[CoversClass(JwtAuthenticator::class)]
 class JwtAuthenticatorTest extends TestCase
 {
-    private const SECRET = 'test-jwt-secret-key-at-least-32-chars-long';
+    // Long enough (>= 64 bytes) to satisfy HS512's minimum key length too, so
+    // the same fixture works for every supported HS variant.
+    private const SECRET = 'test-jwt-secret-key-long-enough-for-hs256-hs384-and-hs512-variants-1234567890';
     private const ALGORITHM = 'HS256';
 
     private string $tempDir;
@@ -503,6 +505,55 @@ class JwtAuthenticatorTest extends TestCase
         self::assertSame('alice', $result->username);
     }
 
+    #[Test]
+    public function unsupported_algorithm_falls_back_to_default(): void
+    {
+        // GHSA-rg95-28fh-8gj4 hardening: an operator (or a config-write API call)
+        // can set auth.jwt_algorithm to an unsupported value such as the unsigned
+        // `none` algorithm, which would otherwise brick all token auth. The
+        // authenticator coerces it back to HS256, so sign + verify keep working.
+        $user = TestHelper::createMockUser('rupert');
+        $authenticator = $this->buildAuthenticator(['rupert' => $user], 'none');
+
+        $token = $authenticator->generateAccessToken($user);
+
+        // The token must be a real HS256-signed JWT, not an unsigned `none` token.
+        $decoded = JWT::decode($token, new Key(self::SECRET, 'HS256'));
+        self::assertSame('rupert', $decoded->sub);
+
+        $request = TestHelper::createMockRequest(
+            headers: ['Authorization' => 'Bearer ' . $token],
+        );
+        self::assertNotNull($authenticator->authenticate($request));
+    }
+
+    #[Test]
+    public function supported_non_default_algorithm_is_honored(): void
+    {
+        // A legitimate alternate HMAC variant is still respected end to end.
+        $user = TestHelper::createMockUser('sybil');
+        $authenticator = $this->buildAuthenticator(['sybil' => $user], 'HS384');
+
+        $token = $authenticator->generateAccessToken($user);
+
+        // Signed with HS384: decoding under HS256 must fail.
+        $rejected = false;
+        try {
+            JWT::decode($token, new Key(self::SECRET, 'HS256'));
+        } catch (\Throwable) {
+            $rejected = true;
+        }
+        self::assertTrue($rejected, 'token signed with HS384 should not verify under HS256');
+
+        $decoded = JWT::decode($token, new Key(self::SECRET, 'HS384'));
+        self::assertSame('sybil', $decoded->sub);
+
+        $request = TestHelper::createMockRequest(
+            headers: ['Authorization' => 'Bearer ' . $token],
+        );
+        self::assertNotNull($authenticator->authenticate($request));
+    }
+
     private function accessToken(string $username): string
     {
         return JWT::encode([
@@ -517,7 +568,7 @@ class JwtAuthenticatorTest extends TestCase
     /**
      * Build a testable JwtAuthenticator subclass that doesn't depend on the Grav locator.
      */
-    private function buildAuthenticator(array $users): JwtAuthenticator
+    private function buildAuthenticator(array $users, string $algorithm = self::ALGORITHM): JwtAuthenticator
     {
         $accounts = TestHelper::createMockAccounts($users);
         $grav = TestHelper::createMockGrav(['accounts' => $accounts]);
@@ -525,7 +576,7 @@ class JwtAuthenticatorTest extends TestCase
         $config = TestHelper::createMockConfig([
             'plugins' => ['api' => ['auth' => [
                 'jwt_secret' => self::SECRET,
-                'jwt_algorithm' => self::ALGORITHM,
+                'jwt_algorithm' => $algorithm,
                 'jwt_expiry' => 3600,
                 'jwt_refresh_expiry' => 604800,
             ]]],

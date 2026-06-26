@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Grav\Plugin\Api\Controllers;
 
 use Grav\Common\Page\Interfaces\PageInterface;
+use Grav\Common\Yaml;
 use Grav\Framework\Psr7\Response;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
@@ -15,6 +16,14 @@ use Psr\Http\Message\ServerRequestInterface;
 class MediaController extends AbstractApiController
 {
     use HandlesMediaUploads;
+
+    /**
+     * Per-folder sidecar holding a manual ordering of site media. Mirrors the
+     * page-media `header.media_order` concept for folders that have no page to
+     * hang the order on. Lives inside the folder it orders and is excluded from
+     * media listings.
+     */
+    private const MEDIA_ORDER_FILE = 'media_order.yaml';
 
     /**
      * GET /pages/{route}/media - List all media for a page.
@@ -109,20 +118,24 @@ class MediaController extends AbstractApiController
             throw new NotFoundException('Page directory does not exist on disk.');
         }
 
-        // Verify the file exists on disk
-        $filePath = $pagePath . '/' . $filename;
-        if (!file_exists($filePath)) {
+        // Collect every physical file backing this medium: the base file, its
+        // retina `@Nx` variants, and any `.meta.yaml` siblings. A migrated
+        // image stored only as `photo@2x.jpg` (no base `photo.jpg`) is listed
+        // by Grav under the synthesized base name `photo.jpg`, which has no file
+        // on disk — so a plain `file_exists(photo.jpg)` check 404'd it (admin2#68).
+        // Sweeping the variants also stops a deleted base from leaving an orphan
+        // `@2x` behind (which would reappear as a ghost base in the listing).
+        $targets = $this->mediaFileVariants($pagePath, $filename);
+        if ($targets === []) {
             throw new NotFoundException("Media file '{$filename}' not found on this page.");
         }
 
         $this->fireEvent('onApiBeforeMediaDelete', ['page' => $page, 'filename' => $filename]);
 
-        unlink($filePath);
-
-        // Also remove any metadata file (.meta.yaml) if it exists
-        $metaPath = $filePath . '.meta.yaml';
-        if (file_exists($metaPath)) {
-            unlink($metaPath);
+        foreach ($targets as $target) {
+            if (is_file($target)) {
+                unlink($target);
+            }
         }
 
         // Build fresh media object for admin event compatibility
@@ -141,6 +154,43 @@ class MediaController extends AbstractApiController
                 'pages:update:/' . $route,
             ]),
         );
+    }
+
+    /**
+     * Absolute paths of every file backing a medium in $dir: the base file
+     * `<stem>.<ext>`, its retina variants `<stem>@<N>x.<ext>`, and the
+     * `.meta.yaml` sidecar of each. Used by deletion so retina-only images
+     * (no physical base) are still removed and no `@Nx` orphans are left
+     * behind (admin2#68). Only files that exist are returned.
+     *
+     * @return list<string>
+     */
+    private function mediaFileVariants(string $dir, string $filename): array
+    {
+        $stem = pathinfo($filename, PATHINFO_FILENAME);
+        $ext = pathinfo($filename, PATHINFO_EXTENSION);
+        // <stem>@2x.<ext>, <stem>@3x.<ext>, … (case-insensitive extension)
+        $variantRe = '/^' . preg_quote($stem, '/') . '@\d+x\.' . preg_quote($ext, '/') . '$/i';
+
+        $files = [];
+        foreach (scandir($dir) ?: [] as $entry) {
+            if ($entry === '.' || $entry === '..') {
+                continue;
+            }
+            if ($entry !== $filename && !preg_match($variantRe, $entry)) {
+                continue;
+            }
+            $path = $dir . '/' . $entry;
+            if (is_file($path)) {
+                $files[] = $path;
+            }
+            $meta = $path . '.meta.yaml';
+            if (is_file($meta)) {
+                $files[] = $meta;
+            }
+        }
+
+        return $files;
     }
 
     /**
@@ -177,6 +227,8 @@ class MediaController extends AbstractApiController
         }
 
         $result = $this->scanMediaDirectoryWithFolders($currentPath, $relativePath);
+        // Apply the folder's saved manual ordering before filtering/paginating.
+        $result['files'] = $this->applySiteMediaOrder($result['files'], $currentPath);
         $pagination = $this->getPagination($request);
 
         // Apply type filter
@@ -216,6 +268,7 @@ class MediaController extends AbstractApiController
             [
                 'path' => $relativePath,
                 'folders' => $result['folders'],
+                'ordered' => is_file($currentPath . '/' . self::MEDIA_ORDER_FILE),
             ],
         );
     }
@@ -287,6 +340,9 @@ class MediaController extends AbstractApiController
         if (file_exists($metaPath)) {
             unlink($metaPath);
         }
+
+        // Keep the folder's order sidecar coherent.
+        $this->removeFromSiteMediaOrder(dirname($filePath), basename($filePath));
 
         $parentDir = ltrim(dirname($relativePath), '.');
         return ApiResponse::noContent(
@@ -426,6 +482,14 @@ class MediaController extends AbstractApiController
             rename($fromMeta, $toMeta);
         }
 
+        // Keep order sidecars coherent across the rename/move.
+        $this->renameInSiteMediaOrder(
+            dirname($fromAbsolute),
+            basename($fromAbsolute),
+            dirname($toAbsolute),
+            basename($toAbsolute),
+        );
+
         $toDir = ltrim(dirname($to) === '.' ? '' : dirname($to), '/');
         $toFilename = basename($to);
 
@@ -489,6 +553,157 @@ class MediaController extends AbstractApiController
                 'media:list',
             ]),
         );
+    }
+
+    /**
+     * POST /media/order - Persist a manual ordering of files in a site media
+     * folder. Body: { path?: string, order: string[] }. Writes a per-folder
+     * `media_order.yaml` sidecar that `siteMedia` applies when listing.
+     */
+    public function setSiteMediaOrder(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.media.write');
+
+        $mediaPath = $this->getSiteMediaPath();
+        $body = json_decode((string) $request->getBody(), true) ?? [];
+
+        $relativePath = '';
+        if (!empty($body['path'])) {
+            $relativePath = $this->validateRelativePath($body['path'], $mediaPath);
+        }
+
+        $folderAbs = $relativePath !== '' ? $mediaPath . '/' . $relativePath : $mediaPath;
+        if (!is_dir($folderAbs)) {
+            throw new NotFoundException('Folder not found.');
+        }
+
+        if (!isset($body['order']) || !is_array($body['order'])) {
+            throw new ValidationException("An 'order' array of filenames is required.");
+        }
+
+        // Reduce to safe basenames; drop blanks and the sidecar itself.
+        $order = array_values(array_filter(
+            array_map(static fn($n) => is_string($n) ? basename($n) : '', $body['order']),
+            static fn(string $n) => $n !== '' && $n !== self::MEDIA_ORDER_FILE,
+        ));
+
+        $this->writeSiteMediaOrder($folderAbs, $order);
+
+        return ApiResponse::noContent(
+            $this->invalidationHeaders([
+                'media:update:' . ($relativePath !== '' ? $relativePath : '/'),
+                'media:list',
+            ]),
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Site media ordering (per-folder media_order.yaml sidecar)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Read the ordered filename list from a folder's order sidecar.
+     *
+     * @return string[]
+     */
+    private function readSiteMediaOrder(string $folderAbs): array
+    {
+        $file = $folderAbs . '/' . self::MEDIA_ORDER_FILE;
+        if (!is_file($file)) {
+            return [];
+        }
+
+        $data = Yaml::parse((string) file_get_contents($file)) ?: [];
+        $order = $data['media_order'] ?? [];
+
+        return is_array($order)
+            ? array_values(array_filter($order, 'is_string'))
+            : [];
+    }
+
+    /**
+     * Write (or clear) a folder's order sidecar. An empty order removes it.
+     *
+     * @param string[] $order
+     */
+    private function writeSiteMediaOrder(string $folderAbs, array $order): void
+    {
+        $file = $folderAbs . '/' . self::MEDIA_ORDER_FILE;
+
+        if ($order === []) {
+            if (is_file($file)) {
+                @unlink($file);
+            }
+            return;
+        }
+
+        file_put_contents($file, Yaml::dump(['media_order' => array_values($order)], 99, 2));
+    }
+
+    /**
+     * Order a folder's file list by its saved sidecar. Files not listed (e.g.
+     * new uploads) keep their incoming order and follow the ordered ones.
+     *
+     * @param string[] $files
+     * @return string[]
+     */
+    private function applySiteMediaOrder(array $files, string $folderAbs): array
+    {
+        $order = $this->readSiteMediaOrder($folderAbs);
+        if ($order === []) {
+            return $files;
+        }
+
+        $ordered = [];
+        foreach ($order as $name) {
+            $idx = array_search($name, $files, true);
+            if ($idx !== false) {
+                $ordered[] = $files[$idx];
+                unset($files[$idx]);
+            }
+        }
+        foreach ($files as $name) {
+            $ordered[] = $name;
+        }
+
+        return $ordered;
+    }
+
+    /**
+     * Drop a filename from a folder's order sidecar (best-effort, on delete).
+     */
+    private function removeFromSiteMediaOrder(string $folderAbs, string $filename): void
+    {
+        $order = $this->readSiteMediaOrder($folderAbs);
+        if ($order === []) {
+            return;
+        }
+
+        $next = array_values(array_filter($order, static fn(string $n) => $n !== $filename));
+        if ($next !== $order) {
+            $this->writeSiteMediaOrder($folderAbs, $next);
+        }
+    }
+
+    /**
+     * Keep order sidecars coherent across a rename/move (best-effort). Same
+     * folder: rename the entry in place. Cross folder: drop it from the source.
+     */
+    private function renameInSiteMediaOrder(string $fromFolderAbs, string $fromName, string $toFolderAbs, string $toName): void
+    {
+        if ($fromFolderAbs === $toFolderAbs) {
+            $order = $this->readSiteMediaOrder($fromFolderAbs);
+            if ($order === []) {
+                return;
+            }
+            $next = array_map(static fn(string $n) => $n === $fromName ? $toName : $n, $order);
+            if ($next !== $order) {
+                $this->writeSiteMediaOrder($fromFolderAbs, $next);
+            }
+            return;
+        }
+
+        $this->removeFromSiteMediaOrder($fromFolderAbs, $fromName);
     }
 
     // -------------------------------------------------------------------------
@@ -809,7 +1024,7 @@ class MediaController extends AbstractApiController
                         }
                         if ($child->isDir()) {
                             $childrenCount++;
-                        } elseif (!str_ends_with($child->getFilename(), '.meta.yaml')) {
+                        } elseif (!str_ends_with($child->getFilename(), '.meta.yaml') && $child->getFilename() !== self::MEDIA_ORDER_FILE) {
                             $fileCount++;
                         }
                     }
@@ -822,8 +1037,8 @@ class MediaController extends AbstractApiController
                     'file_count' => $fileCount,
                 ];
             } else {
-                // Skip metadata files
-                if (str_ends_with($name, '.meta.yaml')) {
+                // Skip metadata files and the order sidecar
+                if (str_ends_with($name, '.meta.yaml') || $name === self::MEDIA_ORDER_FILE) {
                     continue;
                 }
                 $files[] = $name;

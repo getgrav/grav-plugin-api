@@ -1,7 +1,7 @@
 name: API
 slug: api
 type: plugin
-version: 1.0.4
+version: 1.0.5
 description: RESTful API for Grav CMS. Provides headless access to pages, media, configuration, users, and system management.
 icon: plug
 author:
@@ -98,10 +98,43 @@ form:
       validate:
         type: int
 
+    auth.jwt_algorithm:
+      type: select
+      label: JWT Signing Algorithm
+      help: 'HMAC algorithm used to sign and verify API tokens. Only symmetric HS variants are supported because tokens are signed with a single shared secret. Leave on HS256 unless you have a specific reason to change it.'
+      default: HS256
+      options:
+        HS256: 'HS256'
+        HS384: 'HS384'
+        HS512: 'HS512'
+      validate:
+        type: string
+
     auth.session_enabled:
       type: toggle
       label: Session Authentication
       help: Allow existing admin sessions to access the API
+      highlight: 1
+      default: 1
+      options:
+        1: Enabled
+        0: Disabled
+      validate:
+        type: bool
+
+    auth.key_cache_ttl:
+      type: text
+      label: API Key Verification Cache
+      help: 'How long (seconds) to remember a verified API key so repeat requests skip the deliberately-slow bcrypt check. Revoking, disabling or expiring a key still takes effect immediately. Set to 0 to verify every request.'
+      default: 600
+      validate:
+        type: int
+        min: 0
+
+    session_early_close:
+      type: toggle
+      label: Release Session Lock Early
+      help: "Commit the session right after authentication on read-only (GET) requests so the new admin's parallel calls don't queue behind PHP's per-session file lock. Recommended on. Turn off only if a custom read endpoint writes to the session."
       highlight: 1
       default: 1
       options:
@@ -179,6 +212,18 @@ form:
       type: toggle
       label: Flex Accounts Backend
       help: Use Flex-Objects for user listings (faster search and pagination)
+      highlight: 1
+      default: 1
+      options:
+        1: Enabled
+        0: Disabled
+      validate:
+        type: bool
+
+    force_cache:
+      type: toggle
+      label: Keep Cache for API Requests
+      help: "Keep Grav's object cache on for API requests even when the global cache is turned off. Disabling the cache is a frontend-dev convenience (to see template changes live), but the API renders no frontend pages — so leaving this on keeps the admin fast while the frontend runs uncached. Turn off only if you need the API to honor the global cache setting."
       highlight: 1
       default: 1
       options:
