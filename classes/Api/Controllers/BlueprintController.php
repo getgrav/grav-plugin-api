@@ -177,6 +177,15 @@ class BlueprintController extends AbstractApiController
 
         $data = $this->serializeBlueprint($blueprint, $template);
 
+        // Restore the Twig checkbox in the `header.process` field when this API
+        // user is allowed to enable Twig in content. Core's
+        // Security::pageProcessOptions() resolves that option against
+        // $grav['user'] (the guest during a token-authed API request) and
+        // admin-classic permissions, so it drops Twig for API/Admin-Next users
+        // even when they could save it. We re-add it against the same authority
+        // the write guard enforces. See grav-admin-next#5.
+        $this->applyTwigProcessOption($data['fields'], $this->getUser($request));
+
         // Fire event to allow plugins to modify the serialized blueprint fields
         // (e.g., editor-pro overrides editor/markdown field types). The
         // explicit `context` discriminator lets listeners gate behavior to a
@@ -681,6 +690,84 @@ class BlueprintController extends AbstractApiController
         }
 
         $blueprint->set('form/fields/tabs/fields', $rebuilt);
+    }
+
+    /**
+     * Ensure the `header.process` field offers the Twig checkbox when this API
+     * user is permitted to enable Twig-in-content for a page.
+     *
+     * Core's Security::pageProcessOptions() builds that option list, but it
+     * gates Twig on $grav['user'] (the unauthenticated guest under token auth)
+     * holding admin-classic's `admin.super` / `admin.pages_twig`. API and
+     * Admin-Next users carry API authority instead (access.api.super, or
+     * `admin.pages_twig` resolved through the API ACL), so the option is
+     * dropped for users who can in fact save it — the page editor then shows
+     * only Markdown. We mirror the exact allow conditions PagesController's
+     * guardTwigContent enforces on write, so the toggle a user sees matches
+     * what they're allowed to persist.
+     *
+     * No-op unless the site-wide gate is on. When `editor_enabled` is on the
+     * option is already present for everyone, so this only fills the gap for
+     * the super / pages_twig case. Idempotent — never duplicates the option.
+     *
+     * @param array<int, array<string, mixed>> $fields Serialized field tree (by ref).
+     */
+    private function applyTwigProcessOption(array &$fields, UserInterface $user): void
+    {
+        $config = $this->grav['config'];
+
+        // Gate off → Twig is forbidden site-wide; leave the list as core built it.
+        if ((bool) $config->get('security.twig_content.process_enabled', false) === false) {
+            return;
+        }
+
+        // editor_enabled → core already advertised Twig to everyone.
+        if ((bool) $config->get('security.twig_content.editor_enabled', false) === true) {
+            return;
+        }
+
+        // Same authority the write guard requires to persist process.twig:true.
+        if (!$this->isSuperAdmin($user) && !$this->hasPermission($user, 'admin.pages_twig')) {
+            return;
+        }
+
+        $this->addTwigOptionToProcessField($fields);
+    }
+
+    /**
+     * Walk the serialized field tree and append the Twig checkbox option to the
+     * `header.process` field if it isn't already listed. Returns true once the
+     * field is found so the walk can stop early.
+     *
+     * @param array<int, array<string, mixed>> $fields
+     */
+    private function addTwigOptionToProcessField(array &$fields): bool
+    {
+        foreach ($fields as &$field) {
+            if (!is_array($field)) {
+                continue;
+            }
+
+            if (($field['name'] ?? null) === 'header.process') {
+                $options = is_array($field['options'] ?? null) ? $field['options'] : [];
+                foreach ($options as $opt) {
+                    if (is_array($opt) && ($opt['value'] ?? null) === 'twig') {
+                        return true; // already present — nothing to do
+                    }
+                }
+                $options[] = ['value' => 'twig', 'label' => 'Twig'];
+                $field['options'] = $options;
+                return true;
+            }
+
+            if (isset($field['fields']) && is_array($field['fields'])
+                && $this->addTwigOptionToProcessField($field['fields'])) {
+                return true;
+            }
+        }
+        unset($field);
+
+        return false;
     }
 
     /**

@@ -1,3 +1,9 @@
+# v1.0.6
+## 06/26/2026
+
+1. [](#bugfix)
+    * The new admin's page editor again shows the Twig processing toggle to super admins and users granted the Twig content permission when the "Allow editors to toggle Twig in Content" option is off, matching what they are already allowed to save ([getgrav/grav-admin-next#5](https://github.com/getgrav/grav-admin-next/issues/5)).
+
 # v1.0.5
 ## 06/25/2026
 
