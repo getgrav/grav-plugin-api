@@ -47,6 +47,17 @@ abstract class AbstractApiController
     {
         $user = $this->getUser($request);
 
+        // API-key scope cap (GHSA-x7hm). A key created with a NON-EMPTY `scopes`
+        // list is restricted to exactly those permissions, regardless of the
+        // owning account's ACL — so a scoped key minted on a super-admin account
+        // is still capped. This is enforced BEFORE the super-admin short-circuit
+        // below so super keys can't bypass it. An empty/absent scope set (the
+        // default, and all JWT/session credentials) means full access.
+        $scopes = $request->getAttribute('api_key_scopes');
+        if (is_array($scopes) && $scopes !== [] && !$this->scopesPermit($scopes, $permission)) {
+            throw new ForbiddenException("API key is not authorized for: {$permission}");
+        }
+
         // Super admin can do anything
         if ($this->isSuperAdmin($user)) {
             return;
@@ -61,6 +72,31 @@ abstract class AbstractApiController
         if (!$this->hasPermission($user, $permission)) {
             throw new ForbiddenException("Missing required permission: {$permission}");
         }
+    }
+
+    /**
+     * Whether a non-empty API-key scope list grants the requested permission.
+     *
+     * A scope grants its own permission and everything beneath it — scope
+     * `api.pages` covers `api.pages.read` — mirroring the parent-key inheritance
+     * hasPermission() applies to the account ACL. `*` is an explicit grant-all
+     * scope. Callers only invoke this when the scope list is non-empty (an empty
+     * list means an unscoped key with full access). See GHSA-x7hm.
+     *
+     * @param array<int, mixed> $scopes
+     */
+    private function scopesPermit(array $scopes, string $permission): bool
+    {
+        foreach ($scopes as $scope) {
+            if (!is_string($scope) || $scope === '') {
+                continue;
+            }
+            if ($scope === '*' || $scope === $permission || str_starts_with($permission, $scope . '.')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

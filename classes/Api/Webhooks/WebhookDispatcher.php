@@ -164,6 +164,14 @@ class WebhookDispatcher
      */
     private function httpPost(string $url, string $body, array $headers): array
     {
+        // Re-validate at dispatch time (SSRF guard, GHSA-58q8): a host that
+        // passed create/update validation could rebind to an internal address
+        // before delivery. Fail closed on anything non-public.
+        $host = (string) parse_url($url, PHP_URL_HOST);
+        if ($host === '' || !self::hostIsPublic($host)) {
+            throw new \RuntimeException('Webhook URL targets a private or reserved address.');
+        }
+
         $ch = curl_init($url);
         if ($ch === false) {
             throw new \RuntimeException('Failed to initialize cURL');
@@ -182,6 +190,11 @@ class WebhookDispatcher
             CURLOPT_TIMEOUT => 10,
             CURLOPT_CONNECTTIMEOUT => 5,
             CURLOPT_FOLLOWLOCATION => false,
+            // Restrict to HTTP(S) so a file://, gopher://, etc. URL — or a
+            // redirect to one — can't be used to reach the local filesystem or
+            // internal services (SSRF guard, GHSA-58q8).
+            CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
+            CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
         ]);
 
         $responseBody = curl_exec($ch);
@@ -197,6 +210,71 @@ class WebhookDispatcher
             'status_code' => $statusCode,
             'body' => is_string($responseBody) ? $responseBody : '',
         ];
+    }
+
+    /**
+     * Whether a hostname (or literal IP) resolves only to public, routable
+     * addresses. Rejects loopback (127.0.0.0/8, ::1), RFC1918 private ranges,
+     * link-local (169.254.0.0/16 — incl. the 169.254.169.254 cloud-metadata
+     * endpoint) and other reserved ranges. Shared by create/update validation
+     * and dispatch-time re-validation (SSRF guard, GHSA-58q8). Fails closed:
+     * an unresolvable host returns false.
+     */
+    public static function hostIsPublic(string $host): bool
+    {
+        // Strip IPv6 literal brackets, e.g. "[::1]".
+        $host = trim($host, '[]');
+        if ($host === '') {
+            return false;
+        }
+
+        // Literal IP — check directly.
+        if (filter_var($host, FILTER_VALIDATE_IP)) {
+            return self::ipIsPublic($host);
+        }
+
+        // Resolve the hostname (A + AAAA) and reject if any address — or the
+        // lookup itself — fails the public-range test.
+        $ips = [];
+
+        $a = @gethostbynamel($host);
+        if (is_array($a)) {
+            $ips = $a;
+        }
+
+        $aaaa = @dns_get_record($host, DNS_AAAA);
+        if (is_array($aaaa)) {
+            foreach ($aaaa as $record) {
+                if (!empty($record['ipv6'])) {
+                    $ips[] = $record['ipv6'];
+                }
+            }
+        }
+
+        if ($ips === []) {
+            return false;
+        }
+
+        foreach ($ips as $ip) {
+            if (!self::ipIsPublic($ip)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Whether a literal IP address sits outside every private and reserved
+     * range (loopback, RFC1918, link-local, etc.).
+     */
+    private static function ipIsPublic(string $ip): bool
+    {
+        return filter_var(
+            $ip,
+            FILTER_VALIDATE_IP,
+            FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE,
+        ) !== false;
     }
 
     /**

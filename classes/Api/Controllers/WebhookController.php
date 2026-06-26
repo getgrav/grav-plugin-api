@@ -63,10 +63,7 @@ class WebhookController extends AbstractApiController
         $body = $this->getRequestBody($request);
         $this->requireFields($body, ['url']);
 
-        $url = $body['url'];
-        if (!filter_var($url, FILTER_VALIDATE_URL)) {
-            throw new ValidationException("Invalid webhook URL: {$url}");
-        }
+        $this->validateWebhookUrl($body['url']);
 
         // Validate events if provided
         if (isset($body['events'])) {
@@ -110,8 +107,8 @@ class WebhookController extends AbstractApiController
         $id = $this->getRouteParam($request, 'id');
         $body = $this->getRequestBody($request);
 
-        if (isset($body['url']) && !filter_var($body['url'], FILTER_VALIDATE_URL)) {
-            throw new ValidationException("Invalid webhook URL: {$body['url']}");
+        if (isset($body['url'])) {
+            $this->validateWebhookUrl($body['url']);
         }
 
         if (isset($body['events'])) {
@@ -196,6 +193,33 @@ class WebhookController extends AbstractApiController
     // -------------------------------------------------------------------------
     // Private helpers
     // -------------------------------------------------------------------------
+
+    /**
+     * Validate a webhook target URL (SSRF guard, GHSA-58q8): it must be
+     * well-formed, use the http or https scheme, and must not resolve to a
+     * private, loopback, link-local or otherwise reserved address (including the
+     * 169.254.169.254 cloud-metadata endpoint). The host-resolution check is
+     * shared with — and re-run by — the dispatcher so a hostname that only
+     * rebinds to an internal address at delivery time is still blocked.
+     *
+     * @param mixed $url
+     */
+    private function validateWebhookUrl($url): void
+    {
+        if (!is_string($url) || !filter_var($url, FILTER_VALIDATE_URL)) {
+            throw new ValidationException('Invalid webhook URL: ' . (is_string($url) ? $url : '(non-string)'));
+        }
+
+        $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
+        if ($scheme !== 'http' && $scheme !== 'https') {
+            throw new ValidationException("Webhook URL must use the http or https scheme: {$url}");
+        }
+
+        $host = (string) parse_url($url, PHP_URL_HOST);
+        if ($host === '' || !WebhookDispatcher::hostIsPublic($host)) {
+            throw new ValidationException("Webhook URL must not target a private or reserved address: {$url}");
+        }
+    }
 
     private function validateEvents(array $events): void
     {
