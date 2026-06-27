@@ -26,6 +26,7 @@ use Grav\Plugin\Api\Controllers\PagesController;
 use Grav\Plugin\Api\Controllers\PreferencesController;
 use Grav\Plugin\Api\Controllers\ReportsController;
 use Grav\Plugin\Api\Controllers\MenubarController;
+use Grav\Plugin\Api\Controllers\EditorButtonsController;
 use Grav\Plugin\Api\Controllers\PasswordPolicyController;
 use Grav\Plugin\Api\Controllers\SettingsController;
 use Grav\Plugin\Api\Controllers\SetupController;
@@ -617,6 +618,9 @@ $r->addRoute('GET', '/gpm/themes/{slug}/field/{type}', [GpmController::class, 'c
         // Menubar
         $r->addRoute('GET', '/menubar/items', [MenubarController::class, 'items']);
         $r->addRoute('POST', '/menubar/actions/{plugin}/{action}', [MenubarController::class, 'executeAction']);
+
+        // Markdown editor toolbar buttons (plugins register via onApiMarkdownEditorButtons)
+        $r->addRoute('GET', '/editor/toolbar-buttons', [EditorButtonsController::class, 'items']);
 
         // Sidebar
         $r->addRoute('GET', '/sidebar/items', [SidebarController::class, 'items']);
