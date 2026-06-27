@@ -28,6 +28,7 @@ use Grav\Plugin\Api\Controllers\PasswordPolicyController;
 use Grav\Plugin\Api\Controllers\SettingsController;
 use Grav\Plugin\Api\Controllers\SetupController;
 use Grav\Plugin\Api\Controllers\SidebarController;
+use Grav\Plugin\Api\Controllers\SsoController;
 use Grav\Plugin\Api\Controllers\FloatingWidgetController;
 use Grav\Plugin\Api\Controllers\ContextPanelController;
 use Grav\Plugin\Api\Controllers\SystemController;
@@ -387,6 +388,13 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('GET',  '/auth/setup', [SetupController::class, 'status']);
         $r->addRoute('POST', '/auth/setup', [SetupController::class, 'create']);
         $r->addRoute('GET',  '/auth/password-policy', [PasswordPolicyController::class, 'show']);
+
+        // SSO / OAuth login bridge for admin-next (public — under /auth/). Static
+        // routes before the parameterized ones (FastRoute matching order).
+        $r->addRoute('GET',  '/auth/sso/providers', [SsoController::class, 'providers']);
+        $r->addRoute('POST', '/auth/sso/exchange', [SsoController::class, 'exchange']);
+        $r->addRoute('GET',  '/auth/sso/{provider}/start', [SsoController::class, 'start']);
+        $r->addRoute('GET',  '/auth/sso/{provider}/callback', [SsoController::class, 'callback']);
 
         // Current user profile + resolved permissions (protected — auth required)
         $r->addRoute('GET', '/me', [AuthController::class, 'me']);

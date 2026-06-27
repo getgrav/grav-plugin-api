@@ -22,9 +22,6 @@ class AuthController extends AbstractApiController
 {
     use ResolvesAdminBaseUrl;
 
-    private const CHALLENGE_2FA = '2fa_challenge';
-    private const CHALLENGE_TTL = 300;
-
     public function token(ServerRequestInterface $request): ResponseInterface
     {
         $body = $this->getRequestBody($request);
@@ -88,47 +85,18 @@ class AuthController extends AbstractApiController
             }
         }
 
-        // Gate API access AFTER the event chain has run, so any onUserLogin
-        // handlers (LDAP group→access mapping, etc.) have had a chance to
-        // populate the user's access matrix. Mirrors admin-classic's
-        // `admin.login` gate but additionally accepts `api.access` for users
-        // who are API-only and shouldn't be granted full admin entry.
-        if (
-            !$this->isSuperAdmin($user)
-            && !$user->authorize('admin.login')
-            && !$this->hasPermission($user, 'api.access')
-        ) {
-            $this->fireEvent('onApiUserLoginFailure', [
-                'username' => $username,
-                'reason' => 'no_api_access',
-                'ip' => $this->getRequestIp($request),
-            ]);
-            throw new ForbiddenException('API access is not enabled for this user.');
-        }
+        // Gate API access + account state, then mint a 2FA challenge or token
+        // pair. Shared with the SSO/OAuth login bridge — see
+        // AbstractApiController::finalizeAuthenticatedUser(). Runs AFTER the
+        // event chain so any onUserLogin handlers (LDAP group→access mapping,
+        // etc.) have populated the access matrix.
+        $result = $this->finalizeAuthenticatedUser($user, $request);
 
-        if ($user->get('state', 'enabled') === 'disabled') {
-            $this->fireEvent('onApiUserLoginFailure', [
-                'username' => $username,
-                'reason' => 'disabled',
-                'ip' => $this->getRequestIp($request),
-            ]);
-            throw new ForbiddenException('This user account is disabled.');
-        }
-
-        $jwt = new JwtAuthenticator($this->grav, $this->config);
-
-        if ($this->userRequiresTwoFactor($user)) {
-            // Password was valid — issue a challenge token. Do NOT reset the
-            // rate limiter yet: the login only counts as successful after the
-            // 2FA code verifies in /auth/2fa/verify.
-            $challengeToken = $jwt->generateChallengeToken($user, self::CHALLENGE_2FA, self::CHALLENGE_TTL);
-
-            return ApiResponse::create([
-                'requires_2fa' => true,
-                'challenge_token' => $challengeToken,
-                'expires_in' => self::CHALLENGE_TTL,
-                'token_type' => 'Challenge',
-            ]);
+        if (($result['requires_2fa'] ?? false) === true) {
+            // Password was valid — challenge issued. Do NOT reset the rate
+            // limiter yet: the login only counts as successful after the 2FA
+            // code verifies in /auth/2fa/verify.
+            return ApiResponse::create($result);
         }
 
         $this->resetLoginRateLimit($username);
@@ -140,7 +108,7 @@ class AuthController extends AbstractApiController
             'request' => $request,
         ]);
 
-        return $this->issueTokenPair($jwt, $user);
+        return ApiResponse::create($result);
     }
 
     public function verify2fa(ServerRequestInterface $request): ResponseInterface
@@ -482,24 +450,6 @@ class AuthController extends AbstractApiController
         return null;
     }
 
-    private function userRequiresTwoFactor(UserInterface $user): bool
-    {
-        // 2FA support is provided by the Login plugin's TwoFactorAuth helper.
-        if (!class_exists(TwoFactorAuth::class)) {
-            return false;
-        }
-
-        // Always honor a per-user configured secret. An account that explicitly
-        // enabled 2FA must never be silently downgraded to single-factor —
-        // including accounts migrated from Grav 1.7, where the master switch
-        // was the admin plugin's `plugins.admin.twofa_enabled` (default true),
-        // not the login plugin's `plugins.login.twofa_enabled` (default false)
-        // this gate previously keyed off (getgrav/grav#4145). The global flags
-        // govern whether enrollment is offered, not whether an existing secret
-        // is enforced at login.
-        return (bool) $user->get('twofa_enabled') && (bool) $user->get('twofa_secret');
-    }
-
     /**
      * Call the login plugin's checkLoginRateLimit() which both registers and
      * checks attempts against max_login_count / max_login_interval using the
@@ -532,11 +482,5 @@ class AuthController extends AbstractApiController
         /** @var Login $login */
         $login = $this->grav['login'];
         $login->resetLoginRateLimit($username);
-    }
-
-    private function getRequestIp(ServerRequestInterface $request): string
-    {
-        $server = $request->getServerParams();
-        return (string) ($server['REMOTE_ADDR'] ?? '');
     }
 }
