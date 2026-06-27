@@ -10,6 +10,8 @@ use Grav\Common\Config\Config;
 use Grav\Common\Grav;
 use Grav\Common\Processors\ProcessorBase;
 use Grav\Framework\Psr7\Response;
+use Grav\Plugin\Api\Audit\AuditContext;
+use Grav\Plugin\Api\Controllers\AuditController;
 use Grav\Plugin\Api\Controllers\AuthController;
 use Grav\Plugin\Api\Controllers\BlueprintController;
 use Grav\Plugin\Api\Controllers\BlueprintFilesController;
@@ -214,6 +216,13 @@ class ApiRouter extends ProcessorBase
             if ($user && !isset($this->container['admin'])) {
                 (new AdminProxy($this->container, $user))->register();
             }
+
+            // Capture request-level forensic context (actor, IP, user-agent) for
+            // the audit trail. The semantic onApi* events fired downstream carry
+            // only the affected object; this fills in the who/where. Runs whether
+            // or not auditing is enabled; it's a few array writes, so the
+            // context is ready the moment a controller fires an audited event.
+            AuditContext::capture($request, $user);
 
             // Release the PHP session lock for read-only requests. Grav core
             // starts and EXCLUSIVELY locks the session during boot on every
@@ -552,6 +561,12 @@ $r->addRoute('GET', '/gpm/themes/{slug}/field/{type}', [GpmController::class, 'c
         $r->addRoute('DELETE', '/reports/twig-content/events', [ReportsController::class, 'clearTwigEvents']);
         $r->addRoute('GET', '/reports/twig-content/page', [ReportsController::class, 'twigContentPageStatus']);
         $r->addRoute('GET', '/reports/twig-content/scan', [ReportsController::class, 'twigContentScan']);
+
+        // Audit trail (super-admin only; off by default)
+        $r->addRoute('GET', '/audit/status', [AuditController::class, 'status']);
+        $r->addRoute('GET', '/audit/events', [AuditController::class, 'events']);
+        $r->addRoute('GET', '/audit/facets', [AuditController::class, 'facets']);
+        $r->addRoute('GET', '/audit/export', [AuditController::class, 'export']);
 
         // Webhooks
         $r->addRoute('GET', '/webhooks', [WebhookController::class, 'index']);

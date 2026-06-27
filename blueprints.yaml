@@ -298,3 +298,124 @@ form:
       label: Excluded IP Addresses
       help: "Visitor IPs or CIDR ranges to exclude from tracking, e.g. 203.0.113.7 or 203.0.113.0/24. IPv4 and IPv6 are both supported."
       value_only: true
+
+    section_audit:
+      type: section
+      title: Audit Trail
+      underline: true
+
+    audit.enabled:
+      type: toggle
+      label: Enable Audit Trail
+      help: Record API activity (logins, content, user, config, and package changes) to a queryable log shown under Tools. Visible to super admins only. Off by default.
+      highlight: 0
+      default: 0
+      options:
+        1: Enabled
+        0: Disabled
+      validate:
+        type: bool
+
+    audit.coverage:
+      type: select
+      label: Detail Level
+      help: "Standard records who did what, when, and from where. Detailed additionally captures field-level before/after values for page edits (more storage)."
+      default: standard
+      options:
+        standard: 'Standard (activity stream)'
+        detailed: 'Detailed (with change diffs)'
+
+    audit.retention_days:
+      type: text
+      label: Retention (days)
+      help: Automatically delete entries older than this many days. Set 0 to keep entries indefinitely.
+      default: 90
+      validate:
+        type: int
+        min: 0
+
+    audit.retention_max_rows:
+      type: text
+      label: Maximum Entries
+      help: Hard cap on stored entries; the oldest are trimmed once exceeded. Set 0 for no cap.
+      default: 100000
+      validate:
+        type: int
+        min: 0
+
+    audit.anonymize_ip:
+      type: toggle
+      label: Anonymize IP Addresses
+      help: Mask the last part of each IP before storing (last octet for IPv4, last 80 bits for IPv6), for GDPR-friendlier logs. Off keeps full addresses for forensic detail.
+      default: 0
+      options:
+        1: Enabled
+        0: Disabled
+      validate:
+        type: bool
+
+    audit.capture.auth:
+      type: toggle
+      label: Capture Authentication
+      help: Logins, failed logins, logouts, and password resets
+      default: 1
+      options:
+        1: Enabled
+        0: Disabled
+      validate:
+        type: bool
+
+    audit.capture.content:
+      type: toggle
+      label: Capture Content Changes
+      help: Page create, update, delete, move, and translate
+      default: 1
+      options:
+        1: Enabled
+        0: Disabled
+      validate:
+        type: bool
+
+    audit.capture.media:
+      type: toggle
+      label: Capture Media Changes
+      help: Media uploads and deletions
+      default: 1
+      options:
+        1: Enabled
+        0: Disabled
+      validate:
+        type: bool
+
+    audit.capture.users:
+      type: toggle
+      label: Capture User & Group Changes
+      help: User and group create, update, and delete
+      default: 1
+      options:
+        1: Enabled
+        0: Disabled
+      validate:
+        type: bool
+
+    audit.capture.config:
+      type: toggle
+      label: Capture Configuration Changes
+      help: System and plugin configuration updates
+      default: 1
+      options:
+        1: Enabled
+        0: Disabled
+      validate:
+        type: bool
+
+    audit.capture.packages:
+      type: toggle
+      label: Capture Package Changes
+      help: Plugin and theme install, update, remove, and Grav upgrades
+      default: 1
+      options:
+        1: Enabled
+        0: Disabled
+      validate:
+        type: bool

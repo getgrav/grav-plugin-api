@@ -2,6 +2,7 @@
 ## 06/27/2026
 
 1. [](#new)
+    * The API can now keep an optional audit trail of admin activity such as logins, content edits, user changes, and configuration changes, available to super admins and turned off by default.
     * The new admin can now sign in through an OAuth provider such as GitHub or Google when the Login OAuth2 plugin is configured for it ([getgrav/grav-plugin-login-oauth2#52](https://github.com/trilbymedia/grav-plugin-login-oauth2/issues/52)).
 1. [](#bugfix)
     * The new admin's page editor again shows the Twig processing toggle to super admins and users granted the Twig content permission when the "Allow editors to toggle Twig in Content" option is off, matching what they are already allowed to save ([getgrav/grav-admin-next#5](https://github.com/getgrav/grav-admin-next/issues/5)).

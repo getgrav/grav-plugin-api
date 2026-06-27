@@ -11,6 +11,8 @@ use Grav\Common\Utils;
 use Grav\Events\PermissionsRegisterEvent;
 use Grav\Framework\Acl\PermissionsReader;
 use Grav\Plugin\Api\ApiRouter;
+use Grav\Plugin\Api\Audit\AuditStore;
+use Grav\Plugin\Api\Audit\AuditSubscriber;
 use Grav\Plugin\Api\Auth\ApiKeyManager;
 use Grav\Plugin\Api\Popularity\PopularityTracker;
 use Grav\Plugin\Api\Webhooks\WebhookDispatcher;
@@ -81,6 +83,11 @@ class ApiPlugin extends Plugin
         // Register webhook event listeners (always active, not just on API routes)
         $this->registerWebhookListeners();
 
+        // Register audit-trail listeners (always active; each listener checks the
+        // audit.enabled flag at fire time, so this is a no-op when the feature is
+        // off (it is off by default)..
+        $this->registerAuditListeners();
+
         // Page-view tracking subscribes for FRONTEND requests only — the
         // handler itself short-circuits for admin/API/non-page requests.
         if (!$this->active && !$this->isAdmin()) {
@@ -109,6 +116,9 @@ class ApiPlugin extends Plugin
             // by AuthController) can find emails/api/*.html.twig.
             $this->enable([
                 'onTwigTemplatePaths' => ['onTwigTemplatePaths', 0],
+                // Disable the audit toggle in the plugin's own config form when
+                // the SQLite backend the trail depends on isn't available.
+                'onApiBlueprintResolved' => ['onApiBlueprintResolved', 0],
             ]);
             return;
         }
@@ -296,6 +306,76 @@ class ApiPlugin extends Plugin
                     $webhookDispatcher = new WebhookDispatcher();
                 }
                 $webhookDispatcher->dispatch($eventName, $event->toArray());
+            }, $priority);
+        }
+    }
+
+    /**
+     * When the API plugin's own config form is resolved for admin-next, disable
+     * the "Enable Audit Trail" toggle and surface a warning if SQLite (the audit
+     * store's backend) is not available, so it cannot be switched on with no way
+     * to persist the data. Backend writes already fail closed without SQLite;
+     * this just makes the constraint visible in the UI.
+     */
+    public function onApiBlueprintResolved(Event $event): void
+    {
+        if (($event['plugin'] ?? null) !== 'api' || AuditStore::available()) {
+            return;
+        }
+
+        $event['fields'] = $this->annotateAuditUnavailable((array) ($event['fields'] ?? []));
+    }
+
+    /**
+     * Recursively walk the serialized field tree and, on the `audit.enabled`
+     * node, set `disabled` and prepend a SQLite-required warning to its help.
+     *
+     * @param array<int,array<string,mixed>> $fields
+     * @return array<int,array<string,mixed>>
+     */
+    protected function annotateAuditUnavailable(array $fields): array
+    {
+        $warning = 'SQLite (the pdo_sqlite PHP extension) is required to store audit data and is not available on this server. Install it to enable the audit trail. ';
+
+        foreach ($fields as &$field) {
+            if (!is_array($field)) {
+                continue;
+            }
+            if (($field['name'] ?? null) === 'audit.enabled') {
+                $field['disabled'] = true;
+                $field['help'] = $warning . (string) ($field['help'] ?? '');
+            }
+            if (isset($field['fields']) && is_array($field['fields'])) {
+                $field['fields'] = $this->annotateAuditUnavailable($field['fields']);
+            }
+        }
+        unset($field);
+
+        return $fields;
+    }
+
+    /**
+     * Register audit-trail event listeners. Mirrors the webhook listener wiring:
+     * one closure per event that forwards the event name + payload to the
+     * AuditSubscriber. The subscriber itself is lazily created on first fire and
+     * short-circuits when the feature is disabled or SQLite is unavailable.
+     */
+    protected function registerAuditListeners(): void
+    {
+        if (!AuditStore::available()) {
+            return;
+        }
+
+        /** @var \Symfony\Component\EventDispatcher\EventDispatcher $eventDispatcher */
+        $eventDispatcher = $this->grav['events'];
+        $subscriber = null;
+
+        foreach (AuditSubscriber::getSubscribedEvents() as $eventName => [$method, $priority]) {
+            $eventDispatcher->addListener($eventName, function (Event $event) use ($eventName, $method, &$subscriber) {
+                if ($subscriber === null) {
+                    $subscriber = new AuditSubscriber();
+                }
+                $subscriber->{$method}($eventName, $event);
             }, $priority);
         }
     }
