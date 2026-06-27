@@ -298,14 +298,27 @@ class PageSerializer implements SerializerInterface
 
     /**
      * Format a Unix timestamp as ISO 8601.
+     *
+     * Accepts mixed input because Page::modified()/date() return whatever was
+     * set in frontmatter: normally an int (filemtime), but a legacy string
+     * `modified:` value such as '2022-01-21 20:51:36' passes through verbatim.
+     * Numeric strings are treated as Unix timestamps; other strings are parsed.
      */
-    private function formatTimestamp(int|null $timestamp): ?string
+    private function formatTimestamp(mixed $timestamp): ?string
     {
-        if ($timestamp === null || $timestamp === 0) {
+        if ($timestamp === null || $timestamp === 0 || $timestamp === '') {
             return null;
         }
 
-        return (new DateTimeImmutable('@' . $timestamp))
+        if (is_string($timestamp) && !is_numeric($timestamp)) {
+            $parsed = strtotime($timestamp);
+            if ($parsed === false) {
+                return null;
+            }
+            $timestamp = $parsed;
+        }
+
+        return (new DateTimeImmutable('@' . (int) $timestamp))
             ->setTimezone(new DateTimeZone('UTC'))
             ->format(DateTimeImmutable::ATOM);
     }

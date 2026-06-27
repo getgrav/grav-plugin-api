@@ -241,6 +241,17 @@ class ApiRouter extends ProcessorBase
             $response = (new CorsMiddleware($this->config))->addHeaders($request, $response);
 
         } catch (ApiException $e) {
+            // Client-facing 4xx errors (validation, auth, not-found). These were
+            // previously returned with no log line at all, which made genuine
+            // misconfigurations — e.g. an upload destination that resolves to
+            // nothing ("Stream not resolvable") — impossible to diagnose from the
+            // server side. Log at debug so routine 401/404s don't flood production
+            // logs while the detail stays recoverable on demand.
+            $this->container['log']->debug('API client error: ' . $e->getMessage(), [
+                'status' => $e->getStatusCode(),
+                'method' => $request->getMethod(),
+                'path' => $request->getUri()->getPath(),
+            ]);
             $response = ErrorResponse::fromException($e);
             if (isset($rateLimitResult)) {
                 $response = $this->addRateLimitHeaders($response, $rateLimitResult);
