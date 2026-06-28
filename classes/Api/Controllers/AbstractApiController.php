@@ -234,9 +234,20 @@ abstract class AbstractApiController
      * nested under `errors`, page fields under `header`); it is flattened to the
      * blueprint's leaf fields here.
      *
+     * Some clients (notably admin-next's config form) post the WHOLE form rather
+     * than just the edited fields. To keep the "validate only what changed"
+     * guarantee in that case, pass the persisted `$existing` baseline: any leaf
+     * whose submitted value equals the baseline is skipped. Without this, a
+     * single pre-existing invalid value — common after a 1.x→2.0 migration —
+     * would fail validation on every save and block edits to unrelated fields,
+     * even though the user never touched it (getgrav/grav#4176). When `$existing`
+     * is empty (other callers that already send a true delta) every submitted
+     * leaf is validated, exactly as before.
+     *
      * @param array $changes  Incoming values (possibly nested), as sent by the client.
+     * @param array $existing Persisted baseline to diff against; [] validates all of $changes.
      */
-    protected function validateChangedFields(array $changes, ?Blueprint $blueprint): void
+    protected function validateChangedFields(array $changes, ?Blueprint $blueprint, array $existing = []): void
     {
         if ($blueprint === null || $changes === []) {
             return;
@@ -245,7 +256,20 @@ abstract class AbstractApiController
         $schema = $blueprint->schema();
         $errors = [];
 
+        // Baseline leaves, keyed the same way as the flattened changes, so a
+        // field the client echoed back untouched can be recognised and skipped.
+        $existingLeaves = $existing === [] ? [] : $blueprint->flattenData($existing);
+
         foreach ($blueprint->flattenData($changes) as $name => $value) {
+            // Skip leaves that match what's already persisted: the client sent
+            // them but the user did not change them, so re-validating stored
+            // (possibly migration-era) data would be wrong. Loose `==` treats a
+            // reordered list as changed but an int/bool round-trip as unchanged,
+            // which matches Grav's own runtime leniency.
+            if (array_key_exists($name, $existingLeaves) && $value == $existingLeaves[$name]) {
+                continue;
+            }
+
             $field = $schema->getProperty($name);
             if (!is_array($field) || !isset($field['type'])) {
                 // Not a blueprint-defined field (extra/legacy key) — nothing to validate.

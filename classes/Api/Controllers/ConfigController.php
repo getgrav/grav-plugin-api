@@ -264,10 +264,12 @@ class ConfigController extends AbstractApiController
 
         // Validate the submitted fields against the blueprint before persisting
         // (getgrav/grav-plugin-admin2#30). A `validate.required` field sent
-        // empty now returns 422 instead of silently saving. We validate the
-        // delta, not the merged whole — see validateChangedFields() for why
-        // (stock Grav config doesn't pass a whole-object validate).
-        $this->validateChangedFields($body, $blueprint);
+        // empty now returns 422 instead of silently saving. The admin-next form
+        // posts the whole config, not just edited fields, so pass $existing as
+        // the baseline: only leaves that actually changed are validated. This
+        // stops one pre-existing invalid value (e.g. a migrated system.yaml
+        // setting) from blocking every save of the scope (getgrav/grav#4176).
+        $this->validateChangedFields($body, $blueprint, is_array($existing) ? $existing : []);
 
         $obj = new Data($merged, $blueprint);
         $obj->filter(true, true);

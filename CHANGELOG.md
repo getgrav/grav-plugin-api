@@ -10,6 +10,7 @@
     * Saving a page whose frontmatter has a text `modified` date no longer fails with an error in the new admin ([getgrav/grav#4170](https://github.com/getgrav/grav/issues/4170)).
     * Signing in to the new admin no longer resets the session of a visitor who is logged in to the public site in the same browser, so front-end logins are no longer dropped while you work in the admin ([getgrav/grav-plugin-admin2#79](https://github.com/getgrav/grav-plugin-admin2/issues/79)).
     * Renaming a media file now keeps its original extension and cleans spaces and other unsafe characters out of the new name, so the renamed file still works in Markdown image links ([getgrav/grav-plugin-admin2#77](https://github.com/getgrav/grav-plugin-admin2/issues/77)).
+    * Saving system configuration in the new admin no longer fails when an unrelated, pre-existing setting is invalid, such as a value carried over from a migrated site, because only the fields you actually changed are now validated ([getgrav/grav#4176](https://github.com/getgrav/grav/issues/4176)).
 
 # v1.0.5
 ## 06/25/2026
