@@ -90,23 +90,26 @@ trait TranslatesAdminLabels
     /**
      * Build the translation fallback chain for a requested admin language.
      *
-     * The requested language comes first and English is the universal tail
-     * fallback. Each entry is then expanded to include any region-suffixed
-     * variant that ships on disk: admin2 stores its dictionary under e.g.
-     * `en-US.yaml` (not `en.yaml`), and Grav indexes plugin language files by
-     * the filename's locale code. Without this expansion a user whose
-     * preference is the bare 2-char `en` never reaches admin2's `en-US` strings
-     * and every blueprint label/help falls through to the humaniser
-     * (getgrav/grav-admin-next#1). Expanding `en` → `['en', 'en-US']` (and
-     * likewise `de` → `['de', 'de-DE']`) lets the shipped region file serve the
-     * bare code, so no duplicate `en.yaml` is needed.
+     * The requested language comes first, then its primary subtag, then
+     * English as the universal tail fallback. Each primary subtag is also
+     * expanded to include any region-suffixed variant that ships on disk:
+     * admin2 stores its dictionary under e.g. `en-US.yaml` (not `en.yaml`),
+     * while legacy / dual-target plugins usually ship `en.yaml`, `ru.yaml`,
+     * etc. Grav indexes plugin language files by the filename's locale code,
+     * so the chain must bridge both directions:
+     *
+     *   - `en` reaches `en-US` for admin2-owned strings.
+     *   - `ru-RU` reaches `ru` for plugin-owned strings.
+     *
+     * That lets plugin authors keep normal short-code language files unless
+     * they intentionally need region-specific translations.
      *
      * @return array<int, string>
      */
     private function expandLanguageChain(string $lang): array
     {
         $chain = [];
-        foreach ([$lang, 'en'] as $code) {
+        foreach ([$lang, $this->primarySubtag($lang), 'en'] as $code) {
             foreach (array_merge([$code], $this->regionVariantsFor($code)) as $candidate) {
                 if (!in_array($candidate, $chain, true)) {
                     $chain[] = $candidate;
@@ -131,6 +134,13 @@ trait TranslatesAdminLabels
         }
 
         return $this->buildRegionVariantIndex()[$code] ?? [];
+    }
+
+    private function primarySubtag(string $code): string
+    {
+        $dash = strpos($code, '-');
+
+        return $dash === false ? $code : substr($code, 0, $dash);
     }
 
     /**
