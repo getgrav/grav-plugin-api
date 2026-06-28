@@ -51,11 +51,44 @@ class AuthController extends AbstractApiController
         if (class_exists(Login::class) && isset($this->grav['login'])) {
             /** @var Login $login */
             $login = $this->grav['login'];
-            $event = $login->login(
-                ['username' => $username, 'password' => $password],
-                ['admin' => true, 'twofa' => false],
-                ['authorize' => [], 'return_event' => true]
-            );
+
+            // The Login plugin's onUserLogin handler writes the authenticated
+            // user into the Grav session and regenerates the session id (its
+            // session-fixation guard). API requests run under the *front-end*
+            // session cookie — the `/api` route is never under the admin path,
+            // so it never gets the `-admin` session split — so without care an
+            // Admin2 password login overwrites and rotates the session of
+            // whoever is logged into the public site in the same browser. That
+            // boots front-end visitors every time the SPA (re)authenticates,
+            // regardless of their own session timeout. The API is stateless
+            // (JWT), so fire the full event chain for its side effects (LDAP
+            // group mapping, etc.) but leave the shared session exactly as we
+            // found it. getgrav/grav-plugin-admin2#79, #55.
+            $session = $this->grav['session'];
+            $sessionStarted = $session->isStarted();
+            $previousUser = $sessionStarted ? ($session->user ?? null) : null;
+
+            // onUserLogin only calls regenerateId() when this flag is true;
+            // toggling it off for the duration suppresses the id rotation.
+            $sessionInitialize = $this->config->get('system.session.initialize', true);
+            $this->config->set('system.session.initialize', false);
+
+            try {
+                $event = $login->login(
+                    ['username' => $username, 'password' => $password],
+                    ['admin' => true, 'twofa' => false],
+                    ['authorize' => [], 'return_event' => true]
+                );
+            } finally {
+                $this->config->set('system.session.initialize', $sessionInitialize);
+                // Restore the front-end visitor's user (or guest), discarding
+                // the admin user onUserLogin just planted, so the public
+                // session is untouched.
+                if ($sessionStarted) {
+                    $session->user = $previousUser;
+                }
+            }
+
             $user = $event->getUser();
 
             if (!$user || !$user->authenticated) {

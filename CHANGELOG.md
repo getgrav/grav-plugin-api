@@ -1,5 +1,5 @@
 # v1.0.6
-## 06/27/2026
+## 06/28/2026
 
 1. [](#new)
     * The API can now keep an optional audit trail of admin activity such as logins, content edits, user changes, and configuration changes, available to super admins and turned off by default.
@@ -8,6 +8,7 @@
 1. [](#bugfix)
     * The new admin's page editor again shows the Twig processing toggle to super admins and users granted the Twig content permission when the "Allow editors to toggle Twig in Content" option is off, matching what they are already allowed to save ([getgrav/grav-admin-next#5](https://github.com/getgrav/grav-admin-next/issues/5)).
     * Saving a page whose frontmatter has a text `modified` date no longer fails with an error in the new admin ([getgrav/grav#4170](https://github.com/getgrav/grav/issues/4170)).
+    * Signing in to the new admin no longer resets the session of a visitor who is logged in to the public site in the same browser, so front-end logins are no longer dropped while you work in the admin ([getgrav/grav-plugin-admin2#79](https://github.com/getgrav/grav-plugin-admin2/issues/79)).
 
 # v1.0.5
 ## 06/25/2026
