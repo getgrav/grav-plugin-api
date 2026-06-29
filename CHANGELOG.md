@@ -17,6 +17,7 @@
     * Saving system configuration in the new admin no longer fails when an unrelated, pre-existing setting is invalid, such as a value carried over from a migrated site, because only the fields you actually changed are now validated ([getgrav/grav#4176](https://github.com/getgrav/grav/issues/4176)).
     * Creating, copying, or moving a page at the site root no longer fails with a "Parent page not found" error on Windows ([getgrav/grav-plugin-admin2#82](https://github.com/getgrav/grav-plugin-admin2/issues/82)).
     * Admin labels for a region-specific admin language such as `ru-RU` now fall back to a plugin's matching short-code language file (`ru`) before English, so plugins that ship plain language files are translated correctly ([#11](https://github.com/getgrav/grav-plugin-api/pull/11), thanks @Sogl).
+    * The "Add to allowlist" button in the Twig-in-Content report now removes the block it just resolved instead of leaving the same row behind, so it is clear the action took effect ([getgrav/grav-plugin-admin2#85](https://github.com/getgrav/grav-plugin-admin2/issues/85)).
 
 # v1.0.5
 ## 06/25/2026
