@@ -1262,20 +1262,52 @@ class BlueprintController extends AbstractApiController
 
             // Handle nested fields (structural containers)
             if (isset($field['fields']) && is_array($field['fields'])) {
-                // For layout containers, don't add prefix (fields bind to their own names)
-                $layoutTypes = ['tabs', 'tab', 'section', 'fieldset', 'columns', 'column', 'page-exists', 'elements', 'element'];
-                $childPrefix = in_array($type, $layoutTypes, true) ? $prefix : $fieldPath;
+                if ($type === 'element') {
+                    // An `element` group's children bind under the parent
+                    // `elements` field's CONTAINER (its name minus the trailing
+                    // segment) plus this element's own key — exactly as classic
+                    // admin's element.html.twig builds it:
+                    //   name = parent_field(elementsName) ~ '.' ~ elementKey
+                    // e.g. element `gelato` inside `header.demo.type` binds its
+                    // leading-dot child `.flavours` at `header.demo.gelato.flavours`.
+                    // The generic layout path produced a bare `gelato.flavours`
+                    // (container + `header.` prefix dropped), which failed the
+                    // SPA's `header.`-prefixed dirty/save check so the entered
+                    // content never saved (admin2#86). Prefix stays empty so any
+                    // absolute (non-leading-dot) children keep their own names.
+                    $container = $this->fieldParent($parent);
+                    $elementBase = $container !== '' ? $container . '.' . $name : (string) $name;
+                    $serialized['fields'] = $this->serializeFields($field['fields'], '', $elementBase);
+                } else {
+                    // For layout containers, don't add prefix (fields bind to their own names)
+                    $layoutTypes = ['tabs', 'tab', 'section', 'fieldset', 'columns', 'column', 'page-exists', 'elements', 'element'];
+                    $childPrefix = in_array($type, $layoutTypes, true) ? $prefix : $fieldPath;
 
-                // Always pass this field's resolved name as the parent so any
-                // leading-dot children bind under it, even when the container is
-                // a transparent layout type that leaves $childPrefix untouched.
-                $serialized['fields'] = $this->serializeFields($field['fields'], $childPrefix, $fieldPath);
+                    // Always pass this field's resolved name as the parent so any
+                    // leading-dot children bind under it, even when the container is
+                    // a transparent layout type that leaves $childPrefix untouched.
+                    $serialized['fields'] = $this->serializeFields($field['fields'], $childPrefix, $fieldPath);
+                }
             }
 
             $result[] = $serialized;
         }
 
         return $result;
+    }
+
+    /**
+     * Return the parent path of a dotted field name — everything up to the last
+     * dot — mirroring core's `parent_field` Twig filter. Used to resolve where an
+     * `element` group's children bind: under the elements field's container
+     * rather than under the elements field's own (leaf) name.
+     */
+    protected function fieldParent(string $name): string
+    {
+        $path = explode('.', rtrim($name, '.'));
+        array_pop($path);
+
+        return implode('.', $path);
     }
 
     /**

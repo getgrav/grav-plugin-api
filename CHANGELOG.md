@@ -1,5 +1,5 @@
 # v1.0.6
-## 06/28/2026
+## 06/29/2026
 
 1. [](#new)
     * The API can now keep an optional audit trail of admin activity such as logins, content edits, user changes, and configuration changes, available to super admins and turned off by default.
@@ -18,6 +18,7 @@
     * Creating, copying, or moving a page at the site root no longer fails with a "Parent page not found" error on Windows ([getgrav/grav-plugin-admin2#82](https://github.com/getgrav/grav-plugin-admin2/issues/82)).
     * Admin labels for a region-specific admin language such as `ru-RU` now fall back to a plugin's matching short-code language file (`ru`) before English, so plugins that ship plain language files are translated correctly ([#11](https://github.com/getgrav/grav-plugin-api/pull/11), thanks @Sogl).
     * The "Add to allowlist" button in the Twig-in-Content report now removes the block it just resolved instead of leaving the same row behind, so it is clear the action took effect ([getgrav/grav-plugin-admin2#85](https://github.com/getgrav/grav-plugin-admin2/issues/85)).
+    * Content entered into an Elements field's sub-fields is now saved in the new admin instead of being discarded, and editing those sub-fields now enables the Save button ([getgrav/grav-plugin-admin2#86](https://github.com/getgrav/grav-plugin-admin2/issues/86)).
 
 # v1.0.5
 ## 06/25/2026
