@@ -11,9 +11,31 @@ use Psr\Http\Message\ServerRequestInterface;
 
 class ApiKeyAuthenticator implements AuthenticatorInterface
 {
+    /**
+     * Scopes of the key that last authenticated successfully, or null if none
+     * has. The AuthMiddleware reads this immediately after authenticate() to
+     * stamp the request with `api_key_scopes` so requirePermission() can cap a
+     * scoped key to exactly its declared permissions (GHSA-x7hm). A fresh
+     * authenticator instance is built per request, so this is request-local.
+     *
+     * @var array<int, mixed>|null
+     */
+    private ?array $authenticatedScopes = null;
+
     public function __construct(
         protected readonly Grav $grav,
     ) {}
+
+    /**
+     * Scopes recorded for the most recent successful authenticate() call.
+     * An empty array means an unscoped key (full account access).
+     *
+     * @return array<int, mixed>
+     */
+    public function getAuthenticatedScopes(): array
+    {
+        return $this->authenticatedScopes ?? [];
+    }
 
     public function authenticate(ServerRequestInterface $request): ?UserInterface
     {
@@ -59,6 +81,12 @@ class ApiKeyAuthenticator implements AuthenticatorInterface
 
         // Update last_used timestamp
         $manager->touchKey($keyId);
+
+        // Record the key's scopes so the middleware can cap this request to
+        // them (GHSA-x7hm). An empty/absent list means full account access.
+        $this->authenticatedScopes = isset($keyData['scopes']) && is_array($keyData['scopes'])
+            ? $keyData['scopes']
+            : [];
 
         return $user;
     }

@@ -687,6 +687,7 @@ class UsersController extends AbstractApiController
         if ($currentUser->username !== $username) {
             $this->requirePermission($request, 'api.users.write');
         }
+        $this->requireNotSuperTarget($currentUser, $user);
 
         if (!class_exists(\Grav\Plugin\Login\TwoFactorAuth\TwoFactorAuth::class)) {
             throw new \Grav\Plugin\Api\Exceptions\ApiException(
@@ -784,6 +785,7 @@ class UsersController extends AbstractApiController
         if (!$isSelf && !$isAdmin) {
             throw new ForbiddenException('You do not have permission to disable 2FA for this user.');
         }
+        $this->requireNotSuperTarget($currentUser, $user);
 
         if ($isSelf && !$isAdmin) {
             // Self-disable without admin privilege requires code verification.
@@ -836,6 +838,7 @@ class UsersController extends AbstractApiController
         $user = $this->loadUserOrFail($username);
 
         $this->requireApiKeyPermission($request, $username, write: true);
+        $this->requireNotSuperTarget($this->getUser($request), $user);
 
         $body = $this->getRequestBody($request);
         $name = $body['name'] ?? '';
@@ -870,6 +873,7 @@ class UsersController extends AbstractApiController
         $user = $this->loadUserOrFail($username);
 
         $this->requireApiKeyPermission($request, $username, write: true);
+        $this->requireNotSuperTarget($this->getUser($request), $user);
 
         $keyId = $this->getRouteParam($request, 'keyId');
 
@@ -902,6 +906,27 @@ class UsersController extends AbstractApiController
             $this->requirePermission($request, 'api.access');
         } else {
             $this->requirePermission($request, $write ? 'api.users.write' : 'api.users.read');
+        }
+    }
+
+    /**
+     * Block a non-super caller from acting on a super-admin target via the
+     * per-user sibling endpoints (API keys, 2FA generate/disable). The primary
+     * mutators — create()/update()/delete() — already carry this guard; these
+     * siblings target /users/{username} too and must not become an escalation
+     * path (e.g. minting an API key for, or stripping 2FA from, a super-admin).
+     * Acting on your own account is never an escalation, so self is allowed.
+     * Callers must pass the already-loaded target user. See GHSA-p97c-g455-q447
+     * and GHSA-8gg4.
+     */
+    private function requireNotSuperTarget(UserInterface $current, UserInterface $target): void
+    {
+        if ($current->username === $target->username) {
+            return;
+        }
+
+        if (!$this->isSuperAdmin($current) && $this->accessGrantsSuper($target->get('access'))) {
+            throw new ForbiddenException('Only super-admins can manage super-admin accounts.');
         }
     }
 

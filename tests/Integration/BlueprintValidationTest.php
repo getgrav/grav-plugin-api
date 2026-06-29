@@ -60,8 +60,17 @@ class BlueprintValidationTest extends TestCase
     /** @return string[] field names that failed, empty if validation passed */
     private function failingFields(array $changes, ?Blueprint $blueprint): array
     {
+        return $this->failingFieldsAgainst($changes, $blueprint, []);
+    }
+
+    /**
+     * @param array $existing persisted baseline the submitted values diff against
+     * @return string[] field names that failed, empty if validation passed
+     */
+    private function failingFieldsAgainst(array $changes, ?Blueprint $blueprint, array $existing): array
+    {
         try {
-            $this->validate->invoke($this->controller, $changes, $blueprint);
+            $this->validate->invoke($this->controller, $changes, $blueprint, $existing);
             return [];
         } catch (ValidationException $e) {
             return array_map(static fn(array $err) => $err['field'], $e->getValidationErrors());
@@ -90,6 +99,39 @@ class BlueprintValidationTest extends TestCase
         // api_key is required but not part of this change — must not be flagged.
         $this->assertSame([], $this->failingFields(['timeout' => 30], $bp));
         $this->assertSame(['timeout'], $this->failingFields(['timeout' => 999], $bp));
+    }
+
+    #[Test]
+    public function preexisting_invalid_value_echoed_back_does_not_block_unrelated_edit(): void
+    {
+        // getgrav/grav#4176: admin-next posts the WHOLE form. A migrated config
+        // can hold a value that fails 2.0 validation (here: timeout above max).
+        // Echoing it back unchanged while editing a sibling must NOT be blocked;
+        // only a genuine change to the bad field is validated.
+        $bp = $this->blueprint(['form' => ['fields' => [
+            'timeout' => ['type' => 'number', 'validate' => ['type' => 'int', 'min' => 1, 'max' => 60]],
+            'label' => ['type' => 'text'],
+        ]]]);
+
+        $existing = ['timeout' => 999, 'label' => 'old'];
+
+        // Whole-form save that only edits `label`, but resends the bad `timeout`.
+        $this->assertSame(
+            [],
+            $this->failingFieldsAgainst(['timeout' => 999, 'label' => 'new'], $bp, $existing),
+        );
+
+        // Actually changing the bad field to another invalid value IS caught.
+        $this->assertSame(
+            ['timeout'],
+            $this->failingFieldsAgainst(['timeout' => 1000, 'label' => 'new'], $bp, $existing),
+        );
+
+        // Changing it to a valid value passes.
+        $this->assertSame(
+            [],
+            $this->failingFieldsAgainst(['timeout' => 30, 'label' => 'new'], $bp, $existing),
+        );
     }
 
     #[Test]

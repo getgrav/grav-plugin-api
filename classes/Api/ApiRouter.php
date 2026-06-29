@@ -10,6 +10,8 @@ use Grav\Common\Config\Config;
 use Grav\Common\Grav;
 use Grav\Common\Processors\ProcessorBase;
 use Grav\Framework\Psr7\Response;
+use Grav\Plugin\Api\Audit\AuditContext;
+use Grav\Plugin\Api\Controllers\AuditController;
 use Grav\Plugin\Api\Controllers\AuthController;
 use Grav\Plugin\Api\Controllers\BlueprintController;
 use Grav\Plugin\Api\Controllers\BlueprintFilesController;
@@ -24,10 +26,12 @@ use Grav\Plugin\Api\Controllers\PagesController;
 use Grav\Plugin\Api\Controllers\PreferencesController;
 use Grav\Plugin\Api\Controllers\ReportsController;
 use Grav\Plugin\Api\Controllers\MenubarController;
+use Grav\Plugin\Api\Controllers\EditorButtonsController;
 use Grav\Plugin\Api\Controllers\PasswordPolicyController;
 use Grav\Plugin\Api\Controllers\SettingsController;
 use Grav\Plugin\Api\Controllers\SetupController;
 use Grav\Plugin\Api\Controllers\SidebarController;
+use Grav\Plugin\Api\Controllers\SsoController;
 use Grav\Plugin\Api\Controllers\FloatingWidgetController;
 use Grav\Plugin\Api\Controllers\ContextPanelController;
 use Grav\Plugin\Api\Controllers\SystemController;
@@ -116,6 +120,19 @@ class ApiRouter extends ProcessorBase
         }
     }
 
+    /**
+     * Whether the request carries a bearer token (so authentication will be
+     * stateless and not touch the session). Checks X-API-Token first since
+     * FPM/FastCGI strips the Authorization header on some hosts.
+     */
+    protected function requestHasBearerToken(ServerRequestInterface $request): bool
+    {
+        if ($request->getHeaderLine('X-API-Token') !== '') {
+            return true;
+        }
+        return stripos($request->getHeaderLine('Authorization'), 'Bearer ') === 0;
+    }
+
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
         $this->startTimer();
@@ -196,6 +213,20 @@ class ApiRouter extends ProcessorBase
                 }
             }
 
+            // When the caller presents a bearer token (the admin SPA always
+            // does), authentication is stateless and never reads the session —
+            // so release Grav's exclusive session lock BEFORE the comparatively
+            // expensive auth (JWT verification) and dispatch, rather than after.
+            // Without this, a burst of parallel GETs from one SPA tab serialize
+            // through boot+auth on the single session lock and saturate the
+            // PHP-FPM pool (503s). Token auth is authoritative when a token is
+            // supplied, so we don't fall back to session passthrough here;
+            // session-cookie callers keep the lock until the user is resolved
+            // (the post-auth closeSessionEarly below). (admin2#65)
+            if ($this->requestHasBearerToken($request)) {
+                $this->closeSessionEarly($request->getMethod());
+            }
+
             $this->startPhase('auth', 'API: Authentication');
             if (!$isPublic) {
                 $request = (new AuthMiddleware($this->container, $this->config))->processRequest($request);
@@ -213,6 +244,13 @@ class ApiRouter extends ProcessorBase
             if ($user && !isset($this->container['admin'])) {
                 (new AdminProxy($this->container, $user))->register();
             }
+
+            // Capture request-level forensic context (actor, IP, user-agent) for
+            // the audit trail. The semantic onApi* events fired downstream carry
+            // only the affected object; this fills in the who/where. Runs whether
+            // or not auditing is enabled; it's a few array writes, so the
+            // context is ready the moment a controller fires an audited event.
+            AuditContext::capture($request, $user);
 
             // Release the PHP session lock for read-only requests. Grav core
             // starts and EXCLUSIVELY locks the session during boot on every
@@ -241,6 +279,17 @@ class ApiRouter extends ProcessorBase
             $response = (new CorsMiddleware($this->config))->addHeaders($request, $response);
 
         } catch (ApiException $e) {
+            // Client-facing 4xx errors (validation, auth, not-found). These were
+            // previously returned with no log line at all, which made genuine
+            // misconfigurations — e.g. an upload destination that resolves to
+            // nothing ("Stream not resolvable") — impossible to diagnose from the
+            // server side. Log at debug so routine 401/404s don't flood production
+            // logs while the detail stays recoverable on demand.
+            $this->container['log']->debug('API client error: ' . $e->getMessage(), [
+                'status' => $e->getStatusCode(),
+                'method' => $request->getMethod(),
+                'path' => $request->getUri()->getPath(),
+            ]);
             $response = ErrorResponse::fromException($e);
             if (isset($rateLimitResult)) {
                 $response = $this->addRateLimitHeaders($response, $rateLimitResult);
@@ -377,6 +426,13 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('POST', '/auth/setup', [SetupController::class, 'create']);
         $r->addRoute('GET',  '/auth/password-policy', [PasswordPolicyController::class, 'show']);
 
+        // SSO / OAuth login bridge for admin-next (public — under /auth/). Static
+        // routes before the parameterized ones (FastRoute matching order).
+        $r->addRoute('GET',  '/auth/sso/providers', [SsoController::class, 'providers']);
+        $r->addRoute('POST', '/auth/sso/exchange', [SsoController::class, 'exchange']);
+        $r->addRoute('GET',  '/auth/sso/{provider}/start', [SsoController::class, 'start']);
+        $r->addRoute('GET',  '/auth/sso/{provider}/callback', [SsoController::class, 'callback']);
+
         // Current user profile + resolved permissions (protected — auth required)
         $r->addRoute('GET', '/me', [AuthController::class, 'me']);
 
@@ -479,6 +535,7 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('GET', '/gpm/plugins/{slug}', [GpmController::class, 'plugin']);
         $r->addRoute('GET', '/gpm/plugins/{slug}/readme', [GpmController::class, 'readme']);
         $r->addRoute('GET', '/gpm/plugins/{slug}/changelog', [GpmController::class, 'changelog']);
+        $r->addRoute('GET', '/gpm/plugins/{slug}/fields', [GpmController::class, 'customFieldBundle']);
         $r->addRoute('GET', '/gpm/plugins/{slug}/field/{type}', [GpmController::class, 'customFieldScript']);
         $r->addRoute('GET', '/gpm/plugins/{slug}/page', [GpmController::class, 'pluginPage']);
         $r->addRoute('GET', '/gpm/plugins/{slug}/page-script', [GpmController::class, 'customPageScript']);
@@ -487,7 +544,8 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('GET', '/gpm/themes/{slug}', [GpmController::class, 'theme']);
         $r->addRoute('GET', '/gpm/themes/{slug}/readme', [GpmController::class, 'readme']);
         $r->addRoute('GET', '/gpm/themes/{slug}/changelog', [GpmController::class, 'changelog']);
-$r->addRoute('GET', '/gpm/themes/{slug}/field/{type}', [GpmController::class, 'customFieldScript']);
+        $r->addRoute('GET', '/gpm/themes/{slug}/fields', [GpmController::class, 'customFieldBundle']);
+        $r->addRoute('GET', '/gpm/themes/{slug}/field/{type}', [GpmController::class, 'customFieldScript']);
         $r->addRoute('GET', '/gpm/updates', [GpmController::class, 'updates']);
         $r->addRoute('POST', '/gpm/install', [GpmController::class, 'install']);
         $r->addRoute('POST', '/gpm/remove', [GpmController::class, 'remove']);
@@ -533,6 +591,12 @@ $r->addRoute('GET', '/gpm/themes/{slug}/field/{type}', [GpmController::class, 'c
         $r->addRoute('DELETE', '/reports/twig-content/events', [ReportsController::class, 'clearTwigEvents']);
         $r->addRoute('GET', '/reports/twig-content/page', [ReportsController::class, 'twigContentPageStatus']);
         $r->addRoute('GET', '/reports/twig-content/scan', [ReportsController::class, 'twigContentScan']);
+
+        // Audit trail (super-admin only; off by default)
+        $r->addRoute('GET', '/audit/status', [AuditController::class, 'status']);
+        $r->addRoute('GET', '/audit/events', [AuditController::class, 'events']);
+        $r->addRoute('GET', '/audit/facets', [AuditController::class, 'facets']);
+        $r->addRoute('GET', '/audit/export', [AuditController::class, 'export']);
 
         // Webhooks
         $r->addRoute('GET', '/webhooks', [WebhookController::class, 'index']);
@@ -583,6 +647,9 @@ $r->addRoute('GET', '/gpm/themes/{slug}/field/{type}', [GpmController::class, 'c
         // Menubar
         $r->addRoute('GET', '/menubar/items', [MenubarController::class, 'items']);
         $r->addRoute('POST', '/menubar/actions/{plugin}/{action}', [MenubarController::class, 'executeAction']);
+
+        // Markdown editor toolbar buttons (plugins register via onApiMarkdownEditorButtons)
+        $r->addRoute('GET', '/editor/toolbar-buttons', [EditorButtonsController::class, 'items']);
 
         // Sidebar
         $r->addRoute('GET', '/sidebar/items', [SidebarController::class, 'items']);

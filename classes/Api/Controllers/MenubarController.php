@@ -27,6 +27,8 @@ use RocketTheme\Toolbox\Event\Event;
  *     'variant'   => 'primary',             // optional emphasis: default|primary|success|warning|danger
  *     'showLabel' => true,                  // optional — render label text beside the icon
  *     'size'      => 'md',                   // optional — sm (default) | md
+ *     'placement' => 'start',               // optional — start (default) | end
+ *     'priority'  => 5,                      // optional — ordering within the zone (higher = earlier)
  *     'authorize' => 'api.some.permission', // optional — string or array (any-of)
  *   ]
  *
@@ -35,6 +37,13 @@ use RocketTheme\Toolbox\Event\Event;
  * turn a tiny icon into a readable labelled button. All three pass straight
  * through to the client (no allowlist) — an unknown `variant` falls back to the
  * default muted style.
+ *
+ * `placement` chooses the toolbar zone (admin2#81): `start` (the default) puts
+ * the button in the open space on the left of the header, well clear of the
+ * destructive Clear Cache action; `end` places it beside the core actions for
+ * buttons that genuinely belong with system maintenance. `priority` orders
+ * buttons within a zone (higher renders earlier; ties keep registration order).
+ * The core actions (View site, Clear Cache) are never plugin-movable.
  *
  * `authorize` follows the same string-or-array semantics as the sidebar API.
  * Items without `authorize` are visible to every authenticated user.

@@ -452,13 +452,31 @@ class MediaController extends AbstractApiController
         }
 
         $from = $this->validateRelativePath($body['from'], $mediaPath);
-        $to = $this->validateRelativePath($body['to'], $mediaPath);
+
+        // Preserve the source file's extension and clean the requested name so
+        // the result is always a valid, URL-safe media filename. A missing
+        // extension makes later `media://` links fatal in Grav's Excerpts
+        // parser, and spaces / odd characters break the Markdown image URL the
+        // editor generates (getgrav/grav-plugin-admin2#77).
+        $originalExt = pathinfo($from, PATHINFO_EXTENSION);
+        $rawTo = str_replace('\\', '/', (string) $body['to']);
+        $toDir = trim(dirname($rawTo), '/.');
+        $toName = $this->sanitizeMediaFilename(basename($rawTo), $originalExt);
+        $to = $this->validateRelativePath(($toDir !== '' ? $toDir . '/' : '') . $toName, $mediaPath);
 
         $fromAbsolute = $mediaPath . '/' . $from;
         $toAbsolute = $mediaPath . '/' . $to;
 
         if (!file_exists($fromAbsolute)) {
             throw new NotFoundException("Source file not found.");
+        }
+
+        // Sanitizing can map the requested name back onto the source (e.g. only
+        // the extension was dropped) — treat that as a no-op rather than a
+        // "destination exists" error.
+        if ($fromAbsolute === $toAbsolute) {
+            $targetPath = $toDir !== '' ? $mediaPath . '/' . $toDir : $mediaPath;
+            return ApiResponse::ok($this->serializeSiteFile($targetPath, $toName, $toDir));
         }
 
         if (file_exists($toAbsolute)) {
@@ -759,6 +777,32 @@ class MediaController extends AbstractApiController
         }
 
         return $page;
+    }
+
+    /**
+     * Clean a user-supplied media filename into one that is safe on disk and
+     * valid inside a Markdown `media://` URL, re-attaching the source file's
+     * extension. Spaces (and runs of whitespace) collapse to a single dash, and
+     * characters outside unicode letters/digits plus `. _ -` are dropped, so
+     * `Test Image` with a `.jpg` source becomes `Test-Image.jpg`. Forcing the
+     * original extension also stops an extension-less rename, which otherwise
+     * produces a `media://` link that fatals in Grav's Excerpts parser
+     * (getgrav/grav-plugin-admin2#77).
+     */
+    private function sanitizeMediaFilename(string $newName, string $extension): string
+    {
+        // Work on the stem only; the source extension is re-attached below so a
+        // rename can never change (or drop) the file type.
+        $stem = pathinfo($newName, PATHINFO_FILENAME);
+        $stem = preg_replace('/\s+/u', '-', trim($stem));
+        $stem = preg_replace('/[^\p{L}\p{N}._-]+/u', '', (string) $stem);
+        $stem = trim((string) preg_replace('/-{2,}/', '-', (string) $stem), '-_.');
+
+        if ($stem === '') {
+            throw new ValidationException('The new name must contain at least one letter or number.');
+        }
+
+        return $extension !== '' ? $stem . '.' . $extension : $stem;
     }
 
     /**

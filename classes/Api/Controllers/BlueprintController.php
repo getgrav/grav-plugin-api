@@ -177,6 +177,15 @@ class BlueprintController extends AbstractApiController
 
         $data = $this->serializeBlueprint($blueprint, $template);
 
+        // Restore the Twig checkbox in the `header.process` field when this API
+        // user is allowed to enable Twig in content. Core's
+        // Security::pageProcessOptions() resolves that option against
+        // $grav['user'] (the guest during a token-authed API request) and
+        // admin-classic permissions, so it drops Twig for API/Admin-Next users
+        // even when they could save it. We re-add it against the same authority
+        // the write guard enforces. See grav-admin-next#5.
+        $this->applyTwigProcessOption($data['fields'], $this->getUser($request));
+
         // Fire event to allow plugins to modify the serialized blueprint fields
         // (e.g., editor-pro overrides editor/markdown field types). The
         // explicit `context` discriminator lets listeners gate behavior to a
@@ -684,6 +693,84 @@ class BlueprintController extends AbstractApiController
     }
 
     /**
+     * Ensure the `header.process` field offers the Twig checkbox when this API
+     * user is permitted to enable Twig-in-content for a page.
+     *
+     * Core's Security::pageProcessOptions() builds that option list, but it
+     * gates Twig on $grav['user'] (the unauthenticated guest under token auth)
+     * holding admin-classic's `admin.super` / `admin.pages_twig`. API and
+     * Admin-Next users carry API authority instead (access.api.super, or
+     * `admin.pages_twig` resolved through the API ACL), so the option is
+     * dropped for users who can in fact save it — the page editor then shows
+     * only Markdown. We mirror the exact allow conditions PagesController's
+     * guardTwigContent enforces on write, so the toggle a user sees matches
+     * what they're allowed to persist.
+     *
+     * No-op unless the site-wide gate is on. When `editor_enabled` is on the
+     * option is already present for everyone, so this only fills the gap for
+     * the super / pages_twig case. Idempotent — never duplicates the option.
+     *
+     * @param array<int, array<string, mixed>> $fields Serialized field tree (by ref).
+     */
+    private function applyTwigProcessOption(array &$fields, UserInterface $user): void
+    {
+        $config = $this->grav['config'];
+
+        // Gate off → Twig is forbidden site-wide; leave the list as core built it.
+        if ((bool) $config->get('security.twig_content.process_enabled', false) === false) {
+            return;
+        }
+
+        // editor_enabled → core already advertised Twig to everyone.
+        if ((bool) $config->get('security.twig_content.editor_enabled', false) === true) {
+            return;
+        }
+
+        // Same authority the write guard requires to persist process.twig:true.
+        if (!$this->isSuperAdmin($user) && !$this->hasPermission($user, 'admin.pages_twig')) {
+            return;
+        }
+
+        $this->addTwigOptionToProcessField($fields);
+    }
+
+    /**
+     * Walk the serialized field tree and append the Twig checkbox option to the
+     * `header.process` field if it isn't already listed. Returns true once the
+     * field is found so the walk can stop early.
+     *
+     * @param array<int, array<string, mixed>> $fields
+     */
+    private function addTwigOptionToProcessField(array &$fields): bool
+    {
+        foreach ($fields as &$field) {
+            if (!is_array($field)) {
+                continue;
+            }
+
+            if (($field['name'] ?? null) === 'header.process') {
+                $options = is_array($field['options'] ?? null) ? $field['options'] : [];
+                foreach ($options as $opt) {
+                    if (is_array($opt) && ($opt['value'] ?? null) === 'twig') {
+                        return true; // already present — nothing to do
+                    }
+                }
+                $options[] = ['value' => 'twig', 'label' => 'Twig'];
+                $field['options'] = $options;
+                return true;
+            }
+
+            if (isset($field['fields']) && is_array($field['fields'])
+                && $this->addTwigOptionToProcessField($field['fields'])) {
+                return true;
+            }
+        }
+        unset($field);
+
+        return false;
+    }
+
+    /**
      * Recursively remove the `validate: ignore` flag that core's blueprint
      * init stamps on a `security@`-gated field (and its children) when the
      * gate fails. Leaves the rest of each `validate` block intact.
@@ -1175,20 +1262,52 @@ class BlueprintController extends AbstractApiController
 
             // Handle nested fields (structural containers)
             if (isset($field['fields']) && is_array($field['fields'])) {
-                // For layout containers, don't add prefix (fields bind to their own names)
-                $layoutTypes = ['tabs', 'tab', 'section', 'fieldset', 'columns', 'column', 'page-exists', 'elements', 'element'];
-                $childPrefix = in_array($type, $layoutTypes, true) ? $prefix : $fieldPath;
+                if ($type === 'element') {
+                    // An `element` group's children bind under the parent
+                    // `elements` field's CONTAINER (its name minus the trailing
+                    // segment) plus this element's own key — exactly as classic
+                    // admin's element.html.twig builds it:
+                    //   name = parent_field(elementsName) ~ '.' ~ elementKey
+                    // e.g. element `gelato` inside `header.demo.type` binds its
+                    // leading-dot child `.flavours` at `header.demo.gelato.flavours`.
+                    // The generic layout path produced a bare `gelato.flavours`
+                    // (container + `header.` prefix dropped), which failed the
+                    // SPA's `header.`-prefixed dirty/save check so the entered
+                    // content never saved (admin2#86). Prefix stays empty so any
+                    // absolute (non-leading-dot) children keep their own names.
+                    $container = $this->fieldParent($parent);
+                    $elementBase = $container !== '' ? $container . '.' . $name : (string) $name;
+                    $serialized['fields'] = $this->serializeFields($field['fields'], '', $elementBase);
+                } else {
+                    // For layout containers, don't add prefix (fields bind to their own names)
+                    $layoutTypes = ['tabs', 'tab', 'section', 'fieldset', 'columns', 'column', 'page-exists', 'elements', 'element'];
+                    $childPrefix = in_array($type, $layoutTypes, true) ? $prefix : $fieldPath;
 
-                // Always pass this field's resolved name as the parent so any
-                // leading-dot children bind under it, even when the container is
-                // a transparent layout type that leaves $childPrefix untouched.
-                $serialized['fields'] = $this->serializeFields($field['fields'], $childPrefix, $fieldPath);
+                    // Always pass this field's resolved name as the parent so any
+                    // leading-dot children bind under it, even when the container is
+                    // a transparent layout type that leaves $childPrefix untouched.
+                    $serialized['fields'] = $this->serializeFields($field['fields'], $childPrefix, $fieldPath);
+                }
             }
 
             $result[] = $serialized;
         }
 
         return $result;
+    }
+
+    /**
+     * Return the parent path of a dotted field name — everything up to the last
+     * dot — mirroring core's `parent_field` Twig filter. Used to resolve where an
+     * `element` group's children bind: under the elements field's container
+     * rather than under the elements field's own (leaf) name.
+     */
+    protected function fieldParent(string $name): string
+    {
+        $path = explode('.', rtrim($name, '.'));
+        array_pop($path);
+
+        return implode('.', $path);
     }
 
     /**

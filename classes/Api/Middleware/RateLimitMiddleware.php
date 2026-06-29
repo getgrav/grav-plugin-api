@@ -37,12 +37,30 @@ class RateLimitMiddleware
             ];
         }
 
-        // Path-prefix exclusions. Used to keep high-frequency API
-        // surfaces (collab polling, etc.) out of the per-user bucket so a
-        // single typing user doesn't trip the global anti-abuse limit.
-        // Defaults to excluding the sync plugin's endpoints; operators can
-        // override via plugins.api.rate_limit.excluded_paths.
-        $excluded = (array) $this->config->get('plugins.api.rate_limit.excluded_paths', ['/sync/']);
+        // Path-fragment exclusions. Used to keep high-frequency or static API
+        // surfaces out of the per-user bucket so a single editor session doesn't
+        // trip the global anti-abuse limit. Matched with str_contains, so a
+        // fragment hits anywhere in the path.
+        //
+        // Defaults:
+        //  - /sync/         collab polling (presence/pull fire continuously)
+        //  - the component-script routes below: immutable per-plugin-version JS
+        //    assets (custom fields, widgets, panels, plugin/report/modal scripts)
+        //    that the admin-next SPA fetches in bulk on every editor load. They're
+        //    static downloads, not API actions, so they shouldn't burn the budget.
+        //
+        // Operators can override via plugins.api.rate_limit.excluded_paths.
+        $excluded = (array) $this->config->get('plugins.api.rate_limit.excluded_paths', [
+            '/sync/',
+            '/field/',
+            '/fields',
+            '/widget-script',
+            '/panel-script',
+            '/page-script',
+            '/report-script/',
+            '/modal-script/',
+            '/custom-fields',
+        ]);
         $path = $request->getUri()->getPath();
         foreach ($excluded as $prefix) {
             if (!is_string($prefix) || $prefix === '') continue;

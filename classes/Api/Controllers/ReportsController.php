@@ -270,10 +270,16 @@ class ReportsController extends AbstractApiController
 
         $this->persistSecurityKey($target['key'], $updated);
 
+        // The block the operator just allowed is now resolved — drop the matching
+        // events from the ring buffer so the report's row and count clear instead
+        // of leaving a stale "still blocked" entry behind.
+        $resolved = Security::resolveTwigContentEvents($rule, $token, $class);
+
         return ApiResponse::ok([
-            'rule'  => $rule,
-            'key'   => $target['key'],
-            'value' => $updated,
+            'rule'     => $rule,
+            'key'      => $target['key'],
+            'value'    => $updated,
+            'resolved' => $resolved,
         ]);
     }
 

@@ -275,6 +275,36 @@ class PagesController extends AbstractApiController
     }
 
     /**
+     * Parent route of a page route, always using `/` as the separator.
+     *
+     * PHP's dirname()/basename() use the host OS directory separator, so on
+     * Windows dirname('/foo') returns '\' rather than '/'. That made the
+     * root-level "parent" check below fail with "Parent page not found at
+     * route: \" and broke creating, copying or moving a page at the site root
+     * on Windows (getgrav/grav-plugin-admin2#82). Routes are always `/`-
+     * delimited, so split them ourselves.
+     */
+    private static function routeParent(string $route): string
+    {
+        $route = rtrim($route, '/');
+        $pos = strrpos($route, '/');
+
+        return ($pos === false || $pos === 0) ? '/' : substr($route, 0, $pos);
+    }
+
+    /**
+     * Last segment of a page route, always using `/` as the separator.
+     * See {@see routeParent()} for why dirname()/basename() can't be used.
+     */
+    private static function routeBasename(string $route): string
+    {
+        $route = rtrim($route, '/');
+        $pos = strrpos($route, '/');
+
+        return $pos === false ? $route : substr($route, $pos + 1);
+    }
+
+    /**
      * POST /pages - Create a new page.
      */
     public function create(ServerRequestInterface $request): ResponseInterface
@@ -311,8 +341,8 @@ class PagesController extends AbstractApiController
             }
 
             // Ensure parent exists
-            $parentRoute = dirname($route);
-            $slug = basename($route);
+            $parentRoute = self::routeParent($route);
+            $slug = self::routeBasename($route);
 
             // Modular sub-page convention: folder name starts with `_`.
             if ($kind === 'module' && !str_starts_with($slug, '_')) {
@@ -834,8 +864,8 @@ class PagesController extends AbstractApiController
         $this->requireFields($body, ['route']);
 
         $destRoute = '/' . trim($body['route'], '/');
-        $destSlug = basename($destRoute);
-        $destParentRoute = dirname($destRoute);
+        $destSlug = self::routeBasename($destRoute);
+        $destParentRoute = self::routeParent($destRoute);
 
         // Resolve destination parent path
         if ($destParentRoute === '/') {
@@ -1551,10 +1581,7 @@ class PagesController extends AbstractApiController
                 throw new ValidationException("Page not found at route: {$route}");
             }
 
-            $currentParentRoute = dirname($page->route()) ?: '/';
-            if ($currentParentRoute === '.') {
-                $currentParentRoute = '/';
-            }
+            $currentParentRoute = self::routeParent($page->route());
             $affectedParentRoutes[$currentParentRoute] = true;
 
             // Resolve destination parent
@@ -1659,11 +1686,7 @@ class PagesController extends AbstractApiController
                         "Operation index {$index} targets parent '{$parentRoute}', but '{$check}' is also being moved in the same batch. Reorganize the parent first, or drop one of the ops."
                     );
                 }
-                $check = dirname($check);
-                if ($check === '.') {
-                    $check = '/';
-                    break;
-                }
+                $check = self::routeParent($check);
             }
         }
 
@@ -2110,7 +2133,7 @@ class PagesController extends AbstractApiController
      */
     private function batchCopy(PageInterface $page, array $options): void
     {
-        $destParent = $options['destination'] ?? dirname($page->route());
+        $destParent = $options['destination'] ?? self::routeParent($page->route());
         $suffix = $options['suffix'] ?? '-copy';
         $destSlug = $page->slug() . $suffix;
 

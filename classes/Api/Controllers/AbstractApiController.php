@@ -17,12 +17,22 @@ use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\PermissionResolver;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Grav\Plugin\Api\Serializers\UserSerializer;
+use Grav\Plugin\Login\TwoFactorAuth\TwoFactorAuth;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use RocketTheme\Toolbox\Event\Event;
 
 abstract class AbstractApiController
 {
+    /**
+     * Purpose tag + TTL for the short-lived 2FA challenge token. Defined here
+     * (rather than on AuthController) so every login transport that has to
+     * mint or honor a 2FA challenge — password login, and the SSO/OAuth login
+     * bridge — shares one set of values.
+     */
+    protected const CHALLENGE_2FA = '2fa_challenge';
+    protected const CHALLENGE_TTL = 300;
+
     public function __construct(
         protected readonly Grav $grav,
         protected readonly Config $config,
@@ -47,6 +57,17 @@ abstract class AbstractApiController
     {
         $user = $this->getUser($request);
 
+        // API-key scope cap (GHSA-x7hm). A key created with a NON-EMPTY `scopes`
+        // list is restricted to exactly those permissions, regardless of the
+        // owning account's ACL — so a scoped key minted on a super-admin account
+        // is still capped. This is enforced BEFORE the super-admin short-circuit
+        // below so super keys can't bypass it. An empty/absent scope set (the
+        // default, and all JWT/session credentials) means full access.
+        $scopes = $request->getAttribute('api_key_scopes');
+        if (is_array($scopes) && $scopes !== [] && !$this->scopesPermit($scopes, $permission)) {
+            throw new ForbiddenException("API key is not authorized for: {$permission}");
+        }
+
         // Super admin can do anything
         if ($this->isSuperAdmin($user)) {
             return;
@@ -61,6 +82,31 @@ abstract class AbstractApiController
         if (!$this->hasPermission($user, $permission)) {
             throw new ForbiddenException("Missing required permission: {$permission}");
         }
+    }
+
+    /**
+     * Whether a non-empty API-key scope list grants the requested permission.
+     *
+     * A scope grants its own permission and everything beneath it — scope
+     * `api.pages` covers `api.pages.read` — mirroring the parent-key inheritance
+     * hasPermission() applies to the account ACL. `*` is an explicit grant-all
+     * scope. Callers only invoke this when the scope list is non-empty (an empty
+     * list means an unscoped key with full access). See GHSA-x7hm.
+     *
+     * @param array<int, mixed> $scopes
+     */
+    private function scopesPermit(array $scopes, string $permission): bool
+    {
+        foreach ($scopes as $scope) {
+            if (!is_string($scope) || $scope === '') {
+                continue;
+            }
+            if ($scope === '*' || $scope === $permission || str_starts_with($permission, $scope . '.')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -188,9 +234,20 @@ abstract class AbstractApiController
      * nested under `errors`, page fields under `header`); it is flattened to the
      * blueprint's leaf fields here.
      *
+     * Some clients (notably admin-next's config form) post the WHOLE form rather
+     * than just the edited fields. To keep the "validate only what changed"
+     * guarantee in that case, pass the persisted `$existing` baseline: any leaf
+     * whose submitted value equals the baseline is skipped. Without this, a
+     * single pre-existing invalid value — common after a 1.x→2.0 migration —
+     * would fail validation on every save and block edits to unrelated fields,
+     * even though the user never touched it (getgrav/grav#4176). When `$existing`
+     * is empty (other callers that already send a true delta) every submitted
+     * leaf is validated, exactly as before.
+     *
      * @param array $changes  Incoming values (possibly nested), as sent by the client.
+     * @param array $existing Persisted baseline to diff against; [] validates all of $changes.
      */
-    protected function validateChangedFields(array $changes, ?Blueprint $blueprint): void
+    protected function validateChangedFields(array $changes, ?Blueprint $blueprint, array $existing = []): void
     {
         if ($blueprint === null || $changes === []) {
             return;
@@ -199,7 +256,20 @@ abstract class AbstractApiController
         $schema = $blueprint->schema();
         $errors = [];
 
+        // Baseline leaves, keyed the same way as the flattened changes, so a
+        // field the client echoed back untouched can be recognised and skipped.
+        $existingLeaves = $existing === [] ? [] : $blueprint->flattenData($existing);
+
         foreach ($blueprint->flattenData($changes) as $name => $value) {
+            // Skip leaves that match what's already persisted: the client sent
+            // them but the user did not change them, so re-validating stored
+            // (possibly migration-era) data would be wrong. Loose `==` treats a
+            // reordered list as changed but an int/bool round-trip as unchanged,
+            // which matches Grav's own runtime leniency.
+            if (array_key_exists($name, $existingLeaves) && $value == $existingLeaves[$name]) {
+                continue;
+            }
+
             $field = $schema->getProperty($name);
             if (!is_array($field) || !isset($field['type'])) {
                 // Not a blueprint-defined field (extra/legacy key) — nothing to validate.
@@ -558,6 +628,21 @@ abstract class AbstractApiController
      */
     protected function issueTokenPair(JwtAuthenticator $jwt, UserInterface $user): ResponseInterface
     {
+        return ApiResponse::create($this->buildTokenPairPayload($jwt, $user));
+    }
+
+    /**
+     * Build the access/refresh token-pair payload for an authenticated user.
+     *
+     * This is the body `issueTokenPair()` wraps in an ApiResponse, exposed as a
+     * raw array so login transports that can't return the response inline — the
+     * SSO/OAuth bridge stashes it under a one-time exchange code and replays it
+     * later — can reuse the exact same shape the `/auth/token` endpoint returns.
+     *
+     * @return array<string, mixed>
+     */
+    protected function buildTokenPairPayload(JwtAuthenticator $jwt, UserInterface $user): array
+    {
         $accessToken = $jwt->generateAccessToken($user);
         $refreshToken = $jwt->generateRefreshToken($user);
         $expiresIn = (int) $this->config->get('plugins.api.auth.jwt_expiry', 3600);
@@ -566,7 +651,7 @@ abstract class AbstractApiController
         $resolver = $this->getPermissionResolver();
         $resolvedAccess = $resolver->resolvedMap($user, $isSuperAdmin);
 
-        return ApiResponse::create([
+        return [
             'access_token'  => $accessToken,
             'refresh_token' => $refreshToken,
             'token_type'    => 'Bearer',
@@ -580,7 +665,100 @@ abstract class AbstractApiController
                 'access'      => $resolvedAccess,
                 'content_editor' => $user->get('content_editor', ''),
             ],
-        ]);
+        ];
+    }
+
+    /**
+     * Shared post-authentication gate for every login transport.
+     *
+     * A user that has just proven their identity (password verified, or an
+     * OAuth provider vouched for them) is run through the same API-access and
+     * account-state checks here, then either handed a 2FA challenge or a full
+     * token pair. Returns the raw payload array — a 2FA challenge
+     * (`requires_2fa` / `challenge_token`) or a token pair — matching the shape
+     * `/auth/token` returns, so callers can return it inline (password login)
+     * or stash and replay it (SSO exchange). Throws ForbiddenException when the
+     * user may not use the API or the account is disabled, firing
+     * `onApiUserLoginFailure` with the reason first.
+     *
+     * Note: this does NOT touch the login rate limiter or fire the
+     * `onApiUserLogin` success event — those are transport-specific (the
+     * password limiter has no meaning for SSO) and stay with each caller.
+     *
+     * @return array<string, mixed>
+     */
+    protected function finalizeAuthenticatedUser(UserInterface $user, ServerRequestInterface $request): array
+    {
+        // Gate API access AFTER the identity is established, so any onUserLogin
+        // handlers (LDAP group→access mapping, etc.) have populated the access
+        // matrix. Accepts super-admins, holders of admin.login, and API-only
+        // users granted api.access.
+        if (
+            !$this->isSuperAdmin($user)
+            && !$user->authorize('admin.login')
+            && !$this->hasPermission($user, 'api.access')
+        ) {
+            $this->fireEvent('onApiUserLoginFailure', [
+                'username' => $user->username,
+                'reason' => 'no_api_access',
+                'ip' => $this->getRequestIp($request),
+            ]);
+            throw new ForbiddenException('API access is not enabled for this user.');
+        }
+
+        if ($user->get('state', 'enabled') === 'disabled') {
+            $this->fireEvent('onApiUserLoginFailure', [
+                'username' => $user->username,
+                'reason' => 'disabled',
+                'ip' => $this->getRequestIp($request),
+            ]);
+            throw new ForbiddenException('This user account is disabled.');
+        }
+
+        $jwt = new JwtAuthenticator($this->grav, $this->config);
+
+        if ($this->userRequiresTwoFactor($user)) {
+            // Identity was proven — issue a 2FA challenge. The login only counts
+            // as complete once the code verifies in /auth/2fa/verify; callers
+            // must NOT reset any rate limiter or fire a success event yet.
+            $challengeToken = $jwt->generateChallengeToken($user, self::CHALLENGE_2FA, self::CHALLENGE_TTL);
+
+            return [
+                'requires_2fa' => true,
+                'challenge_token' => $challengeToken,
+                'expires_in' => self::CHALLENGE_TTL,
+                'token_type' => 'Challenge',
+            ];
+        }
+
+        return $this->buildTokenPairPayload($jwt, $user);
+    }
+
+    /**
+     * Whether an account must clear a 2FA challenge before tokens are issued.
+     *
+     * 2FA support is provided by the Login plugin's TwoFactorAuth helper. We
+     * always honor a per-user configured secret: an account that explicitly
+     * enabled 2FA must never be silently downgraded to single-factor —
+     * including accounts migrated from Grav 1.7, where the master switch was
+     * the admin plugin's `plugins.admin.twofa_enabled` (default true), not the
+     * login plugin's `plugins.login.twofa_enabled` (default false) the gate
+     * previously keyed off (getgrav/grav#4145). The global flags govern whether
+     * enrollment is offered, not whether an existing secret is enforced.
+     */
+    protected function userRequiresTwoFactor(UserInterface $user): bool
+    {
+        if (!class_exists(TwoFactorAuth::class)) {
+            return false;
+        }
+
+        return (bool) $user->get('twofa_enabled') && (bool) $user->get('twofa_secret');
+    }
+
+    protected function getRequestIp(ServerRequestInterface $request): string
+    {
+        $server = $request->getServerParams();
+        return (string) ($server['REMOTE_ADDR'] ?? '');
     }
 
     protected function fireAdminEvent(string $name, array $data = []): Event
