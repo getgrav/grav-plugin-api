@@ -1305,19 +1305,60 @@ class GpmController extends AbstractApiController
         $path = $this->resolvePackagePath($slug, $pkgType);
         $file = $path . '/admin-next/fields/' . basename($fieldType) . '.js';
 
-        if (!file_exists($file)) {
-            throw new NotFoundException("Custom field '{$fieldType}' not found for '{$slug}'.");
+        return $this->serveComponentScript($request, $file, "Custom field '{$fieldType}' not found for '{$slug}'.");
+    }
+
+    /**
+     * GET /gpm/{plugins|themes}/{slug}/fields - Serve ALL of a package's custom
+     * field web component scripts in one response, as a JSON map
+     * { fieldType: code }.
+     *
+     * The admin-next SPA fetches this once per plugin instead of one request per
+     * field type (seo-magic alone ships seven), then evaluates each field's code
+     * locally with the right element tag. Conditional-GET cached like the
+     * individual scripts, with a cheap stat-based ETag so a revalidation never
+     * reads the (collectively large) bundle.
+     */
+    public function customFieldBundle(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, self::PERMISSION_READ);
+
+        $slug = $this->getRouteParam($request, 'slug');
+        $pkgType = str_contains($request->getUri()->getPath(), '/themes/') ? 'themes' : 'plugins';
+
+        $path = $this->resolvePackagePath($slug, $pkgType);
+        $dir = $path . '/admin-next/fields';
+
+        $files = is_dir($dir) ? (glob($dir . '/*.js') ?: []) : [];
+        sort($files);
+
+        // Stat-only validator: name + mtime + size per file. No content read, so
+        // a 304 stays cheap even though the bundle itself can be hundreds of KB.
+        $sigParts = [];
+        foreach ($files as $file) {
+            $sigParts[] = basename($file) . ':' . (@filemtime($file) ?: 0) . ':' . (@filesize($file) ?: 0);
+        }
+        $etag = '"' . md5(implode('|', $sigParts)) . '"';
+
+        $headers = [
+            'Content-Type' => 'application/json; charset=utf-8',
+            'Cache-Control' => 'private, no-cache',
+            'ETag' => $etag,
+        ];
+
+        if ($this->etagMatches($request->getHeaderLine('If-None-Match'), $etag)) {
+            return new \Grav\Framework\Psr7\Response(304, $headers, '');
         }
 
-        $content = file_get_contents($file);
+        $scripts = [];
+        foreach ($files as $file) {
+            $scripts[basename($file, '.js')] = file_get_contents($file);
+        }
 
         return new \Grav\Framework\Psr7\Response(
             200,
-            [
-                'Content-Type' => 'application/javascript; charset=utf-8',
-                'Cache-Control' => 'no-cache',
-            ],
-            $content,
+            $headers,
+            json_encode($scripts, JSON_UNESCAPED_SLASHES),
         );
     }
 
@@ -1371,20 +1412,7 @@ class GpmController extends AbstractApiController
         $path = $this->resolvePackagePath($slug, 'plugins');
         $file = $path . '/admin-next/pages/' . basename($slug) . '.js';
 
-        if (!file_exists($file)) {
-            throw new NotFoundException("Page component not found for plugin '{$slug}'.");
-        }
-
-        $content = file_get_contents($file);
-
-        return new \Grav\Framework\Psr7\Response(
-            200,
-            [
-                'Content-Type' => 'application/javascript; charset=utf-8',
-                'Cache-Control' => 'no-cache',
-            ],
-            $content,
-        );
+        return $this->serveComponentScript($request, $file, "Page component not found for plugin '{$slug}'.");
     }
 
     /**
@@ -1400,20 +1428,7 @@ class GpmController extends AbstractApiController
         $path = $this->resolvePackagePath($slug, 'plugins');
         $file = $path . '/admin-next/widgets/' . basename($slug) . '.js';
 
-        if (!file_exists($file)) {
-            throw new NotFoundException("Widget component not found for plugin '{$slug}'.");
-        }
-
-        $content = file_get_contents($file);
-
-        return new \Grav\Framework\Psr7\Response(
-            200,
-            [
-                'Content-Type' => 'application/javascript; charset=utf-8',
-                'Cache-Control' => 'no-cache',
-            ],
-            $content,
-        );
+        return $this->serveComponentScript($request, $file, "Widget component not found for plugin '{$slug}'.");
     }
 
     /**
@@ -1429,20 +1444,7 @@ class GpmController extends AbstractApiController
         $path = $this->resolvePackagePath($slug, 'plugins');
         $file = $path . '/admin-next/panels/' . basename($slug) . '.js';
 
-        if (!file_exists($file)) {
-            throw new NotFoundException("Panel component not found for plugin '{$slug}'.");
-        }
-
-        $content = file_get_contents($file);
-
-        return new \Grav\Framework\Psr7\Response(
-            200,
-            [
-                'Content-Type' => 'application/javascript; charset=utf-8',
-                'Cache-Control' => 'no-cache',
-            ],
-            $content,
-        );
+        return $this->serveComponentScript($request, $file, "Panel component not found for plugin '{$slug}'.");
     }
 
     /**
@@ -1460,20 +1462,7 @@ class GpmController extends AbstractApiController
         $path = $this->resolvePackagePath($slug, 'plugins');
         $file = $path . '/admin-next/modals/' . basename($modalId) . '.js';
 
-        if (!file_exists($file)) {
-            throw new NotFoundException("Modal component '{$modalId}' not found for plugin '{$slug}'.");
-        }
-
-        $content = file_get_contents($file);
-
-        return new \Grav\Framework\Psr7\Response(
-            200,
-            [
-                'Content-Type' => 'application/javascript; charset=utf-8',
-                'Cache-Control' => 'no-cache',
-            ],
-            $content,
-        );
+        return $this->serveComponentScript($request, $file, "Modal component '{$modalId}' not found for plugin '{$slug}'.");
     }
 
     /**
@@ -1490,20 +1479,76 @@ class GpmController extends AbstractApiController
         $path = $this->resolvePackagePath($slug, 'plugins');
         $file = $path . '/admin-next/reports/' . basename($reportId) . '.js';
 
+        return $this->serveComponentScript($request, $file, "Report component '{$reportId}' not found for plugin '{$slug}'.");
+    }
+
+    /**
+     * Serve an admin-next component script (custom field, widget, panel, page,
+     * modal or report) with conditional-GET caching.
+     *
+     * These files are immutable per plugin version, so we attach a content-hash
+     * ETag and answer If-None-Match with a 304. That lets the admin-next SPA —
+     * which fetches a whole fleet of these on every editor load — revalidate
+     * cheaply instead of re-downloading tens to hundreds of KB each time. A
+     * content hash (rather than mtime) means a rebuilt script is picked up
+     * immediately, which matters during plugin development.
+     */
+    protected function serveComponentScript(
+        ServerRequestInterface $request,
+        string $file,
+        string $notFoundMessage,
+    ): ResponseInterface {
         if (!file_exists($file)) {
-            throw new NotFoundException("Report component '{$reportId}' not found for plugin '{$slug}'.");
+            throw new NotFoundException($notFoundMessage);
         }
 
-        $content = file_get_contents($file);
+        // Cheap filesystem validator (mtime + size). Deliberately NOT a content
+        // hash: a conditional request must not read and hash the whole file —
+        // these scripts run to multiple MB and the editor revalidates a fleet of
+        // them on every load, so a 304 has to cost only a stat() or the burst
+        // exhausts PHP-FPM workers (503s). mtime changes on rebuild, so a script
+        // rebuilt during development still invalidates correctly.
+        $etag = sprintf('"%x-%x"', @filemtime($file) ?: 0, @filesize($file) ?: 0);
 
-        return new \Grav\Framework\Psr7\Response(
-            200,
-            [
-                'Content-Type' => 'application/javascript; charset=utf-8',
-                'Cache-Control' => 'no-cache',
-            ],
-            $content,
-        );
+        $headers = [
+            'Content-Type' => 'application/javascript; charset=utf-8',
+            // Store but always revalidate: an unchanged script costs only a 304,
+            // a changed one is served fresh. These routes are also excluded from
+            // the rate limiter (see RateLimitMiddleware).
+            'Cache-Control' => 'private, no-cache',
+            'ETag' => $etag,
+        ];
+
+        if ($this->etagMatches($request->getHeaderLine('If-None-Match'), $etag)) {
+            return new \Grav\Framework\Psr7\Response(304, $headers, '');
+        }
+
+        return new \Grav\Framework\Psr7\Response(200, $headers, file_get_contents($file));
+    }
+
+    /**
+     * Whether an If-None-Match header — possibly a comma-separated list, possibly
+     * carrying weak-validator (W/) prefixes — matches our ETag.
+     */
+    protected function etagMatches(string $ifNoneMatch, string $etag): bool
+    {
+        $ifNoneMatch = trim($ifNoneMatch);
+        if ($ifNoneMatch === '') {
+            return false;
+        }
+        if ($ifNoneMatch === '*') {
+            return true;
+        }
+        foreach (explode(',', $ifNoneMatch) as $candidate) {
+            $candidate = trim($candidate);
+            if (str_starts_with($candidate, 'W/')) {
+                $candidate = substr($candidate, 2);
+            }
+            if ($candidate === $etag) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

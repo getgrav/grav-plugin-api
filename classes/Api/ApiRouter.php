@@ -120,6 +120,19 @@ class ApiRouter extends ProcessorBase
         }
     }
 
+    /**
+     * Whether the request carries a bearer token (so authentication will be
+     * stateless and not touch the session). Checks X-API-Token first since
+     * FPM/FastCGI strips the Authorization header on some hosts.
+     */
+    protected function requestHasBearerToken(ServerRequestInterface $request): bool
+    {
+        if ($request->getHeaderLine('X-API-Token') !== '') {
+            return true;
+        }
+        return stripos($request->getHeaderLine('Authorization'), 'Bearer ') === 0;
+    }
+
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
         $this->startTimer();
@@ -198,6 +211,20 @@ class ApiRouter extends ProcessorBase
                         break;
                     }
                 }
+            }
+
+            // When the caller presents a bearer token (the admin SPA always
+            // does), authentication is stateless and never reads the session —
+            // so release Grav's exclusive session lock BEFORE the comparatively
+            // expensive auth (JWT verification) and dispatch, rather than after.
+            // Without this, a burst of parallel GETs from one SPA tab serialize
+            // through boot+auth on the single session lock and saturate the
+            // PHP-FPM pool (503s). Token auth is authoritative when a token is
+            // supplied, so we don't fall back to session passthrough here;
+            // session-cookie callers keep the lock until the user is resolved
+            // (the post-auth closeSessionEarly below). (admin2#65)
+            if ($this->requestHasBearerToken($request)) {
+                $this->closeSessionEarly($request->getMethod());
             }
 
             $this->startPhase('auth', 'API: Authentication');
@@ -508,6 +535,7 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('GET', '/gpm/plugins/{slug}', [GpmController::class, 'plugin']);
         $r->addRoute('GET', '/gpm/plugins/{slug}/readme', [GpmController::class, 'readme']);
         $r->addRoute('GET', '/gpm/plugins/{slug}/changelog', [GpmController::class, 'changelog']);
+        $r->addRoute('GET', '/gpm/plugins/{slug}/fields', [GpmController::class, 'customFieldBundle']);
         $r->addRoute('GET', '/gpm/plugins/{slug}/field/{type}', [GpmController::class, 'customFieldScript']);
         $r->addRoute('GET', '/gpm/plugins/{slug}/page', [GpmController::class, 'pluginPage']);
         $r->addRoute('GET', '/gpm/plugins/{slug}/page-script', [GpmController::class, 'customPageScript']);
@@ -516,7 +544,8 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('GET', '/gpm/themes/{slug}', [GpmController::class, 'theme']);
         $r->addRoute('GET', '/gpm/themes/{slug}/readme', [GpmController::class, 'readme']);
         $r->addRoute('GET', '/gpm/themes/{slug}/changelog', [GpmController::class, 'changelog']);
-$r->addRoute('GET', '/gpm/themes/{slug}/field/{type}', [GpmController::class, 'customFieldScript']);
+        $r->addRoute('GET', '/gpm/themes/{slug}/fields', [GpmController::class, 'customFieldBundle']);
+        $r->addRoute('GET', '/gpm/themes/{slug}/field/{type}', [GpmController::class, 'customFieldScript']);
         $r->addRoute('GET', '/gpm/updates', [GpmController::class, 'updates']);
         $r->addRoute('POST', '/gpm/install', [GpmController::class, 'install']);
         $r->addRoute('POST', '/gpm/remove', [GpmController::class, 'remove']);
