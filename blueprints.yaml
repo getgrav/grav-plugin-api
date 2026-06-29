@@ -17,8 +17,8 @@ compatibility:
   grav: ["2.0"]
 
 dependencies:
-  - { name: grav, version: ">=2.0.0" }
-  - { name: login, version: ">=3.8.3" }
+  - { name: grav, version: ">=2.0.4" }
+  - { name: login, version: ">=3.8.11" }
 
 form:
   validation: loose
@@ -101,12 +101,12 @@ form:
     auth.jwt_algorithm:
       type: select
       label: JWT Signing Algorithm
-      help: 'HMAC algorithm used to sign and verify API tokens. Only symmetric HS variants are supported because tokens are signed with a single shared secret. Leave on HS256 unless you have a specific reason to change it.'
+      help: "HMAC algorithm used to sign and verify API tokens. Only symmetric HS variants are supported because tokens are signed with a single shared secret. Leave on HS256 unless you have a specific reason to change it."
       default: HS256
       options:
-        HS256: 'HS256'
-        HS384: 'HS384'
-        HS512: 'HS512'
+        HS256: "HS256"
+        HS384: "HS384"
+        HS512: "HS512"
       validate:
         type: string
 
@@ -125,7 +125,7 @@ form:
     auth.key_cache_ttl:
       type: text
       label: API Key Verification Cache
-      help: 'How long (seconds) to remember a verified API key so repeat requests skip the deliberately-slow bcrypt check. Revoking, disabling or expiring a key still takes effect immediately. Set to 0 to verify every request.'
+      help: "How long (seconds) to remember a verified API key so repeat requests skip the deliberately-slow bcrypt check. Revoking, disabling or expiring a key still takes effect immediately. Set to 0 to verify every request."
       default: 600
       validate:
         type: int
@@ -322,8 +322,8 @@ form:
       help: "Standard records who did what, when, and from where. Detailed additionally captures field-level before/after values for page edits (more storage)."
       default: standard
       options:
-        standard: 'Standard (activity stream)'
-        detailed: 'Detailed (with change diffs)'
+        standard: "Standard (activity stream)"
+        detailed: "Detailed (with change diffs)"
 
     audit.retention_days:
       type: text
