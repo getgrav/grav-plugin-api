@@ -1,7 +1,7 @@
 name: API
 slug: api
 type: plugin
-version: 1.0.6
+version: 1.0.7
 description: RESTful API for Grav CMS. Provides headless access to pages, media, configuration, users, and system management.
 icon: plug
 author:
@@ -135,6 +135,18 @@ form:
       type: toggle
       label: Release Session Lock Early
       help: "Commit the session right after authentication on read-only (GET) requests so the new admin's parallel calls don't queue behind PHP's per-session file lock. Recommended on. Turn off only if a custom read endpoint writes to the session."
+      highlight: 1
+      default: 1
+      options:
+        1: Enabled
+        0: Disabled
+      validate:
+        type: bool
+
+    protect_frontend_session:
+      type: toggle
+      label: Protect Front-end Session
+      help: "When a token- or key-authenticated API call arrives without its own session cookie, don't let it plant a new front-end session cookie. This stops the API from booting a visitor who is logged in to the public site in the same browser. Recommended on."
       highlight: 1
       default: 1
       options:
