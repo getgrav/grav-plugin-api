@@ -56,6 +56,15 @@ class ConfigController extends AbstractApiController
     {
         $this->requirePermission($request, 'api.config.read');
 
+        // `backups` is a PRIVILEGED_SCOPE: read+write are already gated to API
+        // super users (assertScopeAllowed). Unlike `scheduler` — whose
+        // custom_jobs[].command is a command-execution sink and stays
+        // tool-only — the backups config (purge thresholds, profiles, schedule,
+        // exclude paths) is safe to edit through the generic config form, so we
+        // surface it in the scope list for supers. Non-supers never see it here
+        // and would get a 403 from show()/update() regardless.
+        $isSuper = $this->isSuperAdmin($this->getUser($request));
+
         /** @var \RocketTheme\Toolbox\ResourceLocator\UniformResourceIterator $iterator */
         $iterator = $this->grav['locator']->getIterator('blueprints://config');
 
@@ -65,8 +74,12 @@ class ConfigController extends AbstractApiController
                 continue;
             }
             $name = pathinfo($file->getFilename(), PATHINFO_FILENAME);
-            // Skip scheduler and backups (they belong to tools)
-            if (in_array($name, ['scheduler', 'backups', 'streams'], true)) {
+            // scheduler/streams are tool-managed or internal and never listed.
+            if (in_array($name, ['scheduler', 'streams'], true)) {
+                continue;
+            }
+            // backups is listed for super users only (see note above).
+            if ($name === 'backups' && !$isSuper) {
                 continue;
             }
             $configurations[$name] = true;

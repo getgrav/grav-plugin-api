@@ -1,3 +1,9 @@
+# v1.0.7
+## 06/30/2026
+
+1. [](#bugfix)
+    * Working in the new admin no longer logs out a visitor who is signed in to the public site in the same browser, by stopping API calls from replacing the visitor's session cookie when the admin reaches the API without one ([getgrav/grav-plugin-admin2#88](https://github.com/getgrav/grav-plugin-admin2/issues/88), [getgrav/grav-plugin-admin2#79](https://github.com/getgrav/grav-plugin-admin2/issues/79)).
+
 # v1.0.6
 ## 06/29/2026
 

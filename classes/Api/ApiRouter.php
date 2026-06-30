@@ -311,9 +311,86 @@ class ApiRouter extends ProcessorBase
             $response = (new CorsMiddleware($this->config))->addHeaders($request, $response);
         }
 
+        // Don't let a stateless API call leave a front-end session cookie
+        // behind that would boot a visitor logged in to the public site in the
+        // same browser (admin2#79, #88).
+        $this->protectSharedSession();
+
         $this->stopTimer();
 
         return $response;
+    }
+
+    /**
+     * Stop a stateless API call from planting the shared front-end PHP session
+     * cookie.
+     *
+     * The `/api` route is never under the admin path, so it rides the
+     * front-end `grav-site-*` session cookie (no `-admin` split). When the SPA
+     * reaches the API from a different origin or port — or any time the browser
+     * otherwise doesn't send that cookie — Grav still starts a fresh front-end
+     * session during boot and queues a `Set-Cookie` for it. Emitted, that
+     * cookie overwrites the session of a visitor logged in to the public site
+     * in the same browser and boots them; repeated on every background poll it
+     * reads as being logged out "every few minutes" once Grav core's
+     * obsolete-session grace window elapses (admin2#79, #88).
+     *
+     * JWT and API-key auth are stateless, so a caller that brought no session
+     * cookie of its own has nothing in that freshly-minted session worth
+     * keeping: drop its planted `Set-Cookie` so the visitor's own session (or
+     * lack of one) is left exactly as it was. A caller that DID present a
+     * session cookie is a real browser session — possibly the front-end
+     * visitor, or an admin tab — and Grav is just refreshing it, so leave it
+     * untouched (an authenticated request carrying the session cookie does not
+     * rotate or clear it).
+     */
+    protected function protectSharedSession(): void
+    {
+        if (!$this->config->get('plugins.api.protect_frontend_session', true)) {
+            return;
+        }
+        if (headers_sent()) {
+            return;
+        }
+
+        $session = $this->container['session'] ?? null;
+        if (!$session) {
+            return;
+        }
+
+        $sessionName = $session->getName();
+        if (!$sessionName || isset($_COOKIE[$sessionName])) {
+            // No session name resolved, or the caller brought its own session
+            // cookie — there is nothing freshly-minted to strip.
+            return;
+        }
+
+        // Remove only the just-planted session cookie, preserving every other
+        // Set-Cookie (CORS, remember-me, etc.). Mirrors the header rewrite in
+        // Grav\Framework\Session\Session::removeCookie(), which we can't call
+        // (protected). The leading space matches "Set-Cookie: <name>=".
+        $needle = " {$sessionName}=";
+        $kept = [];
+        $found = false;
+        foreach (headers_list() as $header) {
+            if (stripos($header, 'Set-Cookie:') !== 0) {
+                continue;
+            }
+            if (str_contains($header, $needle)) {
+                $found = true;
+            } else {
+                $kept[] = $header;
+            }
+        }
+
+        if (!$found) {
+            return;
+        }
+
+        header_remove('Set-Cookie');
+        foreach ($kept as $header) {
+            header($header, false);
+        }
     }
 
     protected function dispatch(ServerRequestInterface $request): ResponseInterface
