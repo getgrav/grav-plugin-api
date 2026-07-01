@@ -1798,8 +1798,15 @@ class PagesController extends AbstractApiController
 
         $raw = $this->grav['taxonomy']->taxonomy();
 
-        // Simplify: return just taxonomy type => [values] without internal file paths
+        // Seed every declared taxonomy type (site.taxonomies) so the admin can
+        // add categories/tags even when no page uses them yet. Without this the
+        // list is empty on fresh pages/sites and nothing can be added.
         $taxonomy = [];
+        foreach ((array) $this->grav['config']->get('site.taxonomies', []) as $type) {
+            $taxonomy[$type] = [];
+        }
+
+        // Simplify: return just taxonomy type => [values] without internal file paths
         foreach ($raw as $type => $values) {
             $taxonomy[$type] = array_keys($values);
         }

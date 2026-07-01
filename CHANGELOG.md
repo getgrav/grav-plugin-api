@@ -1,3 +1,10 @@
+# v1.0.8
+## 07/01/2026
+
+1. [](#bugfix)
+    * The new admin's taxonomy field now lists every taxonomy type declared for the site so you can add categories and tags on a page even when none have been used yet ([getgrav/grav-plugin-admin2#90](https://github.com/getgrav/grav-plugin-admin2/issues/90)).
+    * Opening a page preview in the new admin no longer logs out a visitor signed in to the public site in the same browser, because the preview now renders without touching the shared front-end session ([getgrav/grav-plugin-admin2#88](https://github.com/getgrav/grav-plugin-admin2/issues/88), [getgrav/grav-plugin-admin2#79](https://github.com/getgrav/grav-plugin-admin2/issues/79)).
+
 # v1.0.7
 ## 06/30/2026
 

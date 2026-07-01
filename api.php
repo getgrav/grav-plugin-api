@@ -9,6 +9,7 @@ use Grav\Common\Plugin;
 use Grav\Common\Processors\Events\RequestHandlerEvent;
 use Grav\Common\Utils;
 use Grav\Events\PermissionsRegisterEvent;
+use Grav\Events\PluginsLoadedEvent;
 use Grav\Framework\Acl\PermissionsReader;
 use Grav\Plugin\Api\ApiRouter;
 use Grav\Plugin\Api\Audit\AuditStore;
@@ -40,7 +41,38 @@ class ApiPlugin extends Plugin
             ],
             'onBeforeCacheClear' => ['onBeforeCacheClear', 0],
             PermissionsRegisterEvent::class => ['onRegisterPermissions', 1000],
+            // Fires from Plugins::init(), which runs BEFORE InitializeProcessor
+            // starts the session — the only window in which we can still stop the
+            // shared front-end session from being started for a preview request.
+            PluginsLoadedEvent::class => ['onPluginsLoaded', 0],
         ];
+    }
+
+    /**
+     * Isolate the Admin-Next page preview from the visitor's front-end session.
+     *
+     * Admin-Next renders the preview by pointing an iframe (and the "open in new
+     * tab" link) at the real front-end URL. That request rides the shared
+     * front-end `grav-site-*` session cookie, and booting/reading that session
+     * under the admin context can rotate or invalidate it — logging out a visitor
+     * signed in to the public site in the same browser (admin2#88, #79).
+     *
+     * When the preview flags itself with `admin_preview`, suppress session
+     * initialization for this one request so the visitor's session is never read,
+     * rewritten, or destroyed. The page still renders (as an anonymous visitor,
+     * which is exactly what a layout preview wants), and no `grav-site-*` cookie
+     * is planted even on a cross-origin iframe. This must run before the session
+     * starts, so it hooks PluginsLoadedEvent rather than onPluginsInitialized
+     * (which fires a processor later, after the session is already up).
+     */
+    public function onPluginsLoaded(): void
+    {
+        if (
+            isset($_GET['admin_preview'])
+            && $this->config->get('plugins.api.protect_frontend_session', true)
+        ) {
+            $this->config->set('system.session.initialize', false);
+        }
     }
 
     public function autoload(): ClassLoader
