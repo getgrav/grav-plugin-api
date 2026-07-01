@@ -17,6 +17,20 @@ class SchedulerController extends AbstractApiController
     private const PERMISSION_WRITE = 'api.scheduler.write';
 
     /**
+     * Register system jobs on the scheduler.
+     *
+     * Fires onSchedulerInitialized so plugins register their jobs (cache-purge,
+     * cache-clear, etc.). Core Backups registers its listener from BackupsProcessor,
+     * which is skipped when the API short-circuits the middleware, so we initialize
+     * it explicitly here (Backups::init() is idempotent).
+     */
+    private function initializeSchedulerJobs(Scheduler $scheduler): void
+    {
+        $this->grav['backups']->init();
+        $this->grav->fireEvent('onSchedulerInitialized', new Event(['scheduler' => $scheduler]));
+    }
+
+    /**
      * GET /scheduler/jobs - List all registered scheduler jobs with status.
      */
     public function jobs(ServerRequestInterface $request): ResponseInterface
@@ -26,9 +40,7 @@ class SchedulerController extends AbstractApiController
         /** @var Scheduler $scheduler */
         $scheduler = $this->grav['scheduler'];
 
-        // Fire onSchedulerInitialized so plugins register their system jobs
-        // (cache-purge, cache-clear, backups, etc.)
-        $this->grav->fireEvent('onSchedulerInitialized', new Event(['scheduler' => $scheduler]));
+        $this->initializeSchedulerJobs($scheduler);
 
         $allJobs = $scheduler->getAllJobs();
         $states = $scheduler->getJobStates()->content();
@@ -63,8 +75,8 @@ class SchedulerController extends AbstractApiController
         /** @var Scheduler $scheduler */
         $scheduler = $this->grav['scheduler'];
 
-        // Fire onSchedulerInitialized so health status sees system jobs
-        $this->grav->fireEvent('onSchedulerInitialized', new Event(['scheduler' => $scheduler]));
+        // Ensure system jobs are registered so health status sees them
+        $this->initializeSchedulerJobs($scheduler);
 
         $crontabStatus = $scheduler->isCrontabSetup();
         $statusMap = [0 => 'not_installed', 1 => 'installed', 2 => 'error'];
