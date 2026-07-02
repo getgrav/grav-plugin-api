@@ -1,6 +1,8 @@
 # v1.0.8
 ## 07/02/2026
 
+1. [](#new)
+    * The new admin's page editor can now preview an unpublished page instead of showing a 404, so you no longer need a separate plugin to preview drafts ([getgrav/grav-plugin-admin2#100](https://github.com/getgrav/grav-plugin-admin2/issues/100)).
 1. [](#improved)
     * A plugin that adds tabs to the new admin's Users list can now choose which tab it opens on and hide the built-in "All Users" tab when showing every account isn't a useful default ([getgrav/grav-plugin-admin2#51](https://github.com/getgrav/grav-plugin-admin2/issues/51)).
     * The new admin now remembers a per-user Vim keybindings choice for its Markdown and code editors, saved to the user's account ([getgrav/grav-plugin-admin2#95](https://github.com/getgrav/grav-plugin-admin2/issues/95)).

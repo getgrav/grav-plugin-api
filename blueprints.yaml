@@ -155,6 +155,18 @@ form:
       validate:
         type: bool
 
+    allow_draft_preview:
+      type: toggle
+      label: Allow Draft Preview
+      help: "Let the new admin's page editor preview an unpublished page on the front end. The preview is authorized by a short-lived token minted only for users who can read the page, so turning this off disables draft previews entirely. Recommended on."
+      highlight: 1
+      default: 1
+      options:
+        1: Enabled
+        0: Disabled
+      validate:
+        type: bool
+
     section_cors:
       type: section
       title: CORS Settings

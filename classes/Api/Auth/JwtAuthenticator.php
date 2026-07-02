@@ -126,6 +126,89 @@ class JwtAuthenticator implements AuthenticatorInterface
     }
 
     /**
+     * Mint a short-lived, route-scoped token that authorizes rendering ONE
+     * unpublished page as a front-end preview (getgrav/grav-plugin-admin2#100).
+     *
+     * The admin preview points a plain browser navigation (iframe / new tab) at
+     * the real front-end URL, which can't attach an auth header and — by design
+     * (admin2#88/#79) — runs with the shared front-end session suppressed. So it
+     * carries no identity of its own. This signed token is that identity: only an
+     * authenticated caller with page-read permission can obtain one (see
+     * {@see \Grav\Plugin\Api\Controllers\PagesController::previewToken()}), it is
+     * pinned to a single page `route`, and it expires in minutes. On the front-end
+     * request the plugin validates it and force-publishes only that one route, so
+     * a leaked token unlocks nothing but its own already-authorized page.
+     */
+    public function generatePreviewToken(UserInterface $user, string $route, int $ttl = 300): string
+    {
+        $secret = $this->getSecret();
+        $algorithm = $this->resolveAlgorithm();
+
+        $payload = [
+            'iss' => 'grav-api',
+            'sub' => $user->username,
+            'iat' => time(),
+            'exp' => time() + $ttl,
+            'type' => 'preview',
+            // The page this token unlocks. Validation rejects the token for any
+            // other route, so it can never be replayed against a different draft.
+            'route' => $route,
+            'jti' => bin2hex(random_bytes(16)),
+        ];
+
+        return JWT::encode($payload, $secret, $algorithm);
+    }
+
+    /**
+     * Validate a preview token and return the single page route it authorizes,
+     * or null if the token is invalid. Valid means: the signature verifies, it is
+     * a non-expired `preview` token carrying a `route` claim, it has not been
+     * revoked, and the account it was minted for still exists and is enabled.
+     *
+     * Returning the route (rather than a bool) makes the token itself the sole
+     * source of truth for which page to unlock — the caller force-publishes
+     * exactly that route and nothing else, so there is no fragile matching of the
+     * request URL against a route claim. This runs on a session-less front-end
+     * request, so authorization rests entirely on the signature: the token is
+     * unforgeable without the per-site signing secret and was only ever issued to
+     * a caller who already had read access to this page.
+     */
+    public function validatePreviewToken(string $token): ?string
+    {
+        try {
+            $secret = $this->getSecret();
+            $algorithm = $this->resolveAlgorithm();
+
+            $decoded = JWT::decode($token, new Key($secret, $algorithm));
+
+            if (($decoded->type ?? null) !== 'preview') {
+                return null;
+            }
+
+            $route = $decoded->route ?? null;
+            if (!is_string($route) || $route === '') {
+                return null;
+            }
+
+            if ($this->isTokenRevoked($decoded->jti ?? '')) {
+                return null;
+            }
+
+            /** @var UserCollectionInterface $accounts */
+            $accounts = $this->grav['accounts'];
+            $user = $accounts->load($decoded->sub ?? '');
+
+            if (!$user->exists() || !$this->userTokenStillValid($user, $decoded)) {
+                return null;
+            }
+
+            return $route;
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    /**
      * Validate a challenge token and return the associated user. The token must
      * carry the expected purpose in its `type` claim and must not have been
      * revoked. Returns null if invalid, expired, or revoked.

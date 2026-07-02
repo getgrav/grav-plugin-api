@@ -18,6 +18,8 @@ use Grav\Plugin\Api\Exceptions\ApiException;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\TwigContentForbiddenException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
+use Grav\Plugin\Api\Exceptions\ForbiddenException;
+use Grav\Plugin\Api\Auth\JwtAuthenticator;
 use Grav\Plugin\Api\FlexBackend;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Grav\Plugin\Api\Serializers\MediaSerializer;
@@ -269,6 +271,52 @@ class PagesController extends AbstractApiController
             $data = $this->serializer->serialize($page, $options);
 
             return $this->respondWithEtag($data);
+        } finally {
+            $this->restoreLanguage($previousLang);
+        }
+    }
+
+    /**
+     * POST /pages/{route}/preview-token — mint a short-lived token that lets the
+     * front-end render this page even when it is unpublished, for the admin page
+     * preview (getgrav/grav-plugin-admin2#100).
+     *
+     * The preview is a plain browser navigation to the real front-end URL, so it
+     * can't carry an auth header and deliberately runs with the front-end session
+     * suppressed (admin2#88/#79). This endpoint is where the authorization
+     * actually happens: it requires read permission on pages and confirms the
+     * page exists, then hands back a signed token pinned to this one route. The
+     * front-end request presents that token and the plugin force-publishes only
+     * this page (see ApiPlugin::onPagesInitialized()). No token, no draft preview
+     * — so `?admin_preview=1` alone can never expose an unpublished page.
+     */
+    public function previewToken(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, self::PERMISSION_READ);
+
+        if (!$this->config->get('plugins.api.allow_draft_preview', true)) {
+            throw new ForbiddenException('Draft preview is disabled for this site.');
+        }
+
+        $previousLang = $this->applyLanguage($request);
+
+        try {
+            $this->enablePages();
+
+            $route = $this->getRouteParam($request, 'route');
+            $page = $this->findPageOrFail('/' . $route);
+
+            // Pin the token to the page's canonical public route — the same value
+            // the admin builds the preview URL from — so it can only ever unlock
+            // this page. Only super admins and users with page-read can reach here.
+            $jwt = new JwtAuthenticator($this->grav, $this->config);
+            $ttl = max(30, (int) $this->config->get('plugins.api.preview_token_ttl', 300));
+            $token = $jwt->generatePreviewToken($this->getUser($request), $page->route(), $ttl);
+
+            return ApiResponse::create([
+                'token' => $token,
+                'expires_in' => $ttl,
+            ]);
         } finally {
             $this->restoreLanguage($previousLang);
         }
@@ -624,18 +672,30 @@ class PagesController extends AbstractApiController
             }
 
             if (array_key_exists('header', $body)) {
-                $existing = $this->headerToArray($page->header());
-                $merged = $this->mergePatch($existing, $body['header']);
-                // Strip null values — toggleable fields send null to signal removal
-                $merged = $this->stripNullValues($merged);
+                $incoming = (array) $body['header'];
+                if (($body['header_mode'] ?? null) === 'replace') {
+                    // Expert (raw-frontmatter) mode sends the COMPLETE header, so
+                    // replace it wholesale. Merging would preserve keys the user
+                    // deleted from the YAML — including nested ones — so they'd
+                    // reappear after the save (admin2#102). Nulls are still
+                    // stripped so an explicit `key: null` removes rather than sets.
+                    $merged = $this->stripNullValues($incoming);
+                } else {
+                    // Normal mode sends a partial header (blueprint-field deltas),
+                    // so merge over the existing header; a null value signals
+                    // removal of that key (toggleable fields, staged deletions).
+                    $existing = $this->headerToArray($page->header());
+                    $merged = $this->mergePatch($existing, $incoming);
+                    $merged = $this->stripNullValues($merged);
+                }
                 $page->header((object) $merged);
                 // Sync properties that legacy Page caches separately from the
                 // header dict (otherwise they stay stale until reload).
-                if (array_key_exists('published', $body['header'])) {
-                    $page->published((bool) $body['header']['published']);
+                if (array_key_exists('published', $incoming)) {
+                    $page->published((bool) $incoming['published']);
                 }
-                if (array_key_exists('visible', $body['header'])) {
-                    $page->visible((bool) $body['header']['visible']);
+                if (array_key_exists('visible', $incoming)) {
+                    $page->visible((bool) $incoming['visible']);
                 }
             }
 

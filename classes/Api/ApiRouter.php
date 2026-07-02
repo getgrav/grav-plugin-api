@@ -525,6 +525,7 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('POST', '/pages/{route:.+}/translate', [PagesController::class, 'translate']);
         $r->addRoute('POST', '/pages/{route:.+}/adopt-language', [PagesController::class, 'adoptLanguage']);
         $r->addRoute('POST', '/pages/{route:.+}/sync', [PagesController::class, 'sync']);
+        $r->addRoute('POST', '/pages/{route:.+}/preview-token', [PagesController::class, 'previewToken']);
         $r->addRoute('GET', '/pages/{route:.+}/compare', [PagesController::class, 'compare']);
         $r->addRoute('POST', '/pages/{route:.+}/reorder', [PagesController::class, 'reorder']);
         $r->addRoute('GET', '/pages/{route:.+}/media', [MediaController::class, 'pageMedia']);

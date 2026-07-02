@@ -51,6 +51,15 @@ rate_limit:
   window: 60
   storage: file
 
+# Let the new admin's page editor preview an unpublished (published: false) page
+# on the front end. The preview is authorized by a short-lived, route-scoped
+# token minted only for users with page-read permission; turn this off to disable
+# draft previews entirely regardless of the token.
+allow_draft_preview: true
+# Lifetime of a draft-preview token, in seconds (minimum 30). Short by design —
+# it only needs to survive from clicking Preview to the page loading.
+preview_token_ttl: 300
+
 flex_backend:
   pages: true
   accounts: true

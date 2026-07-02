@@ -12,6 +12,7 @@ use Grav\Events\PermissionsRegisterEvent;
 use Grav\Events\PluginsLoadedEvent;
 use Grav\Framework\Acl\PermissionsReader;
 use Grav\Plugin\Api\ApiRouter;
+use Grav\Plugin\Api\Auth\JwtAuthenticator;
 use Grav\Plugin\Api\Audit\AuditStore;
 use Grav\Plugin\Api\Audit\AuditSubscriber;
 use Grav\Plugin\Api\Auth\ApiKeyManager;
@@ -75,6 +76,51 @@ class ApiPlugin extends Plugin
         }
     }
 
+    /**
+     * Force-publish a single page for a validated admin draft-preview request
+     * (getgrav/grav-plugin-admin2#100).
+     *
+     * A page with `published: false` is not routable on the front end, so the
+     * admin's preview (an iframe / new-tab navigation to the real front-end URL)
+     * 404s. The admin obtains a short-lived, route-scoped token from
+     * `POST /pages/{route}/preview-token` — which requires page-read permission —
+     * and appends it to the preview URL alongside `admin_preview=1`.
+     *
+     * This runs on `onPagesInitialized`, after the page index is built but before
+     * the page is dispatched (Grav resolves `grav['page']` a few lines later in
+     * PagesProcessor). We validate the token's signature and read the single
+     * route it authorizes, then flip that one page to published+routable in
+     * memory for this request only. Dispatch then finds it and it renders. The
+     * token is the entire authorization: `admin_preview=1` on its own never
+     * unlocks anything, and a token can only ever reveal the exact page it was
+     * minted for. The session stays suppressed throughout (see onPluginsLoaded),
+     * so this doesn't reintroduce the front-end-session rotation of admin2#88/#79.
+     */
+    public function onPreviewPagesInitialized(Event $event): void
+    {
+        $token = (string) ($_GET['preview_token'] ?? '');
+        if ($token === '') {
+            return;
+        }
+
+        $route = (new JwtAuthenticator($this->grav, $this->config))->validatePreviewToken($token);
+        if ($route === null) {
+            return;
+        }
+
+        $pages = $event['pages'] ?? $this->grav['pages'];
+        $page = $pages->find($route);
+        if ($page === null) {
+            return;
+        }
+
+        // Unlock this one page for this request only (nothing is written to disk).
+        // Setting both flags also covers a page that is explicitly `routable:
+        // false`, which the author still wants to see rendered in a preview.
+        $page->published(true);
+        $page->routable(true);
+    }
+
     public function autoload(): ClassLoader
     {
         return require __DIR__ . '/vendor/autoload.php';
@@ -123,9 +169,22 @@ class ApiPlugin extends Plugin
         // Page-view tracking subscribes for FRONTEND requests only — the
         // handler itself short-circuits for admin/API/non-page requests.
         if (!$this->active && !$this->isAdmin()) {
-            $this->enable([
+            $listeners = [
                 'onPageInitialized' => ['onFrontendPageInitialized', 0],
-            ]);
+            ];
+
+            // Admin draft preview: when a signed, route-scoped preview token
+            // rides the request (admin2#100), unlock that one page so an
+            // unpublished draft renders instead of 404ing. Only wired up when the
+            // preview flags are actually present, so it costs nothing otherwise.
+            if (
+                isset($_GET['admin_preview'], $_GET['preview_token'])
+                && $this->config->get('plugins.api.allow_draft_preview', true)
+            ) {
+                $listeners['onPagesInitialized'] = ['onPreviewPagesInitialized', 0];
+            }
+
+            $this->enable($listeners);
         }
 
         if ($this->active) {
