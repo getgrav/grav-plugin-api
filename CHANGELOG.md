@@ -1,9 +1,11 @@
 # v1.0.8
-## 07/01/2026
+## 07/02/2026
 
 1. [](#improved)
     * A plugin that adds tabs to the new admin's Users list can now choose which tab it opens on and hide the built-in "All Users" tab when showing every account isn't a useful default ([getgrav/grav-plugin-admin2#51](https://github.com/getgrav/grav-plugin-admin2/issues/51)).
+    * The new admin now remembers a per-user Vim keybindings choice for its Markdown and code editors, saved to the user's account ([getgrav/grav-plugin-admin2#95](https://github.com/getgrav/grav-plugin-admin2/issues/95)).
 1. [](#bugfix)
+    * A user migrated from the classic admin now keeps the interface language they had set there, instead of dropping to the site default, until they pick a different one in the new admin ([getgrav/grav-plugin-admin2#98](https://github.com/getgrav/grav-plugin-admin2/issues/98)).
     * The new admin's taxonomy field now lists every taxonomy type declared for the site so you can add categories and tags on a page even when none have been used yet ([getgrav/grav-plugin-admin2#90](https://github.com/getgrav/grav-plugin-admin2/issues/90)).
     * Opening a page preview in the new admin no longer logs out a visitor signed in to the public site in the same browser, because the preview now renders without touching the shared front-end session ([getgrav/grav-plugin-admin2#88](https://github.com/getgrav/grav-plugin-admin2/issues/88), [getgrav/grav-plugin-admin2#79](https://github.com/getgrav/grav-plugin-admin2/issues/79)).
 
