@@ -270,10 +270,55 @@ class ApiPlugin extends Plugin
             $this->outputJson(['status' => 'error', 'message' => 'Not authorized.']);
         }
 
+        // Authorize the caller against the target account. admin.login is the
+        // baseline permission every panel user holds; on its own it only grants
+        // management of the caller's OWN keys. Minting or revoking keys for any
+        // other account is an account-management operation and requires
+        // admin.users / admin.super, and only a super-admin may target a
+        // super-admin account. Without this gate an admin.login user could forge
+        // a persistent key bound to any account and inherit its API permissions.
+        // Mirrors the REST path's requireApiKeyPermission + requireNotSuperTarget.
+        // (GHSA-7v74-m76q-8wf3)
+        $this->authorizeApiKeyTarget($user);
+
         match ($task) {
             'apiKeyGenerate' => $this->handleApiKeyGenerate(),
             'apiKeyRevoke' => $this->handleApiKeyRevoke(),
         };
+    }
+
+    /**
+     * Enforce that the logged-in admin may manage API keys for the account named
+     * in the route. Acting on your own account is never an escalation and is
+     * always allowed. Acting on any other account requires admin.users or
+     * admin.super, and a non-super caller may never target a super-admin
+     * account. Terminates the request with a JSON error when the check fails.
+     * (GHSA-7v74-m76q-8wf3)
+     *
+     * @param object $current The logged-in session user.
+     */
+    protected function authorizeApiKeyTarget($current): void
+    {
+        $username = $this->getAdminRouteUsername();
+        if (!$username) {
+            $this->outputJson(['status' => 'error', 'message' => 'Could not determine username.']);
+        }
+
+        // Managing your own keys is always allowed.
+        if (($current->username ?? null) === $username) {
+            return;
+        }
+
+        // Managing another account's keys requires account-management rights.
+        if (!$current->authorize('admin.super') && !$current->authorize('admin.users')) {
+            $this->outputJson(['status' => 'error', 'message' => 'Not authorized.']);
+        }
+
+        // Only a super-admin may act on a super-admin account.
+        $target = $this->grav['accounts']->load($username);
+        if ($target->exists() && $target->authorize('admin.super') && !$current->authorize('admin.super')) {
+            $this->outputJson(['status' => 'error', 'message' => 'Only super-admins can manage super-admin accounts.']);
+        }
     }
 
     protected function handleApiKeyGenerate(): void
