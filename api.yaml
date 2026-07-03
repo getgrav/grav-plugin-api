@@ -68,7 +68,8 @@ media_metadata:
   # Descriptive fields editable in the media metadata editor (page media field
   # and site media manager). Each entry's `key` is the exact key written to the
   # `<filename>.meta.yaml` sidecar next to the media file. Order is preserved in
-  # the editor. `type` is `text` (single line) or `textarea` (multi-line).
+  # the editor. `type` is `text` (single line), `textarea` (multi-line), or
+  # `tags` (a list of values, stored as a YAML sequence).
   #
   # Any keys NOT listed here — EXIF data, width/height, the `upload` block core
   # writes, image-action keys like `resize`/`quality` — are left untouched when
@@ -78,6 +79,7 @@ media_metadata:
     - { key: title, label: 'Title', type: text }
     - { key: caption, label: 'Caption', type: textarea }
     - { key: description, label: 'Description', type: textarea }
+    - { key: tags, label: 'Tags', type: tags }
   # Maximum characters accepted per metadata value. Values are also stripped of
   # HTML tags on save, since they render into `<img>` attributes on the site.
   max_length: 2000

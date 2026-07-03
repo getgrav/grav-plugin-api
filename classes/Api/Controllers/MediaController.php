@@ -48,7 +48,11 @@ class MediaController extends AbstractApiController
         ['key' => 'title', 'label' => 'Title', 'type' => 'text'],
         ['key' => 'caption', 'label' => 'Caption', 'type' => 'textarea'],
         ['key' => 'description', 'label' => 'Description', 'type' => 'textarea'],
+        ['key' => 'tags', 'label' => 'Tags', 'type' => 'tags'],
     ];
+
+    /** Maximum number of entries kept in a `tags` (list) field. */
+    private const MAX_TAGS = 50;
 
     /**
      * GET /pages/{route}/media - List all media for a page.
@@ -1119,7 +1123,10 @@ class MediaController extends AbstractApiController
             if (in_array($key, self::RESERVED_META_KEYS, true) || isset($seen[$key])) {
                 continue;
             }
-            $type = ($entry['type'] ?? 'text') === 'textarea' ? 'textarea' : 'text';
+            $type = (string) ($entry['type'] ?? 'text');
+            if (!in_array($type, ['text', 'textarea', 'tags'], true)) {
+                $type = 'text';
+            }
             $label = trim((string) ($entry['label'] ?? '')) ?: $key;
 
             $seen[$key] = true;
@@ -1167,6 +1174,50 @@ class MediaController extends AbstractApiController
         }
 
         return $str;
+    }
+
+    /**
+     * Sanitize an incoming `tags` value into a clean list of strings. Accepts an
+     * array of strings, or a single comma-separated string. Each entry is
+     * single-line-sanitized (tags render into attributes/queries just like other
+     * metadata), commas are dropped (they delimit entries), blanks and
+     * duplicates are removed, and the list is capped at MAX_TAGS.
+     *
+     * @return list<string>
+     */
+    private function sanitizeMetadataList(mixed $value, int $maxLen): array
+    {
+        if (is_string($value)) {
+            $value = explode(',', $value);
+        }
+        if (!is_array($value)) {
+            throw new ValidationException('A tags value must be a list of strings.');
+        }
+
+        $tags = [];
+        $seen = [];
+        foreach ($value as $item) {
+            if (is_array($item) || is_object($item)) {
+                throw new ValidationException('Each tag must be plain text.');
+            }
+            // Reuse single-line sanitization, then strip commas (the delimiter).
+            $tag = str_replace(',', ' ', $this->sanitizeMetadataValue($item, 'text', $maxLen));
+            $tag = trim((string) preg_replace('/\s+/u', ' ', $tag));
+            if ($tag === '') {
+                continue;
+            }
+            $fold = mb_strtolower($tag);
+            if (isset($seen[$fold])) {
+                continue;
+            }
+            $seen[$fold] = true;
+            $tags[] = $tag;
+            if (count($tags) >= self::MAX_TAGS) {
+                break;
+            }
+        }
+
+        return $tags;
     }
 
     /**
@@ -1221,12 +1272,25 @@ class MediaController extends AbstractApiController
         foreach ($defs as $def) {
             $key = $def['key'];
             $managedKeys[$key] = true;
-            $raw = $stored[$key] ?? '';
+            $raw = $stored[$key] ?? null;
+
+            if ($def['type'] === 'tags') {
+                // Normalize to a clean list of strings for the tag editor.
+                $value = is_array($raw)
+                    ? array_values(array_filter(array_map(
+                        static fn($t) => is_scalar($t) ? (string) $t : '',
+                        $raw,
+                    ), static fn($t) => $t !== ''))
+                    : (is_scalar($raw) && $raw !== '' ? [(string) $raw] : []);
+            } else {
+                $value = is_scalar($raw) ? (string) $raw : '';
+            }
+
             $fields[] = [
                 'key' => $key,
                 'label' => $def['label'],
                 'type' => $def['type'],
-                'value' => is_scalar($raw) ? (string) $raw : '',
+                'value' => $value,
             ];
         }
 
@@ -1261,6 +1325,16 @@ class MediaController extends AbstractApiController
         foreach ($this->getMetadataFieldDefs() as $def) {
             $key = $def['key'];
             if (!array_key_exists($key, $input) || in_array($key, self::RESERVED_META_KEYS, true)) {
+                continue;
+            }
+
+            if ($def['type'] === 'tags') {
+                $tags = $this->sanitizeMetadataList($input[$key], $maxLen);
+                if ($tags === []) {
+                    unset($stored[$key]);
+                } else {
+                    $stored[$key] = $tags;
+                }
                 continue;
             }
 

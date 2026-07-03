@@ -2,7 +2,7 @@
 ## 07/02/2026
 
 1. [](#new)
-    * You can now edit a media file's metadata such as alt text, title, caption, and description directly in the new admin, with the fields you want to manage configurable in the plugin settings ([getgrav/grav-plugin-admin2#99](https://github.com/getgrav/grav-plugin-admin2/issues/99)).
+    * You can now edit a media file's metadata such as alt text, title, caption, description, and tags directly in the new admin, with the fields you want to manage configurable in the plugin settings ([getgrav/grav-plugin-admin2#99](https://github.com/getgrav/grav-plugin-admin2/issues/99)).
     * The new admin's page editor can now preview an unpublished page instead of showing a 404, so you no longer need a separate plugin to preview drafts ([getgrav/grav-plugin-admin2#100](https://github.com/getgrav/grav-plugin-admin2/issues/100)).
 1. [](#improved)
     * A plugin that adds tabs to the new admin's Users list can now choose which tab it opens on and hide the built-in "All Users" tab when showing every account isn't a useful default ([getgrav/grav-plugin-admin2#51](https://github.com/getgrav/grav-plugin-admin2/issues/51)).

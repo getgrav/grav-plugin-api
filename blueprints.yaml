@@ -291,6 +291,7 @@ form:
           options:
             text: "Single line"
             textarea: "Multi-line"
+            tags: "Tags (list)"
 
     section_rate_limit:
       type: section

@@ -1608,7 +1608,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"fields\": {\n    \"alt\": \"A dog running on the beach\",\n    \"title\": \"Beach Day\",\n    \"caption\": \"\",\n    \"description\": \"Our trip to the coast last summer.\"\n  }\n}",
+              "raw": "{\n  \"fields\": {\n    \"alt\": \"A dog running on the beach\",\n    \"title\": \"Beach Day\",\n    \"caption\": \"\",\n    \"description\": \"Our trip to the coast last summer.\",\n    \"tags\": [\n      \"beach\",\n      \"dog\",\n      \"summer\"\n    ]\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1762,7 +1762,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"fields\": {\n    \"alt\": \"A dog running on the beach\",\n    \"title\": \"Beach Day\",\n    \"caption\": \"\",\n    \"description\": \"Our trip to the coast last summer.\"\n  }\n}",
+              "raw": "{\n  \"fields\": {\n    \"alt\": \"A dog running on the beach\",\n    \"title\": \"Beach Day\",\n    \"caption\": \"\",\n    \"description\": \"Our trip to the coast last summer.\",\n    \"tags\": [\n      \"beach\",\n      \"dog\",\n      \"summer\"\n    ]\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"

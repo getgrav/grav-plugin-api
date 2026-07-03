@@ -5095,17 +5095,24 @@ components:
               fields:
                 type: object
                 additionalProperties:
-                  type: string
+                  oneOf:
+                    - type: string
+                    - type: array
+                      items:
+                        type: string
                 description: |
                   Map of metadata field key to value. Only keys matching a
-                  configured field are written; an empty string clears a field.
-                  A bare `{key: value}` object (without the `fields` wrapper) is
-                  also accepted.
+                  configured field are written; an empty string (or empty array
+                  for a `tags` field) clears a field. A `tags` field accepts an
+                  array of strings, or a comma-separated string. A bare
+                  `{key: value}` object (without the `fields` wrapper) is also
+                  accepted.
                 example:
                   alt: A dog running on the beach
                   title: Beach Day
                   caption: ""
                   description: Our trip to the coast last summer.
+                  tags: [beach, dog, summer]
 
   # ---------------------------------------------------------------------------
   # Schemas
@@ -5137,10 +5144,17 @@ components:
                 example: Alt Text
               type:
                 type: string
-                enum: [text, textarea]
+                enum: [text, textarea, tags]
                 example: text
               value:
-                type: string
+                description: |
+                  A string for `text`/`textarea` fields, or an array of strings
+                  for a `tags` field.
+                oneOf:
+                  - type: string
+                  - type: array
+                    items:
+                      type: string
                 example: A dog running on the beach
         extra:
           type: object
