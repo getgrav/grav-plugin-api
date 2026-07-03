@@ -39,8 +39,10 @@ class AuditSubscriber
         'onApiPageTranslated'   => ['page.translate', 'info',   'content'],
         'onApiPagesReordered'   => ['pages.reorder',  'info',   'content'],
         // Media
-        'onApiMediaUploaded'    => ['media.upload', 'info',   'media'],
-        'onApiMediaDeleted'     => ['media.delete', 'notice', 'media'],
+        'onApiMediaUploaded'          => ['media.upload',          'info',   'media'],
+        'onApiMediaDeleted'           => ['media.delete',          'notice', 'media'],
+        'onApiMediaMetadataUpdated'   => ['media.metadata.update', 'info',   'media'],
+        'onApiMediaMetadataDeleted'   => ['media.metadata.delete', 'notice', 'media'],
         // Users / groups
         'onApiUserCreated'      => ['user.create',  'notice',  'users'],
         'onApiUserUpdated'      => ['user.update',  'notice',  'users'],

@@ -256,6 +256,42 @@ form:
       validate:
         type: bool
 
+    section_media_metadata:
+      type: section
+      title: Media Metadata
+      underline: true
+
+    media_metadata.max_length:
+      type: text
+      label: Maximum Value Length
+      help: "Longest metadata value (characters) accepted when saving. Values are also stripped of HTML tags, since they render into image attributes on the site."
+      default: 2000
+      validate:
+        type: int
+        min: 1
+
+    media_metadata.fields:
+      type: list
+      label: Editable Metadata Fields
+      help: "Descriptive fields shown in the media metadata editor. The key is written verbatim into the .meta.yaml sidecar. Any other keys (EXIF, dimensions, upload info) are left untouched on save."
+      fields:
+        .key:
+          type: text
+          label: Key
+          help: "Sidecar key, e.g. alt, title, caption. Letters, numbers, dot, dash and underscore only."
+          validate:
+            type: text
+        .label:
+          type: text
+          label: Label
+        .type:
+          type: select
+          label: Field Type
+          default: text
+          options:
+            text: "Single line"
+            textarea: "Multi-line"
+
     section_rate_limit:
       type: section
       title: Rate Limiting

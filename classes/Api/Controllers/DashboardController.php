@@ -270,9 +270,21 @@ class DashboardController extends AbstractApiController
                 new \RecursiveDirectoryIterator($mediaDir, \FilesystemIterator::SKIP_DOTS)
             );
             foreach ($iterator as $file) {
-                if ($file->isFile()) {
-                    $totalMedia++;
+                if (!$file->isFile()) {
+                    continue;
                 }
+                // Skip sidecars, not real media: `.meta.yaml` metadata files, the
+                // per-folder `media_order.yaml`, and hidden dotfiles — the same
+                // files the media listing excludes.
+                $name = $file->getFilename();
+                if (
+                    str_starts_with($name, '.')
+                    || str_ends_with($name, '.meta.yaml')
+                    || $name === 'media_order.yaml'
+                ) {
+                    continue;
+                }
+                $totalMedia++;
             }
         }
 
