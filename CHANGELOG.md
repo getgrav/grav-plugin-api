@@ -7,6 +7,9 @@
 1. [](#improved)
     * A plugin that adds tabs to the new admin's Users list can now choose which tab it opens on and hide the built-in "All Users" tab when showing every account isn't a useful default ([getgrav/grav-plugin-admin2#51](https://github.com/getgrav/grav-plugin-admin2/issues/51)).
     * The new admin now remembers a per-user Vim keybindings choice for its Markdown and code editors, saved to the user's account ([getgrav/grav-plugin-admin2#95](https://github.com/getgrav/grav-plugin-admin2/issues/95)).
+    * Media, theme, and avatar listings now prepare each image thumbnail in a single pass, speeding up image-heavy listings.
+    * Requests authenticated with an API key no longer rewrite the key storage file on every call; the key's last-used time is refreshed at most once a minute.
+    * The dashboard now remembers its media file count for a few minutes instead of scanning the whole media folder on every visit.
 1. [](#bugfix)
     * The new admin's log viewer now lists the security log and any other log files in your logs folder, instead of only a fixed set ([getgrav/grav-plugin-admin2#107](https://github.com/getgrav/grav-plugin-admin2/issues/107)).
     * A configuration tab added by a plugin or theme now opens and saves in the new admin, instead of showing a "scope not found" error ([getgrav/grav-plugin-migrate-grav#16](https://github.com/getgrav/grav-plugin-migrate-grav/issues/16)).

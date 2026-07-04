@@ -49,6 +49,44 @@ class ThumbnailService
     }
 
     /**
+     * Resolve the cached thumbnail filename (hash.ext) for a source image,
+     * generating the thumbnail only when the cache entry is missing.
+     *
+     * This is the single-pass path for listings: calling getThumbnailFilename()
+     * followed by getThumbnail() sniffs the file's magic bytes and stats it
+     * twice per item, which dominates the warm-path cost of serializing a
+     * media-heavy page. Callers that already know the mime type (media
+     * metadata) should pass it so the sniff is skipped entirely.
+     *
+     * Returns null if the source is not a supported raster image.
+     */
+    public function ensureThumbnail(string $sourcePath, ?string $mime = null): ?string
+    {
+        if (!file_exists($sourcePath)) {
+            return null;
+        }
+
+        $sniffed = $mime === null;
+        if ($sniffed) {
+            $mime = mime_content_type($sourcePath) ?: null;
+        }
+        if (!$mime || !str_starts_with($mime, 'image/') || $mime === 'image/svg+xml') {
+            return null;
+        }
+
+        $filename = $this->getHash($sourcePath) . '.' . $this->getOutputExtension($mime);
+        $cachePath = $this->cacheDir . '/' . $filename;
+
+        if (file_exists($cachePath) || $this->generate($sourcePath, $cachePath, $mime)) {
+            return $filename;
+        }
+
+        // A caller-supplied mime can lie (misnamed extension, stale metadata);
+        // the sniffed type is authoritative, so retry once with it.
+        return $sniffed ? null : $this->ensureThumbnail($sourcePath);
+    }
+
+    /**
      * Get the cached thumbnail path, generating it if needed.
      * Returns null if the source is not a supported image.
      */

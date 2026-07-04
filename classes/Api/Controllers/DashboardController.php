@@ -261,30 +261,41 @@ class DashboardController extends AbstractApiController
         // Active theme
         $activeTheme = $this->grav['config']->get('system.pages.theme');
 
-        // Count media files
+        // Count media files. The recursive walk is O(total files) and runs on a
+        // dashboard endpoint, so the tally is cached for a few minutes — a
+        // slightly stale count is invisible on a dashboard card, while walking
+        // a 10k-file library per visit is not.
         $mediaDir = $this->grav['locator']->findResource('user://media', true)
             ?: $this->grav['locator']->findResource('user://images', true);
         $totalMedia = 0;
         if ($mediaDir && is_dir($mediaDir)) {
-            $iterator = new \RecursiveIteratorIterator(
-                new \RecursiveDirectoryIterator($mediaDir, \FilesystemIterator::SKIP_DOTS)
-            );
-            foreach ($iterator as $file) {
-                if (!$file->isFile()) {
-                    continue;
+            $cache = $this->grav['cache'];
+            $cacheKey = 'api-dashboard-media-count-' . md5($mediaDir);
+            $cached = $cache->fetch($cacheKey);
+            if (is_int($cached)) {
+                $totalMedia = $cached;
+            } else {
+                $iterator = new \RecursiveIteratorIterator(
+                    new \RecursiveDirectoryIterator($mediaDir, \FilesystemIterator::SKIP_DOTS)
+                );
+                foreach ($iterator as $file) {
+                    if (!$file->isFile()) {
+                        continue;
+                    }
+                    // Skip sidecars, not real media: `.meta.yaml` metadata files, the
+                    // per-folder `media_order.yaml`, and hidden dotfiles — the same
+                    // files the media listing excludes.
+                    $name = $file->getFilename();
+                    if (
+                        str_starts_with($name, '.')
+                        || str_ends_with($name, '.meta.yaml')
+                        || $name === 'media_order.yaml'
+                    ) {
+                        continue;
+                    }
+                    $totalMedia++;
                 }
-                // Skip sidecars, not real media: `.meta.yaml` metadata files, the
-                // per-folder `media_order.yaml`, and hidden dotfiles — the same
-                // files the media listing excludes.
-                $name = $file->getFilename();
-                if (
-                    str_starts_with($name, '.')
-                    || str_ends_with($name, '.meta.yaml')
-                    || $name === 'media_order.yaml'
-                ) {
-                    continue;
-                }
-                $totalMedia++;
+                $cache->save($cacheKey, $totalMedia, 300);
             }
         }
 
