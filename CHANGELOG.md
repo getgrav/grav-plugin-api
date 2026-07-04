@@ -1,5 +1,5 @@
 # v1.0.8
-## 07/02/2026
+## 07/03/2026
 
 1. [](#new)
     * You can now edit a media file's metadata such as alt text, title, caption, description, and tags directly in the new admin, with the fields you want to manage configurable in the plugin settings ([getgrav/grav-plugin-admin2#99](https://github.com/getgrav/grav-plugin-admin2/issues/99)).
@@ -8,6 +8,7 @@
     * A plugin that adds tabs to the new admin's Users list can now choose which tab it opens on and hide the built-in "All Users" tab when showing every account isn't a useful default ([getgrav/grav-plugin-admin2#51](https://github.com/getgrav/grav-plugin-admin2/issues/51)).
     * The new admin now remembers a per-user Vim keybindings choice for its Markdown and code editors, saved to the user's account ([getgrav/grav-plugin-admin2#95](https://github.com/getgrav/grav-plugin-admin2/issues/95)).
 1. [](#bugfix)
+    * A configuration tab added by a plugin or theme now opens and saves in the new admin, instead of showing a "scope not found" error ([getgrav/grav-plugin-migrate-grav#16](https://github.com/getgrav/grav-plugin-migrate-grav/issues/16)).
     * The dashboard media count no longer includes hidden sidecar files such as metadata and ordering files, so it reflects the number of actual media files.
     * [security] Generating or revoking an API key for another account now requires account-management permission, and only a super administrator can do so for a super-admin account, so a user with only basic panel access can no longer mint a key that carries another account's API permissions ([GHSA-7v74-m76q-8wf3](https://github.com/getgrav/grav/security/advisories/GHSA-7v74-m76q-8wf3)).
     * A user migrated from the classic admin now keeps the interface language they had set there, instead of dropping to the site default, until they pick a different one in the new admin ([getgrav/grav-plugin-admin2#98](https://github.com/getgrav/grav-plugin-admin2/issues/98)).
