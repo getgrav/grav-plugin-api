@@ -8,6 +8,7 @@
     * A plugin that adds tabs to the new admin's Users list can now choose which tab it opens on and hide the built-in "All Users" tab when showing every account isn't a useful default ([getgrav/grav-plugin-admin2#51](https://github.com/getgrav/grav-plugin-admin2/issues/51)).
     * The new admin now remembers a per-user Vim keybindings choice for its Markdown and code editors, saved to the user's account ([getgrav/grav-plugin-admin2#95](https://github.com/getgrav/grav-plugin-admin2/issues/95)).
 1. [](#bugfix)
+    * The new admin's log viewer now lists the security log and any other log files in your logs folder, instead of only a fixed set ([getgrav/grav-plugin-admin2#107](https://github.com/getgrav/grav-plugin-admin2/issues/107)).
     * A configuration tab added by a plugin or theme now opens and saves in the new admin, instead of showing a "scope not found" error ([getgrav/grav-plugin-migrate-grav#16](https://github.com/getgrav/grav-plugin-migrate-grav/issues/16)).
     * The dashboard media count no longer includes hidden sidecar files such as metadata and ordering files, so it reflects the number of actual media files.
     * [security] Generating or revoking an API key for another account now requires account-management permission, and only a super administrator can do so for a super-admin account, so a user with only basic panel access can no longer mint a key that carries another account's API permissions ([GHSA-7v74-m76q-8wf3](https://github.com/getgrav/grav/security/advisories/GHSA-7v74-m76q-8wf3)).

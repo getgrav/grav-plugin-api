@@ -227,9 +227,10 @@ class SystemController extends AbstractApiController
     /**
      * GET /system/logs/files — list log files registered for the admin viewer.
      *
-     * Seeds with grav.log / email.log / scheduler.log, then fires
-     * onApiLogFiles so plugins can append their own. The file names returned
-     * here are the only values accepted by GET /system/logs?file=...
+     * Lists the known core logs plus every other *.log discovered in the
+     * log:// directory, then fires onApiLogFiles so plugins can append their
+     * own. The file names returned here are the only values accepted by
+     * GET /system/logs?file=...
      */
     public function logFiles(ServerRequestInterface $request): ResponseInterface
     {
@@ -328,21 +329,51 @@ class SystemController extends AbstractApiController
     }
 
     /**
+     * Human-friendly labels for the log files Grav core writes itself. Any
+     * discovered log not listed here falls back to a humanized filename.
+     */
+    private const CORE_LOG_LABELS = [
+        'grav.log'      => 'Grav System Log',
+        'security.log'  => 'Security Log',
+        'email.log'     => 'Email Log',
+        'scheduler.log' => 'Scheduler Log',
+    ];
+
+    /**
      * Build the list of log files available to the admin viewer.
      *
-     * Seeded with the core logs Grav writes itself, then plugins can append
-     * via onApiLogFiles. Result is deduped by `file` (first wins) so plugins
-     * cannot shadow core log labels.
+     * The known core logs are always listed (in a stable order, and even
+     * before their first write) so the viewer is predictable. On top of that,
+     * every other `*.log` in the log:// directory is auto-discovered so plugin
+     * and future core logs appear without needing to register. Plugins can
+     * still add or relabel entries via onApiLogFiles — useful for logs that
+     * live outside the log:// stream. Result is deduped by `file` (first wins)
+     * so the curated core labels are never shadowed.
      *
      * @return array<int, array{file: string, label: string}>
      */
     private function getRegisteredLogFiles(): array
     {
-        $files = [
-            ['file' => 'grav.log',      'label' => 'Grav System Log'],
-            ['file' => 'email.log',     'label' => 'Email Log'],
-            ['file' => 'scheduler.log', 'label' => 'Scheduler Log'],
-        ];
+        // Curated core logs first, so they keep their order and labels and
+        // remain listed even when the file does not exist yet.
+        $files = [];
+        foreach (self::CORE_LOG_LABELS as $name => $label) {
+            $files[] = ['file' => $name, 'label' => $label];
+        }
+
+        // Auto-discover any additional *.log in the (single) log:// directory.
+        // log:// resolves to one folder (GRAV_LOG_PATH), so this is scoped to
+        // logs an admin with api.system.read is already entitled to read.
+        $logDir = $this->grav['locator']->findResource('log://', true, true);
+        if ($logDir && is_dir($logDir)) {
+            foreach (glob(rtrim($logDir, '/') . '/*.log') ?: [] as $path) {
+                $name = basename($path);
+                if (isset(self::CORE_LOG_LABELS[$name])) {
+                    continue;
+                }
+                $files[] = ['file' => $name, 'label' => $this->humanizeLogName($name)];
+            }
+        }
 
         $event = $this->fireEvent('onApiLogFiles', ['files' => $files]);
         $merged = $event['files'] ?? $files;
@@ -372,6 +403,20 @@ class SystemController extends AbstractApiController
         }
 
         return $result;
+    }
+
+    /**
+     * Turn a bare log filename into a readable label, e.g. `custom-plugin.log`
+     * becomes "Custom Plugin Log". Used for discovered logs we have no curated
+     * label for.
+     */
+    private function humanizeLogName(string $name): string
+    {
+        $base = preg_replace('/\.log$/', '', $name);
+        $base = str_replace(['-', '_', '.'], ' ', $base);
+        $base = trim(preg_replace('/\s+/', ' ', $base));
+
+        return $base === '' ? $name : ucwords($base) . ' Log';
     }
 
     public function backup(ServerRequestInterface $request): ResponseInterface
