@@ -1,5 +1,5 @@
 # v1.0.8
-## 07/03/2026
+## 07/04/2026
 
 1. [](#new)
     * You can now edit a media file's metadata such as alt text, title, caption, description, and tags directly in the new admin, with the fields you want to manage configurable in the plugin settings ([getgrav/grav-plugin-admin2#99](https://github.com/getgrav/grav-plugin-admin2/issues/99)).
@@ -18,6 +18,7 @@
     * A user migrated from the classic admin now keeps the interface language they had set there, instead of dropping to the site default, until they pick a different one in the new admin ([getgrav/grav-plugin-admin2#98](https://github.com/getgrav/grav-plugin-admin2/issues/98)).
     * The new admin's taxonomy field now lists every taxonomy type declared for the site so you can add categories and tags on a page even when none have been used yet ([getgrav/grav-plugin-admin2#90](https://github.com/getgrav/grav-plugin-admin2/issues/90)).
     * Opening a page preview in the new admin no longer logs out a visitor signed in to the public site in the same browser, because the preview now renders without touching the shared front-end session ([getgrav/grav-plugin-admin2#88](https://github.com/getgrav/grav-plugin-admin2/issues/88), [getgrav/grav-plugin-admin2#79](https://github.com/getgrav/grav-plugin-admin2/issues/79)).
+    * The new admin's scheduler view now includes the core backup jobs, which were previously missing from the list and its health check.
 
 # v1.0.7
 ## 06/30/2026
