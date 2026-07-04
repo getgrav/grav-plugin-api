@@ -33,6 +33,7 @@ class PreferencesResolver
     private const VALID_FONT_FAMILY = ['inter', 'google-sans', 'public-sans', 'nunito-sans', 'jost'];
     private const VALID_FONT_SIZE = ['small', 'normal', 'large', 'xlarge'];
     private const VALID_EDITOR_MODE = ['normal', 'expert'];
+    private const VALID_EDITOR_KEYMAP = ['default', 'vim'];
     private const VALID_LOGO_MODE = ['default', 'text', 'custom'];
     private const VALID_PAGES_VIEW_MODE = ['tree', 'list', 'miller'];
     private const VALID_ACCOUNTS_VIEW_MODE = ['cards', 'table'];
@@ -56,6 +57,7 @@ class PreferencesResolver
             'fontFamily' => 'google-sans',
             'fontSize' => 'normal',
             'editorMode' => 'normal',
+            'editorKeymap' => 'default',
             'editorStickyToolbar' => true,
             'editorFixedHeight' => 0,
             'adminLanguage' => 'en',
@@ -182,6 +184,22 @@ class PreferencesResolver
                 continue;
             }
             $effective[$key] = $value;
+        }
+
+        // Legacy per-user language fallback. Classic admin stored each user's
+        // admin UI language at the top-level `language:` key of their account;
+        // admin-next reads it from `admin_next.preferences.adminLanguage`. When
+        // a user hasn't picked a language in admin-next yet, honor their classic
+        // choice — above the site default, since it's a per-user setting — so a
+        // migrated account keeps the language it logged in with before, even if
+        // the migrate-grav account transform hasn't run (grav-plugin-admin2#98).
+        $hasExplicitLanguage = array_key_exists('adminLanguage', $userPrefs)
+            && is_string($userPrefs['adminLanguage']) && $userPrefs['adminLanguage'] !== '';
+        if (!$hasExplicitLanguage) {
+            $legacy = $user->get('language');
+            if (is_string($legacy) && trim($legacy) !== '') {
+                $effective['adminLanguage'] = substr(trim($legacy), 0, 32);
+            }
         }
         // Tier A2 site-only behavioral settings are applied last and are not
         // user-overridable. Merging them into `effective` lets the SPA read
@@ -408,6 +426,7 @@ class PreferencesResolver
             'fontFamily' => is_string($value) && in_array($value, self::VALID_FONT_FAMILY, true) ? $value : null,
             'fontSize' => is_string($value) && in_array($value, self::VALID_FONT_SIZE, true) ? $value : null,
             'editorMode' => is_string($value) && in_array($value, self::VALID_EDITOR_MODE, true) ? $value : null,
+            'editorKeymap' => is_string($value) && in_array($value, self::VALID_EDITOR_KEYMAP, true) ? $value : null,
             'editorStickyToolbar', 'autoSaveEnabled', 'autoSaveToolbarUndo', 'collabEnabled' => is_bool($value) ? $value : (is_scalar($value) ? (bool) $value : null),
             // 0 = auto-grow (disabled); any other value is clamped to a sane fixed-height range.
             'editorFixedHeight' => is_numeric($value) ? (((int) $value) <= 0 ? 0 : max(300, min(1200, (int) $value))) : null,

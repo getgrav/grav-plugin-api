@@ -36,6 +36,16 @@ class ConfigController extends AbstractApiController
     private const PRIVILEGED_SCOPES = ['scheduler', 'backups'];
 
     /**
+     * Core scopes index() lists as config tabs. It's {@see ConfigScopes::CORE}
+     * minus `scheduler` (tool-managed: `custom_jobs[].command` is a command sink,
+     * so it's never a generic config tab). `streams` isn't a CORE scope and is
+     * likewise never listed. `backups` is listed for super users only (see
+     * index()). Anything not here and not {@see ConfigScopes::isCustom()} is
+     * omitted, so the list mirrors exactly what show()/update() accept.
+     */
+    private const LISTABLE_CORE_SCOPES = ['system', 'site', 'media', 'security', 'backups'];
+
+    /**
      * Security-sensitive scopes that any config reader may VIEW but only an API
      * super user may WRITE. Unlike PRIVILEGED_SCOPES (tool-managed, fully
      * hidden from index() and blocked for read+write), these stay listed and
@@ -74,8 +84,13 @@ class ConfigController extends AbstractApiController
                 continue;
             }
             $name = pathinfo($file->getFilename(), PATHINFO_FILENAME);
-            // scheduler/streams are tool-managed or internal and never listed.
-            if (in_array($name, ['scheduler', 'streams'], true)) {
+            // Only list scopes show()/update() will actually accept: the core
+            // scopes this endpoint handles, plus site/plugin/theme-authored
+            // custom scopes (the same gate resolveConfigKey() uses). Anything
+            // else the merged stream yields — scheduler, streams, or a future
+            // core system blueprint — would 404 on open, so it's not listed.
+            if (!in_array($name, self::LISTABLE_CORE_SCOPES, true)
+                && !ConfigScopes::isCustom($this->grav, $name)) {
                 continue;
             }
             // backups is listed for super users only (see note above).

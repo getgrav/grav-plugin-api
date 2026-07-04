@@ -125,15 +125,27 @@ class ApiKeyManager
 
     /**
      * Update last_used timestamp for a key.
+     *
+     * Persisting on every request would rewrite the whole keys file per
+     * API-key call (YAML dump + atomic rename), so the write is throttled:
+     * last_used is only refreshed once it is more than a minute stale, which
+     * is plenty for a "when was this key last used" display.
      */
     public function touchKey(string $keyId): void
     {
         $keys = $this->loadKeys();
 
-        if (isset($keys[$keyId]) && is_array($keys[$keyId])) {
-            $keys[$keyId]['last_used'] = time();
-            $this->saveKeys($keys);
+        if (!isset($keys[$keyId]) || !is_array($keys[$keyId])) {
+            return;
         }
+
+        $lastUsed = $keys[$keyId]['last_used'] ?? null;
+        if (is_numeric($lastUsed) && time() - (int) $lastUsed < 60) {
+            return;
+        }
+
+        $keys[$keyId]['last_used'] = time();
+        $this->saveKeys($keys);
     }
 
     /**

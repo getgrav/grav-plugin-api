@@ -525,11 +525,17 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('POST', '/pages/{route:.+}/translate', [PagesController::class, 'translate']);
         $r->addRoute('POST', '/pages/{route:.+}/adopt-language', [PagesController::class, 'adoptLanguage']);
         $r->addRoute('POST', '/pages/{route:.+}/sync', [PagesController::class, 'sync']);
+        $r->addRoute('POST', '/pages/{route:.+}/preview-token', [PagesController::class, 'previewToken']);
         $r->addRoute('GET', '/pages/{route:.+}/compare', [PagesController::class, 'compare']);
         $r->addRoute('POST', '/pages/{route:.+}/reorder', [PagesController::class, 'reorder']);
         $r->addRoute('GET', '/pages/{route:.+}/media', [MediaController::class, 'pageMedia']);
         $r->addRoute('POST', '/pages/{route:.+}/media', [MediaController::class, 'uploadPageMedia']);
         $r->addRoute('DELETE', '/pages/{route:.+}/media/{filename}', [MediaController::class, 'deletePageMedia']);
+        // Per-file metadata (.meta.yaml sidecar) for page media. The static
+        // `/meta` suffix keeps these distinct from the delete route above.
+        $r->addRoute('GET', '/pages/{route:.+}/media/{filename}/meta', [MediaController::class, 'getPageMediaMeta']);
+        $r->addRoute('PATCH', '/pages/{route:.+}/media/{filename}/meta', [MediaController::class, 'savePageMediaMeta']);
+        $r->addRoute('DELETE', '/pages/{route:.+}/media/{filename}/meta', [MediaController::class, 'deletePageMediaMeta']);
         $r->addRoute('POST', '/pages/{route:.+}/move', [PagesController::class, 'move']);
         $r->addRoute('POST', '/pages/{route:.+}/copy', [PagesController::class, 'copy']);
         $r->addRoute('GET', '/pages/{route:.+}', [PagesController::class, 'show']);
@@ -553,6 +559,13 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('POST', '/media', [MediaController::class, 'uploadSiteMedia']);
         $r->addRoute('POST', '/media/folders', [MediaController::class, 'createFolder']);
         $r->addRoute('POST', '/media/rename', [MediaController::class, 'renameFile']);
+        // Per-file metadata (.meta.yaml sidecar) for site media. The file is
+        // addressed by `?path=` (site paths contain slashes), and these static
+        // routes MUST precede the greedy `/media/{filename:.+}` route below so
+        // FastRoute doesn't let the catch-all shadow them.
+        $r->addRoute('GET', '/media/meta', [MediaController::class, 'getSiteMediaMeta']);
+        $r->addRoute('PATCH', '/media/meta', [MediaController::class, 'saveSiteMediaMeta']);
+        $r->addRoute('DELETE', '/media/meta', [MediaController::class, 'deleteSiteMediaMeta']);
         $r->addRoute('POST', '/media/order', [MediaController::class, 'setSiteMediaOrder']);
         $r->addRoute('POST', '/media/folders/rename', [MediaController::class, 'renameFolder']);
         $r->addRoute('DELETE', '/media/folders/{path:.+}', [MediaController::class, 'deleteFolder']);

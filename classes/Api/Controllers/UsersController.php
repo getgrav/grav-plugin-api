@@ -21,6 +21,7 @@ use Grav\Plugin\Api\Response\ApiResponse;
 use Grav\Plugin\Api\Serializers\UserSerializer;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use RocketTheme\Toolbox\Event\Event;
 
 class UsersController extends AbstractApiController
 {
@@ -72,8 +73,17 @@ class UsersController extends AbstractApiController
      *     'authorize' => 'api.users.read',  // optional — string or array for any-of
      *   ]
      *
-     * The built-in "All Users" tab (id `all`) always leads the row, regardless
-     * of plugin priorities, and selecting it sends no `filter` param.
+     * A plugin may also set two page-level policies on the event itself (not on
+     * an individual tab):
+     *   $event['defaultFilter'] = 'active';  // tab the client lands on with no ?filter
+     *   $event['showAll']       = false;     // suppress the built-in "All Users" tab
+     *
+     * The built-in "All Users" tab (id `all`) leads the row and is the default
+     * landing view unless a plugin overrides these, and selecting it sends no
+     * `filter` param.
+     *
+     * Response shape:
+     *   { "tabs": [ ... ], "defaultFilter": "active", "showAll": true }
      */
     public function filters(ServerRequestInterface $request): ResponseInterface
     {
@@ -82,26 +92,32 @@ class UsersController extends AbstractApiController
         $this->requirePermission($request, 'api.users.read');
 
         $user = $this->getUser($request);
-        $event = $this->fireEvent('onApiUserListFilters', ['filters' => [], 'user' => $user]);
+        $event = $this->fireEvent('onApiUserListFilters', [
+            'filters' => [],
+            'defaultFilter' => null,
+            'showAll' => true,
+            'user' => $user,
+        ]);
 
-        return ApiResponse::create($this->assembleFilterTabs((array) ($event['filters'] ?? []), $user));
+        return ApiResponse::create($this->assembleFilterTabs($event, $user));
     }
 
     /**
      * Merge plugin-contributed Users tabs with the built-in "All Users" tab,
      * dropping malformed entries and tabs the caller isn't authorized for, then
-     * ordering by descending priority. The "All Users" tab always leads the row
-     * and the `all` id is reserved so a plugin can't shadow it.
+     * ordering by descending priority. The `all` id is reserved so a plugin
+     * can't shadow it. Returns the tab row alongside the resolved landing-view
+     * policy (defaultFilter / showAll) for the client.
      *
-     * @param array<int, mixed> $contributed Raw tabs from onApiUserListFilters
-     * @return array<int, array<string, mixed>>
+     * @param Event $event The onApiUserListFilters event after plugins ran
+     * @return array{tabs: array<int, array<string, mixed>>, defaultFilter: string, showAll: bool}
      */
-    private function assembleFilterTabs(array $contributed, UserInterface $user): array
+    private function assembleFilterTabs(Event $event, UserInterface $user): array
     {
         $isSuperAdmin = $this->isSuperAdmin($user);
 
         $tabs = [];
-        foreach ($contributed as $tab) {
+        foreach ((array) ($event['filters'] ?? []) as $tab) {
             if (!is_array($tab) || !isset($tab['id']) || !is_string($tab['id']) || $tab['id'] === '') {
                 continue;
             }
@@ -118,13 +134,33 @@ class UsersController extends AbstractApiController
 
         usort($tabs, fn($a, $b) => ($b['priority'] ?? 0) <=> ($a['priority'] ?? 0));
 
-        array_unshift($tabs, [
-            'id' => 'all',
-            'plugin' => 'api',
-            'label' => 'All Users',
-        ]);
+        // A plugin can suppress the built-in "All Users" tab when showing every
+        // account isn't a sensible (or safe) landing view — but only once it has
+        // contributed at least one authorized tab of its own, so the row can
+        // never end up empty.
+        $showAll = ($event['showAll'] ?? true) !== false;
+        if ($showAll || $tabs === []) {
+            array_unshift($tabs, [
+                'id' => 'all',
+                'plugin' => 'api',
+                'label' => 'All Users',
+            ]);
+        }
 
-        return $tabs;
+        // Resolve the landing tab. Honour a plugin's defaultFilter only when it
+        // maps to a tab the caller can actually see; otherwise fall back to the
+        // first tab in the row (which is "all" whenever it's present).
+        $ids = array_column($tabs, 'id');
+        $requested = $event['defaultFilter'] ?? null;
+        $defaultFilter = (is_string($requested) && in_array($requested, $ids, true))
+            ? $requested
+            : ($ids[0] ?? 'all');
+
+        return [
+            'tabs' => $tabs,
+            'defaultFilter' => $defaultFilter,
+            'showAll' => in_array('all', $ids, true),
+        ];
     }
 
     /**

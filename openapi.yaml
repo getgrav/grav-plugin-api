@@ -1218,9 +1218,153 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  /pages/{route}/media/{filename}/meta:
+    get:
+      operationId: getPageMediaMeta
+      tags: [Media]
+      summary: Read a page media file's metadata
+      description: |
+        Return the editable metadata fields (from the `<filename>.meta.yaml`
+        sidecar) for a page media file, together with any other keys stored in
+        the sidecar (EXIF, dimensions, upload info) as read-only `extra` data.
+      parameters:
+        - $ref: "#/components/parameters/pageRoute"
+        - $ref: "#/components/parameters/mediaFilename"
+      responses:
+        "200":
+          description: Media metadata.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/MediaMetadata"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+    patch:
+      operationId: savePageMediaMeta
+      tags: [Media]
+      summary: Save a page media file's metadata
+      description: |
+        Write the editable metadata fields for a page media file. Only the
+        configured fields present in the request are changed (an empty string
+        clears a field); every other key already in the sidecar is preserved.
+        Values are stripped of HTML tags and control characters on save, since
+        they render into `<img>` attributes on the site.
+      parameters:
+        - $ref: "#/components/parameters/pageRoute"
+        - $ref: "#/components/parameters/mediaFilename"
+      requestBody:
+        $ref: "#/components/requestBodies/MediaMetadataWrite"
+      responses:
+        "200":
+          description: Updated media metadata.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/MediaMetadata"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+    delete:
+      operationId: deletePageMediaMeta
+      tags: [Media]
+      summary: Clear a page media file's metadata
+      description: |
+        Remove all editable (configured) metadata fields for a page media file.
+        Reserved/technical keys are preserved; the sidecar is deleted only if
+        nothing else remains in it.
+      parameters:
+        - $ref: "#/components/parameters/pageRoute"
+        - $ref: "#/components/parameters/mediaFilename"
+      responses:
+        "204":
+          description: Metadata cleared. No content returned.
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
   # ---------------------------------------------------------------------------
   # Site-level Media
   # ---------------------------------------------------------------------------
+  /media/meta:
+    get:
+      operationId: getSiteMediaMeta
+      tags: [Media]
+      summary: Read a site media file's metadata
+      description: |
+        Return the editable metadata fields for a site-level media file,
+        addressed by the `path` query parameter (site paths contain slashes).
+      parameters:
+        - $ref: "#/components/parameters/mediaMetaPath"
+      responses:
+        "200":
+          description: Media metadata.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/MediaMetadata"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+    patch:
+      operationId: saveSiteMediaMeta
+      tags: [Media]
+      summary: Save a site media file's metadata
+      description: |
+        Write the editable metadata fields for a site-level media file. Only the
+        configured fields present in the request are changed; other keys in the
+        sidecar are preserved. Values are sanitized on save.
+      parameters:
+        - $ref: "#/components/parameters/mediaMetaPath"
+      requestBody:
+        $ref: "#/components/requestBodies/MediaMetadataWrite"
+      responses:
+        "200":
+          description: Updated media metadata.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/MediaMetadata"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+    delete:
+      operationId: deleteSiteMediaMeta
+      tags: [Media]
+      summary: Clear a site media file's metadata
+      description: |
+        Remove all editable metadata fields for a site-level media file.
+        Reserved/technical keys are preserved; the sidecar is deleted only if
+        nothing else remains.
+      parameters:
+        - $ref: "#/components/parameters/mediaMetaPath"
+      responses:
+        "204":
+          description: Metadata cleared. No content returned.
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
   /media:
     get:
       operationId: listSiteMedia
@@ -4732,6 +4876,26 @@ components:
         type: string
       example: blog/my-first-post
 
+    mediaFilename:
+      name: filename
+      in: path
+      required: true
+      description: Name of the media file.
+      schema:
+        type: string
+      example: hero-image.jpg
+
+    mediaMetaPath:
+      name: path
+      in: query
+      required: true
+      description: |
+        Path of the site media file relative to the media root
+        (e.g. `photos/beach.jpg`).
+      schema:
+        type: string
+      example: photos/beach.jpg
+
     configScope:
       name: scope
       in: path
@@ -4918,9 +5082,90 @@ components:
             detail: Rate limit exceeded. Try again later.
 
   # ---------------------------------------------------------------------------
+  # Request bodies
+  # ---------------------------------------------------------------------------
+  requestBodies:
+    MediaMetadataWrite:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              fields:
+                type: object
+                additionalProperties:
+                  oneOf:
+                    - type: string
+                    - type: array
+                      items:
+                        type: string
+                description: |
+                  Map of metadata field key to value. Only keys matching a
+                  configured field are written; an empty string (or empty array
+                  for a `tags` field) clears a field. A `tags` field accepts an
+                  array of strings, or a comma-separated string. A bare
+                  `{key: value}` object (without the `fields` wrapper) is also
+                  accepted.
+                example:
+                  alt: A dog running on the beach
+                  title: Beach Day
+                  caption: ""
+                  description: Our trip to the coast last summer.
+                  tags: [beach, dog, summer]
+
+  # ---------------------------------------------------------------------------
   # Schemas
   # ---------------------------------------------------------------------------
   schemas:
+    # -- Media metadata --------------------------------------------------------
+    MediaMetadata:
+      type: object
+      description: Editable metadata for a media file, plus its read-only stored keys.
+      properties:
+        filename:
+          type: string
+          example: beach.jpg
+        has_meta:
+          type: boolean
+          description: Whether a `.meta.yaml` sidecar currently exists for the file.
+          example: true
+        fields:
+          type: array
+          description: The configured editable fields with their current values.
+          items:
+            type: object
+            properties:
+              key:
+                type: string
+                example: alt
+              label:
+                type: string
+                example: Alt Text
+              type:
+                type: string
+                enum: [text, textarea, tags]
+                example: text
+              value:
+                description: |
+                  A string for `text`/`textarea` fields, or an array of strings
+                  for a `tags` field.
+                oneOf:
+                  - type: string
+                  - type: array
+                    items:
+                      type: string
+                example: A dog running on the beach
+        extra:
+          type: object
+          additionalProperties: true
+          description: |
+            Other keys stored in the sidecar (EXIF, dimensions, upload info)
+            that the editor does not manage and never overwrites.
+          example:
+            width: 1600
+            height: 1067
+
     # -- Blueprint -------------------------------------------------------------
     BlueprintResponse:
       type: object

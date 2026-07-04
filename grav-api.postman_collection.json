@@ -1530,6 +1530,310 @@
               }
             ]
           }
+        },
+        {
+          "name": "Get Page Media Metadata",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Has fields array', () => pm.expect(res.data.fields).to.be.an('array'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/pages/blog/media/photo.jpg/meta",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "pages",
+                "blog",
+                "media",
+                "photo.jpg",
+                "meta"
+              ]
+            },
+            "description": "Read the editable metadata (alt, title, caption, description) for a page media file, plus read-only stored keys.",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "API Key authentication"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Save Page Media Metadata",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Has fields array', () => pm.expect(res.data.fields).to.be.an('array'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/pages/blog/media/photo.jpg/meta",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "pages",
+                "blog",
+                "media",
+                "photo.jpg",
+                "meta"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fields\": {\n    \"alt\": \"A dog running on the beach\",\n    \"title\": \"Beach Day\",\n    \"caption\": \"\",\n    \"description\": \"Our trip to the coast last summer.\",\n    \"tags\": [\n      \"beach\",\n      \"dog\",\n      \"summer\"\n    ]\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Write editable metadata for a page media file. Only configured fields are changed; other sidecar keys are preserved. Values are sanitized.",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "API Key authentication"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Clear Page Media Metadata",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/pages/blog/media/photo.jpg/meta",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "pages",
+                "blog",
+                "media",
+                "photo.jpg",
+                "meta"
+              ]
+            },
+            "description": "Clear all configured metadata fields for a page media file. Technical keys are preserved.",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "API Key authentication"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Get Site Media Metadata",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Has fields array', () => pm.expect(res.data.fields).to.be.an('array'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/media/meta?path=photo.jpg",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "media",
+                "meta"
+              ],
+              "query": [
+                {
+                  "key": "path",
+                  "value": "photo.jpg",
+                  "description": "File path relative to user/media"
+                }
+              ]
+            },
+            "description": "Read editable metadata for a site-level media file, addressed by ?path=.",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "API Key authentication"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Save Site Media Metadata",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Has fields array', () => pm.expect(res.data.fields).to.be.an('array'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/media/meta?path=photo.jpg",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "media",
+                "meta"
+              ],
+              "query": [
+                {
+                  "key": "path",
+                  "value": "photo.jpg",
+                  "description": "File path relative to user/media"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fields\": {\n    \"alt\": \"A dog running on the beach\",\n    \"title\": \"Beach Day\",\n    \"caption\": \"\",\n    \"description\": \"Our trip to the coast last summer.\",\n    \"tags\": [\n      \"beach\",\n      \"dog\",\n      \"summer\"\n    ]\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Write editable metadata for a site-level media file. Only configured fields are changed; other keys preserved.",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "API Key authentication"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Clear Site Media Metadata",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/media/meta?path=photo.jpg",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "media",
+                "meta"
+              ],
+              "query": [
+                {
+                  "key": "path",
+                  "value": "photo.jpg",
+                  "description": "File path relative to user/media"
+                }
+              ]
+            },
+            "description": "Clear all configured metadata fields for a site-level media file.",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "API Key authentication"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              }
+            ]
+          }
         }
       ]
     },

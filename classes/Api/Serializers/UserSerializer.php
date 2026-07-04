@@ -73,12 +73,11 @@ class UserSerializer implements SerializerInterface
         $locator = \Grav\Common\Grav::instance()['locator'];
         $cacheDir = $locator->findResource('cache://', true, true) . '/api/thumbnails';
         $thumbService = new \Grav\Plugin\Api\Services\ThumbnailService($cacheDir, 200);
-        $filename = $thumbService->getThumbnailFilename($filePath);
+        $filename = $thumbService->ensureThumbnail($filePath);
         if (!$filename) {
             return null;
         }
 
-        $thumbService->getThumbnail($filePath);
         $config = \Grav\Common\Grav::instance()['config'];
         $route = $config->get('plugins.api.route', '/api');
         $prefix = $config->get('plugins.api.version_prefix', 'v1');

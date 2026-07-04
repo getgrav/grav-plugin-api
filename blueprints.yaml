@@ -1,7 +1,7 @@
 name: API
 slug: api
 type: plugin
-version: 1.0.7
+version: 1.0.8
 description: RESTful API for Grav CMS. Provides headless access to pages, media, configuration, users, and system management.
 icon: plug
 author:
@@ -155,6 +155,18 @@ form:
       validate:
         type: bool
 
+    allow_draft_preview:
+      type: toggle
+      label: Allow Draft Preview
+      help: "Let the new admin's page editor preview an unpublished page on the front end. The preview is authorized by a short-lived token minted only for users who can read the page, so turning this off disables draft previews entirely. Recommended on."
+      highlight: 1
+      default: 1
+      options:
+        1: Enabled
+        0: Disabled
+      validate:
+        type: bool
+
     section_cors:
       type: section
       title: CORS Settings
@@ -243,6 +255,43 @@ form:
         0: Disabled
       validate:
         type: bool
+
+    section_media_metadata:
+      type: section
+      title: Media Metadata
+      underline: true
+
+    media_metadata.max_length:
+      type: text
+      label: Maximum Value Length
+      help: "Longest metadata value (characters) accepted when saving. Values are also stripped of HTML tags, since they render into image attributes on the site."
+      default: 2000
+      validate:
+        type: int
+        min: 1
+
+    media_metadata.fields:
+      type: list
+      label: Editable Metadata Fields
+      help: "Descriptive fields shown in the media metadata editor. The key is written verbatim into the .meta.yaml sidecar. Any other keys (EXIF, dimensions, upload info) are left untouched on save."
+      fields:
+        .key:
+          type: text
+          label: Key
+          help: "Sidecar key, e.g. alt, title, caption. Letters, numbers, dot, dash and underscore only."
+          validate:
+            type: text
+        .label:
+          type: text
+          label: Label
+        .type:
+          type: select
+          label: Field Type
+          default: text
+          options:
+            text: "Single line"
+            textarea: "Multi-line"
+            tags: "Tags (list)"
 
     section_rate_limit:
       type: section

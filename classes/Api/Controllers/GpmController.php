@@ -1056,27 +1056,19 @@ class GpmController extends AbstractApiController
 
         // Thumbnail (small, capped at 500px for list views)
         foreach (['thumbnail.jpg', 'thumbnail.png'] as $file) {
-            $source = $path . '/' . $file;
-            if (file_exists($source)) {
-                $filename = $this->thumbSmall->getThumbnailFilename($source);
-                if ($filename) {
-                    $this->thumbSmall->getThumbnail($source);
-                    $result['thumbnail'] = $this->getApiBaseUrl() . '/thumbnails/' . $filename;
-                    break;
-                }
+            $filename = $this->thumbSmall->ensureThumbnail($path . '/' . $file);
+            if ($filename) {
+                $result['thumbnail'] = $this->getApiBaseUrl() . '/thumbnails/' . $filename;
+                break;
             }
         }
 
         // Screenshot (large, capped at 2000px for detail/preview)
         foreach (['screenshot.jpg', 'screenshot.png'] as $file) {
-            $source = $path . '/' . $file;
-            if (file_exists($source)) {
-                $filename = $this->thumbLarge->getThumbnailFilename($source);
-                if ($filename) {
-                    $this->thumbLarge->getThumbnail($source);
-                    $result['screenshot'] = $this->getApiBaseUrl() . '/thumbnails/' . $filename;
-                    break;
-                }
+            $filename = $this->thumbLarge->ensureThumbnail($path . '/' . $file);
+            if ($filename) {
+                $result['screenshot'] = $this->getApiBaseUrl() . '/thumbnails/' . $filename;
+                break;
             }
         }
 

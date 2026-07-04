@@ -38,14 +38,13 @@ class MediaSerializer implements SerializerInterface
                 ];
             }
 
-            // Generate thumbnail URL for images
+            // Generate thumbnail URL for images. The medium's own mime is
+            // passed through so the service skips per-item magic-byte sniffing.
             if ($this->thumbnailService) {
                 $sourcePath = $this->resolveSourcePath($medium);
                 if ($sourcePath) {
-                    $thumbFilename = $this->thumbnailService->getThumbnailFilename($sourcePath);
+                    $thumbFilename = $this->thumbnailService->ensureThumbnail($sourcePath, $mime);
                     if ($thumbFilename) {
-                        // Trigger thumbnail generation
-                        $this->thumbnailService->getThumbnail($sourcePath);
                         $data['thumbnail_url'] = $this->thumbnailBaseUrl . '/thumbnails/' . $thumbFilename;
                     }
                 }

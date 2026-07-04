@@ -26,6 +26,35 @@ class MediaController extends AbstractApiController
     private const MEDIA_ORDER_FILE = 'media_order.yaml';
 
     /**
+     * Sidecar suffix Grav uses for per-file metadata: `photo.jpg.meta.yaml`
+     * sits next to `photo.jpg`.
+     */
+    private const META_SUFFIX = '.meta.yaml';
+
+    /**
+     * Keys the metadata editor may never write. These are owned by Grav core
+     * (intrinsic file properties it derives, and the `upload` block it persists
+     * from a FormFlash upload). Blocking them stops a misconfigured field — or a
+     * crafted payload — from overwriting dimensions/mime and breaking rendering.
+     * Any such keys already in a sidecar are still preserved untouched on save.
+     */
+    private const RESERVED_META_KEYS = [
+        'width', 'height', 'mime', 'size', 'filesize', 'modified', 'upload', 'type',
+    ];
+
+    /** Fallback field set when no `media_metadata.fields` is configured. */
+    private const DEFAULT_META_FIELDS = [
+        ['key' => 'alt', 'label' => 'Alt Text', 'type' => 'text'],
+        ['key' => 'title', 'label' => 'Title', 'type' => 'text'],
+        ['key' => 'caption', 'label' => 'Caption', 'type' => 'textarea'],
+        ['key' => 'description', 'label' => 'Description', 'type' => 'textarea'],
+        ['key' => 'tags', 'label' => 'Tags', 'type' => 'tags'],
+    ];
+
+    /** Maximum number of entries kept in a `tags` (list) field. */
+    private const MAX_TAGS = 50;
+
+    /**
      * GET /pages/{route}/media - List all media for a page.
      */
     public function pageMedia(ServerRequestInterface $request): ResponseInterface
@@ -150,6 +179,75 @@ class MediaController extends AbstractApiController
         return ApiResponse::noContent(
             $this->invalidationHeaders([
                 'media:delete:pages/' . $route . '/' . $filename,
+                'media:update:pages/' . $route,
+                'pages:update:/' . $route,
+            ]),
+        );
+    }
+
+    /**
+     * GET /pages/{route}/media/{filename}/meta - Read a page media file's
+     * editable metadata (the `<filename>.meta.yaml` sidecar).
+     */
+    public function getPageMediaMeta(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.media.read');
+
+        $page = $this->findPageOrFail($request);
+        $filename = $this->getSafeFilename($request);
+        $filePath = $this->requirePageMediaFile($page->path(), $filename);
+
+        return ApiResponse::create($this->buildMetaResponse($filePath, $filename));
+    }
+
+    /**
+     * PUT /pages/{route}/media/{filename}/meta - Save a page media file's
+     * editable metadata. Only configured fields present in the body are written;
+     * every other key in the sidecar (EXIF, dimensions, upload info) is kept.
+     */
+    public function savePageMediaMeta(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.media.write');
+
+        $page = $this->findPageOrFail($request);
+        $filename = $this->getSafeFilename($request);
+        $filePath = $this->requirePageMediaFile($page->path(), $filename);
+
+        $this->applyMetaWrite($filePath, $this->extractMetaInput($request));
+
+        $this->fireEvent('onApiMediaMetadataUpdated', ['page' => $page, 'filename' => $filename]);
+
+        $route = $this->getRouteParam($request, 'route') ?? '';
+        return ApiResponse::create(
+            $this->buildMetaResponse($filePath, $filename),
+            200,
+            $this->invalidationHeaders([
+                'media:update:pages/' . $route,
+                'pages:update:/' . $route,
+            ]),
+        );
+    }
+
+    /**
+     * DELETE /pages/{route}/media/{filename}/meta - Clear a page media file's
+     * editable metadata. Reserved/technical keys are preserved; the sidecar is
+     * removed only if nothing else remains in it.
+     */
+    public function deletePageMediaMeta(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.media.write');
+
+        $page = $this->findPageOrFail($request);
+        $filename = $this->getSafeFilename($request);
+        $filePath = $this->requirePageMediaFile($page->path(), $filename);
+
+        $this->clearMetaFields($filePath);
+
+        $this->fireEvent('onApiMediaMetadataDeleted', ['page' => $page, 'filename' => $filename]);
+
+        $route = $this->getRouteParam($request, 'route') ?? '';
+        return ApiResponse::noContent(
+            $this->invalidationHeaders([
                 'media:update:pages/' . $route,
                 'pages:update:/' . $route,
             ]),
@@ -348,6 +446,67 @@ class MediaController extends AbstractApiController
         return ApiResponse::noContent(
             $this->invalidationHeaders([
                 'media:delete:' . $relativePath,
+                'media:update:' . ($parentDir !== '' ? $parentDir : '/'),
+                'media:list',
+            ]),
+        );
+    }
+
+    /**
+     * GET /media/meta?path=... - Read a site media file's editable metadata.
+     * The file is addressed by `?path=` (relative to the media root) because
+     * site media paths contain slashes and would collide with the greedy
+     * `/media/{filename:.+}` route.
+     */
+    public function getSiteMediaMeta(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.media.read');
+
+        [$relativePath, $filePath] = $this->requireSiteMediaFile($request);
+
+        return ApiResponse::create($this->buildMetaResponse($filePath, basename($relativePath)));
+    }
+
+    /**
+     * PUT /media/meta?path=... - Save a site media file's editable metadata.
+     */
+    public function saveSiteMediaMeta(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.media.write');
+
+        [$relativePath, $filePath] = $this->requireSiteMediaFile($request);
+
+        $this->applyMetaWrite($filePath, $this->extractMetaInput($request));
+
+        $this->fireEvent('onApiMediaMetadataUpdated', ['path' => $relativePath, 'filename' => basename($relativePath)]);
+
+        $parentDir = ltrim(dirname($relativePath), '.');
+        return ApiResponse::create(
+            $this->buildMetaResponse($filePath, basename($relativePath)),
+            200,
+            $this->invalidationHeaders([
+                'media:update:' . ($parentDir !== '' ? $parentDir : '/'),
+                'media:list',
+            ]),
+        );
+    }
+
+    /**
+     * DELETE /media/meta?path=... - Clear a site media file's editable metadata.
+     */
+    public function deleteSiteMediaMeta(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.media.write');
+
+        [$relativePath, $filePath] = $this->requireSiteMediaFile($request);
+
+        $this->clearMetaFields($filePath);
+
+        $this->fireEvent('onApiMediaMetadataDeleted', ['path' => $relativePath, 'filename' => basename($relativePath)]);
+
+        $parentDir = ltrim(dirname($relativePath), '.');
+        return ApiResponse::noContent(
+            $this->invalidationHeaders([
                 'media:update:' . ($parentDir !== '' ? $parentDir : '/'),
                 'media:list',
             ]),
@@ -888,6 +1047,339 @@ class MediaController extends AbstractApiController
         }
 
         return $filename;
+    }
+
+    // -------------------------------------------------------------------------
+    // Media metadata (.meta.yaml) helpers
+    // -------------------------------------------------------------------------
+
+    /**
+     * Resolve and validate a page media file for a metadata operation, returning
+     * its absolute path. 404s if the file does not exist on disk.
+     */
+    private function requirePageMediaFile(?string $pagePath, string $filename): string
+    {
+        if (!$pagePath) {
+            throw new NotFoundException('Page directory does not exist on disk.');
+        }
+
+        $filePath = $pagePath . '/' . $filename;
+        if (!is_file($filePath)) {
+            throw new NotFoundException("Media file '{$filename}' not found on this page.");
+        }
+
+        return $filePath;
+    }
+
+    /**
+     * Resolve and validate a site media file (addressed by `?path=`) for a
+     * metadata operation. Returns `[relativePath, absolutePath]`.
+     *
+     * @return array{0: string, 1: string}
+     */
+    private function requireSiteMediaFile(ServerRequestInterface $request): array
+    {
+        $mediaPath = $this->getSiteMediaPath();
+        $path = $request->getQueryParams()['path'] ?? '';
+
+        if (!is_string($path) || $path === '') {
+            throw new ValidationException("A 'path' query parameter identifying the media file is required.");
+        }
+
+        $relativePath = $this->validateRelativePath($path, $mediaPath);
+        $filePath = $mediaPath . '/' . $relativePath;
+
+        if ($relativePath === '' || !is_file($filePath)) {
+            throw new NotFoundException('Media file not found.');
+        }
+
+        return [$relativePath, $filePath];
+    }
+
+    /**
+     * The configured editable metadata fields, normalized to a list of
+     * `['key' => string, 'label' => string, 'type' => 'text'|'textarea']`.
+     * Entries with an unsafe/reserved key or an unknown type are dropped; an
+     * empty or absent config falls back to the built-in defaults.
+     *
+     * @return list<array{key: string, label: string, type: string}>
+     */
+    private function getMetadataFieldDefs(): array
+    {
+        $configured = $this->config->get('plugins.api.media_metadata.fields');
+        $source = is_array($configured) && $configured !== [] ? $configured : self::DEFAULT_META_FIELDS;
+
+        $defs = [];
+        $seen = [];
+        foreach ($source as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $key = trim((string) ($entry['key'] ?? ''));
+            // Safe, non-reserved key only: letters/digits/dot/dash/underscore.
+            if ($key === '' || !preg_match('/^[A-Za-z0-9._-]+$/', $key)) {
+                continue;
+            }
+            if (in_array($key, self::RESERVED_META_KEYS, true) || isset($seen[$key])) {
+                continue;
+            }
+            $type = (string) ($entry['type'] ?? 'text');
+            if (!in_array($type, ['text', 'textarea', 'tags'], true)) {
+                $type = 'text';
+            }
+            $label = trim((string) ($entry['label'] ?? '')) ?: $key;
+
+            $seen[$key] = true;
+            $defs[] = ['key' => $key, 'label' => $label, 'type' => $type];
+        }
+
+        return $defs !== [] ? $defs : self::DEFAULT_META_FIELDS;
+    }
+
+    /** Maximum accepted length for a single metadata value. */
+    private function getMetadataMaxLength(): int
+    {
+        return max(1, (int) $this->config->get('plugins.api.media_metadata.max_length', 2000));
+    }
+
+    /**
+     * Sanitize an incoming metadata value. Metadata renders into `<img>`
+     * attributes on the site, so every value is coerced to a scalar string,
+     * stripped of HTML tags and control characters, collapsed (single-line
+     * fields), and capped at the configured maximum length.
+     */
+    private function sanitizeMetadataValue(mixed $value, string $type, int $maxLen): string
+    {
+        if (is_array($value) || is_object($value)) {
+            throw new ValidationException('Metadata values must be plain text.');
+        }
+        if (is_bool($value)) {
+            $value = $value ? '1' : '';
+        }
+
+        $str = strip_tags((string) $value);
+
+        if ($type === 'textarea') {
+            // Keep newlines/tabs; drop other control characters.
+            $str = (string) preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $str);
+            $str = trim($str);
+        } else {
+            // Single line: control chars and whitespace runs collapse to a space.
+            $str = (string) preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $str);
+            $str = trim((string) preg_replace('/\s+/u', ' ', $str));
+        }
+
+        if (mb_strlen($str) > $maxLen) {
+            $str = mb_substr($str, 0, $maxLen);
+        }
+
+        return $str;
+    }
+
+    /**
+     * Sanitize an incoming `tags` value into a clean list of strings. Accepts an
+     * array of strings, or a single comma-separated string. Each entry is
+     * single-line-sanitized (tags render into attributes/queries just like other
+     * metadata), commas are dropped (they delimit entries), blanks and
+     * duplicates are removed, and the list is capped at MAX_TAGS.
+     *
+     * @return list<string>
+     */
+    private function sanitizeMetadataList(mixed $value, int $maxLen): array
+    {
+        if (is_string($value)) {
+            $value = explode(',', $value);
+        }
+        if (!is_array($value)) {
+            throw new ValidationException('A tags value must be a list of strings.');
+        }
+
+        $tags = [];
+        $seen = [];
+        foreach ($value as $item) {
+            if (is_array($item) || is_object($item)) {
+                throw new ValidationException('Each tag must be plain text.');
+            }
+            // Reuse single-line sanitization, then strip commas (the delimiter).
+            $tag = str_replace(',', ' ', $this->sanitizeMetadataValue($item, 'text', $maxLen));
+            $tag = trim((string) preg_replace('/\s+/u', ' ', $tag));
+            if ($tag === '') {
+                continue;
+            }
+            $fold = mb_strtolower($tag);
+            if (isset($seen[$fold])) {
+                continue;
+            }
+            $seen[$fold] = true;
+            $tags[] = $tag;
+            if (count($tags) >= self::MAX_TAGS) {
+                break;
+            }
+        }
+
+        return $tags;
+    }
+
+    /**
+     * Pull the incoming metadata field map from a save request body. Accepts
+     * either `{"fields": {key: value}}` or a bare `{key: value}` map.
+     *
+     * @return array<string, mixed>
+     */
+    private function extractMetaInput(ServerRequestInterface $request): array
+    {
+        $body = $this->getRequestBody($request);
+        $fields = array_key_exists('fields', $body) ? $body['fields'] : $body;
+
+        if (!is_array($fields)) {
+            throw new ValidationException('Expected a "fields" object of metadata values.');
+        }
+
+        return $fields;
+    }
+
+    /**
+     * Read a media file's `.meta.yaml` sidecar as a raw associative array.
+     *
+     * @return array<string, mixed>
+     */
+    private function readMetaSidecar(string $filePath): array
+    {
+        $metaFile = $filePath . self::META_SUFFIX;
+        if (!is_file($metaFile)) {
+            return [];
+        }
+
+        $data = Yaml::parse((string) file_get_contents($metaFile));
+
+        return is_array($data) ? $data : [];
+    }
+
+    /**
+     * Build the metadata read response for a media file: the configured fields
+     * with their current values, plus any other (read-only) keys present in the
+     * sidecar so the UI can show what it won't touch.
+     *
+     * @return array<string, mixed>
+     */
+    private function buildMetaResponse(string $filePath, string $filename): array
+    {
+        $stored = $this->readMetaSidecar($filePath);
+        $defs = $this->getMetadataFieldDefs();
+
+        $fields = [];
+        $managedKeys = [];
+        foreach ($defs as $def) {
+            $key = $def['key'];
+            $managedKeys[$key] = true;
+            $raw = $stored[$key] ?? null;
+
+            if ($def['type'] === 'tags') {
+                // Normalize to a clean list of strings for the tag editor.
+                $value = is_array($raw)
+                    ? array_values(array_filter(array_map(
+                        static fn($t) => is_scalar($t) ? (string) $t : '',
+                        $raw,
+                    ), static fn($t) => $t !== ''))
+                    : (is_scalar($raw) && $raw !== '' ? [(string) $raw] : []);
+            } else {
+                $value = is_scalar($raw) ? (string) $raw : '';
+            }
+
+            $fields[] = [
+                'key' => $key,
+                'label' => $def['label'],
+                'type' => $def['type'],
+                'value' => $value,
+            ];
+        }
+
+        // Everything else stays read-only in the UI (EXIF, dimensions, upload…).
+        $extra = [];
+        foreach ($stored as $key => $value) {
+            if (!isset($managedKeys[$key])) {
+                $extra[$key] = $value;
+            }
+        }
+
+        return [
+            'filename' => $filename,
+            'has_meta' => is_file($filePath . self::META_SUFFIX),
+            'fields' => $fields,
+            'extra' => $extra,
+        ];
+    }
+
+    /**
+     * Apply an incoming field map to a media file's sidecar. Only configured,
+     * non-reserved fields present in the input are changed (empty value clears
+     * the key); all other keys are preserved. An emptied sidecar is removed.
+     *
+     * @param array<string, mixed> $input
+     */
+    private function applyMetaWrite(string $filePath, array $input): void
+    {
+        $stored = $this->readMetaSidecar($filePath);
+        $maxLen = $this->getMetadataMaxLength();
+
+        foreach ($this->getMetadataFieldDefs() as $def) {
+            $key = $def['key'];
+            if (!array_key_exists($key, $input) || in_array($key, self::RESERVED_META_KEYS, true)) {
+                continue;
+            }
+
+            if ($def['type'] === 'tags') {
+                $tags = $this->sanitizeMetadataList($input[$key], $maxLen);
+                if ($tags === []) {
+                    unset($stored[$key]);
+                } else {
+                    $stored[$key] = $tags;
+                }
+                continue;
+            }
+
+            $value = $this->sanitizeMetadataValue($input[$key], $def['type'], $maxLen);
+            if ($value === '') {
+                unset($stored[$key]);
+            } else {
+                $stored[$key] = $value;
+            }
+        }
+
+        $this->writeMetaSidecar($filePath, $stored);
+    }
+
+    /**
+     * Clear every configured (managed) field from a media file's sidecar,
+     * leaving reserved/technical keys intact. Removes the sidecar if empty.
+     */
+    private function clearMetaFields(string $filePath): void
+    {
+        $stored = $this->readMetaSidecar($filePath);
+        foreach ($this->getMetadataFieldDefs() as $def) {
+            unset($stored[$def['key']]);
+        }
+
+        $this->writeMetaSidecar($filePath, $stored);
+    }
+
+    /**
+     * Persist (or remove, when empty) a media file's `.meta.yaml` sidecar.
+     *
+     * @param array<string, mixed> $data
+     */
+    private function writeMetaSidecar(string $filePath, array $data): void
+    {
+        $metaFile = $filePath . self::META_SUFFIX;
+
+        if ($data === []) {
+            if (is_file($metaFile)) {
+                @unlink($metaFile);
+            }
+            return;
+        }
+
+        file_put_contents($metaFile, Yaml::dump($data, 99, 2));
     }
 
     /**

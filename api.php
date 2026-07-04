@@ -9,8 +9,10 @@ use Grav\Common\Plugin;
 use Grav\Common\Processors\Events\RequestHandlerEvent;
 use Grav\Common\Utils;
 use Grav\Events\PermissionsRegisterEvent;
+use Grav\Events\PluginsLoadedEvent;
 use Grav\Framework\Acl\PermissionsReader;
 use Grav\Plugin\Api\ApiRouter;
+use Grav\Plugin\Api\Auth\JwtAuthenticator;
 use Grav\Plugin\Api\Audit\AuditStore;
 use Grav\Plugin\Api\Audit\AuditSubscriber;
 use Grav\Plugin\Api\Auth\ApiKeyManager;
@@ -40,7 +42,83 @@ class ApiPlugin extends Plugin
             ],
             'onBeforeCacheClear' => ['onBeforeCacheClear', 0],
             PermissionsRegisterEvent::class => ['onRegisterPermissions', 1000],
+            // Fires from Plugins::init(), which runs BEFORE InitializeProcessor
+            // starts the session — the only window in which we can still stop the
+            // shared front-end session from being started for a preview request.
+            PluginsLoadedEvent::class => ['onPluginsLoaded', 0],
         ];
+    }
+
+    /**
+     * Isolate the Admin-Next page preview from the visitor's front-end session.
+     *
+     * Admin-Next renders the preview by pointing an iframe (and the "open in new
+     * tab" link) at the real front-end URL. That request rides the shared
+     * front-end `grav-site-*` session cookie, and booting/reading that session
+     * under the admin context can rotate or invalidate it — logging out a visitor
+     * signed in to the public site in the same browser (admin2#88, #79).
+     *
+     * When the preview flags itself with `admin_preview`, suppress session
+     * initialization for this one request so the visitor's session is never read,
+     * rewritten, or destroyed. The page still renders (as an anonymous visitor,
+     * which is exactly what a layout preview wants), and no `grav-site-*` cookie
+     * is planted even on a cross-origin iframe. This must run before the session
+     * starts, so it hooks PluginsLoadedEvent rather than onPluginsInitialized
+     * (which fires a processor later, after the session is already up).
+     */
+    public function onPluginsLoaded(): void
+    {
+        if (
+            isset($_GET['admin_preview'])
+            && $this->config->get('plugins.api.protect_frontend_session', true)
+        ) {
+            $this->config->set('system.session.initialize', false);
+        }
+    }
+
+    /**
+     * Force-publish a single page for a validated admin draft-preview request
+     * (getgrav/grav-plugin-admin2#100).
+     *
+     * A page with `published: false` is not routable on the front end, so the
+     * admin's preview (an iframe / new-tab navigation to the real front-end URL)
+     * 404s. The admin obtains a short-lived, route-scoped token from
+     * `POST /pages/{route}/preview-token` — which requires page-read permission —
+     * and appends it to the preview URL alongside `admin_preview=1`.
+     *
+     * This runs on `onPagesInitialized`, after the page index is built but before
+     * the page is dispatched (Grav resolves `grav['page']` a few lines later in
+     * PagesProcessor). We validate the token's signature and read the single
+     * route it authorizes, then flip that one page to published+routable in
+     * memory for this request only. Dispatch then finds it and it renders. The
+     * token is the entire authorization: `admin_preview=1` on its own never
+     * unlocks anything, and a token can only ever reveal the exact page it was
+     * minted for. The session stays suppressed throughout (see onPluginsLoaded),
+     * so this doesn't reintroduce the front-end-session rotation of admin2#88/#79.
+     */
+    public function onPreviewPagesInitialized(Event $event): void
+    {
+        $token = (string) ($_GET['preview_token'] ?? '');
+        if ($token === '') {
+            return;
+        }
+
+        $route = (new JwtAuthenticator($this->grav, $this->config))->validatePreviewToken($token);
+        if ($route === null) {
+            return;
+        }
+
+        $pages = $event['pages'] ?? $this->grav['pages'];
+        $page = $pages->find($route);
+        if ($page === null) {
+            return;
+        }
+
+        // Unlock this one page for this request only (nothing is written to disk).
+        // Setting both flags also covers a page that is explicitly `routable:
+        // false`, which the author still wants to see rendered in a preview.
+        $page->published(true);
+        $page->routable(true);
     }
 
     public function autoload(): ClassLoader
@@ -91,9 +169,22 @@ class ApiPlugin extends Plugin
         // Page-view tracking subscribes for FRONTEND requests only — the
         // handler itself short-circuits for admin/API/non-page requests.
         if (!$this->active && !$this->isAdmin()) {
-            $this->enable([
+            $listeners = [
                 'onPageInitialized' => ['onFrontendPageInitialized', 0],
-            ]);
+            ];
+
+            // Admin draft preview: when a signed, route-scoped preview token
+            // rides the request (admin2#100), unlock that one page so an
+            // unpublished draft renders instead of 404ing. Only wired up when the
+            // preview flags are actually present, so it costs nothing otherwise.
+            if (
+                isset($_GET['admin_preview'], $_GET['preview_token'])
+                && $this->config->get('plugins.api.allow_draft_preview', true)
+            ) {
+                $listeners['onPagesInitialized'] = ['onPreviewPagesInitialized', 0];
+            }
+
+            $this->enable($listeners);
         }
 
         if ($this->active) {
@@ -179,10 +270,55 @@ class ApiPlugin extends Plugin
             $this->outputJson(['status' => 'error', 'message' => 'Not authorized.']);
         }
 
+        // Authorize the caller against the target account. admin.login is the
+        // baseline permission every panel user holds; on its own it only grants
+        // management of the caller's OWN keys. Minting or revoking keys for any
+        // other account is an account-management operation and requires
+        // admin.users / admin.super, and only a super-admin may target a
+        // super-admin account. Without this gate an admin.login user could forge
+        // a persistent key bound to any account and inherit its API permissions.
+        // Mirrors the REST path's requireApiKeyPermission + requireNotSuperTarget.
+        // (GHSA-7v74-m76q-8wf3)
+        $this->authorizeApiKeyTarget($user);
+
         match ($task) {
             'apiKeyGenerate' => $this->handleApiKeyGenerate(),
             'apiKeyRevoke' => $this->handleApiKeyRevoke(),
         };
+    }
+
+    /**
+     * Enforce that the logged-in admin may manage API keys for the account named
+     * in the route. Acting on your own account is never an escalation and is
+     * always allowed. Acting on any other account requires admin.users or
+     * admin.super, and a non-super caller may never target a super-admin
+     * account. Terminates the request with a JSON error when the check fails.
+     * (GHSA-7v74-m76q-8wf3)
+     *
+     * @param object $current The logged-in session user.
+     */
+    protected function authorizeApiKeyTarget($current): void
+    {
+        $username = $this->getAdminRouteUsername();
+        if (!$username) {
+            $this->outputJson(['status' => 'error', 'message' => 'Could not determine username.']);
+        }
+
+        // Managing your own keys is always allowed.
+        if (($current->username ?? null) === $username) {
+            return;
+        }
+
+        // Managing another account's keys requires account-management rights.
+        if (!$current->authorize('admin.super') && !$current->authorize('admin.users')) {
+            $this->outputJson(['status' => 'error', 'message' => 'Not authorized.']);
+        }
+
+        // Only a super-admin may act on a super-admin account.
+        $target = $this->grav['accounts']->load($username);
+        if ($target->exists() && $target->authorize('admin.super') && !$current->authorize('admin.super')) {
+            $this->outputJson(['status' => 'error', 'message' => 'Only super-admins can manage super-admin accounts.']);
+        }
     }
 
     protected function handleApiKeyGenerate(): void
