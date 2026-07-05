@@ -3,6 +3,8 @@
 
 1. [](#new)
     * The new admin can now retrieve the Grav core changelog for versions newer than the one installed, so it can show what changed before you upgrade ([getgrav/grav-plugin-admin2#109](https://github.com/getgrav/grav-plugin-admin2/issues/109)).
+1. [](#bugfix)
+    * The page summary preview now returns clean stripped text instead of a slice of raw Markdown, so leading links and images no longer leave broken fragments in the new admin's page list ([getgrav/grav-plugin-admin2#110](https://github.com/getgrav/grav-plugin-admin2/issues/110)).
 
 # v1.0.8
 ## 07/04/2026
