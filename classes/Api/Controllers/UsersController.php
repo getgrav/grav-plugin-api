@@ -30,6 +30,19 @@ class UsersController extends AbstractApiController
     /** 8 MB cap — a profile avatar shouldn't be anywhere near this. */
     private const AVATAR_MAX_SIZE = 8_388_608;
 
+    /**
+     * Client-side renderers a plugin column may name. The server only ever
+     * declares *which* formatter renders a value; the rendering itself is the
+     * client's job. No renderer function or HTML crosses the wire, so a plugin
+     * can't smuggle markup or behaviour through a column. Unknown values fall
+     * back to 'text'.
+     */
+    private const COLUMN_FORMATTERS = ['text', 'link', 'date', 'datetime', 'boolean', 'number', 'badge'];
+
+    /** Hard caps so a misbehaving plugin can't bloat a list response. */
+    private const COLUMN_MAX_FIELDS = 32;
+    private const COLUMN_VALUE_MAX_LEN = 2048;
+
     private ?UserSerializer $serializer = null;
 
     public function index(ServerRequestInterface $request): ResponseInterface
@@ -100,6 +113,194 @@ class UsersController extends AbstractApiController
         ]);
 
         return ApiResponse::create($this->assembleFilterTabs($event, $user));
+    }
+
+    /**
+     * GET /users/columns — plugin-declared extra columns for the Users list.
+     *
+     * The presentation half of the Users extension contract (getgrav/
+     * grav-plugin-admin2#111). A plugin declares columns via the
+     * `onApiUserListColumns` event; Admin2 owns the table, and the per-user
+     * values ride along inside each user's `extra` map on GET /users (populated
+     * by `onApiUserListColumnData`, scoped to the current page — never a
+     * parallel all-users fetch).
+     *
+     * Column format:
+     *   [
+     *     'id'        => 'my-plugin-valid-till', // required, unique; client key
+     *     'plugin'    => 'my-plugin',            // owning plugin slug
+     *     'label'     => 'Valid until',          // display name (raw text)
+     *     'field'     => 'subscription.valid_till', // key into each user's `extra`
+     *     'formatter' => 'datetime',             // one of COLUMN_FORMATTERS; else 'text'
+     *     'sortable'  => false,                  // client-side, current page only
+     *     'priority'  => 50,                     // optional sort order (higher = earlier)
+     *     'authorize' => 'api.users.read',       // optional — string or array for any-of
+     *   ]
+     *
+     * Deliberately narrow: scalar data only, a fixed formatter whitelist, no
+     * raw HTML or renderer functions. That keeps plugin columns from becoming
+     * the kind of open-ended surface that let classic-admin plugins break on
+     * upgrade.
+     *
+     * Response shape: { "columns": [ ... ] }
+     */
+    public function columns(ServerRequestInterface $request): ResponseInterface
+    {
+        // Columns only mean something to a caller who can list users.
+        $this->requirePermission($request, 'api.users.read');
+
+        $user = $this->getUser($request);
+        $event = $this->fireEvent('onApiUserListColumns', [
+            'columns' => [],
+            'user' => $user,
+        ]);
+
+        return ApiResponse::create(['columns' => $this->assembleColumns($event, $user)]);
+    }
+
+    /**
+     * Validate and normalize plugin-declared columns: drop malformed entries and
+     * columns the caller isn't authorized for, whitelist the formatter, sanitize
+     * the field key, then order by descending priority. Mirrors
+     * assembleFilterTabs() — the `authorize` field is a server-side annotation
+     * and is stripped before the column reaches the client.
+     *
+     * @param Event $event The onApiUserListColumns event after plugins ran
+     * @return array<int, array<string, mixed>>
+     */
+    private function assembleColumns(Event $event, UserInterface $user): array
+    {
+        $isSuperAdmin = $this->isSuperAdmin($user);
+
+        $columns = [];
+        $seen = [];
+        foreach ((array) ($event['columns'] ?? []) as $column) {
+            if (!is_array($column) || !isset($column['id']) || !is_string($column['id']) || $column['id'] === '') {
+                continue;
+            }
+            if (isset($seen[$column['id']])) {
+                continue; // first declaration of an id wins
+            }
+            if (!$this->userPassesAuthorize($user, $column['authorize'] ?? null, $isSuperAdmin)) {
+                continue;
+            }
+
+            // The field is the key looked up in each user's `extra` map. Keep it
+            // to a safe identifier charset — no traversal or odd keys.
+            $field = isset($column['field']) && is_string($column['field'])
+                ? preg_replace('/[^A-Za-z0-9_.\-]/', '', $column['field'])
+                : '';
+            if ($field === '') {
+                continue;
+            }
+
+            $formatter = isset($column['formatter']) && is_string($column['formatter'])
+                && in_array($column['formatter'], self::COLUMN_FORMATTERS, true)
+                    ? $column['formatter']
+                    : 'text';
+
+            $seen[$column['id']] = true;
+            $column['field'] = $field;
+            $column['formatter'] = $formatter;
+            $column['sortable'] = (bool) ($column['sortable'] ?? false);
+            // Strip the authorize field — server-side annotation, not client data.
+            unset($column['authorize']);
+            $columns[] = $column;
+        }
+
+        usort($columns, fn($a, $b) => ($b['priority'] ?? 0) <=> ($a['priority'] ?? 0));
+
+        return $columns;
+    }
+
+    /**
+     * Merge plugin-owned scalar column data into an already-serialized,
+     * already-paginated page of users. Fired ONCE for the whole page (the
+     * `onApiUserListColumnData` event receives only the usernames already
+     * selected after search / filter / permission / pagination), so there is no
+     * N+1 and no incentive to load metadata for every account.
+     *
+     * Hard isolation: a throwing or misbehaving subscriber can never 500 or
+     * stall the listing — failures degrade to missing column values, logged as
+     * a warning. Plugin values are scalar-only and capped.
+     *
+     * @param array<int, array<string, mixed>> $data Serialized users for this page
+     * @return array<int, array<string, mixed>>
+     */
+    private function applyColumnData(array $data, UserInterface $currentUser): array
+    {
+        if ($data === []) {
+            return $data;
+        }
+
+        $usernames = array_values(array_filter(array_column($data, 'username'), 'is_string'));
+        if ($usernames === []) {
+            return $data;
+        }
+
+        try {
+            $event = $this->fireEvent('onApiUserListColumnData', [
+                'usernames' => $usernames,
+                'data' => [], // plugin fills: username => [ field => scalar ]
+                'user' => $currentUser,
+            ]);
+
+            $map = $event['data'] ?? null;
+            if (!is_array($map) || $map === []) {
+                return $data;
+            }
+
+            foreach ($data as &$row) {
+                $extra = $map[$row['username']] ?? null;
+                if (is_array($extra)) {
+                    $clean = $this->sanitizeColumnValues($extra);
+                    if ($clean !== []) {
+                        $row['extra'] = $clean;
+                    }
+                }
+            }
+            unset($row);
+        } catch (\Throwable $e) {
+            // Isolation: a plugin fault must not break the users list.
+            $this->grav['log']->warning('[api] onApiUserListColumnData failed: ' . $e->getMessage());
+        }
+
+        return $data;
+    }
+
+    /**
+     * Enforce the column-data contract on one user's plugin values: scalars (or
+     * null) only — arrays, objects and resources are rejected so a plugin can't
+     * leak blobs or nested structures — with a safe key charset and per-value
+     * and per-user size caps.
+     *
+     * @param array<mixed, mixed> $extra
+     * @return array<string, string|int|float|bool|null>
+     */
+    private function sanitizeColumnValues(array $extra): array
+    {
+        $clean = [];
+        foreach ($extra as $key => $value) {
+            if (count($clean) >= self::COLUMN_MAX_FIELDS) {
+                break;
+            }
+            if (!is_string($key)) {
+                continue;
+            }
+            $key = preg_replace('/[^A-Za-z0-9_.\-]/', '', $key);
+            if ($key === '') {
+                continue;
+            }
+            if ($value !== null && !is_scalar($value)) {
+                continue; // scalar-only: drop arrays/objects/resources
+            }
+            if (is_string($value) && strlen($value) > self::COLUMN_VALUE_MAX_LEN) {
+                $value = substr($value, 0, self::COLUMN_VALUE_MAX_LEN);
+            }
+            $clean[$key] = $value;
+        }
+
+        return $clean;
     }
 
     /**
@@ -273,6 +474,11 @@ class UsersController extends AbstractApiController
             }
         }
 
+        // Let plugins attach their declared column values to this page of
+        // users (getgrav/grav-plugin-admin2#111). Scoped to the served page,
+        // applied after pagination — the indexed fast path above is untouched.
+        $data = $this->applyColumnData($data, $this->getUser($request));
+
         return ApiResponse::paginated(
             data: $data,
             total: $total,
@@ -309,6 +515,10 @@ class UsersController extends AbstractApiController
 
         $total = count($allUsers);
         $paged = array_slice($allUsers, $pagination['offset'], $pagination['limit']);
+
+        // Column data is resolved for the served page only — never $allUsers —
+        // so a plugin isn't pushed into loading metadata for every account.
+        $paged = $this->applyColumnData($paged, $this->getUser($request));
 
         return ApiResponse::paginated(
             data: $paged,

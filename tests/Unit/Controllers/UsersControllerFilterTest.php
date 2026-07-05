@@ -13,6 +13,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use ReflectionMethod;
+use RocketTheme\Toolbox\Event\Event;
 
 /**
  * Covers the server-side permission/group filtering added to GET /users so the
@@ -62,7 +63,11 @@ class UsersControllerFilterTest extends TestCase
     {
         $m = new ReflectionMethod($c, 'assembleFilterTabs');
         $m->setAccessible(true);
-        return $m->invoke($c, $contributed, $user);
+        // assembleFilterTabs takes the fired Event and returns the resolved
+        // { tabs, defaultFilter, showAll } structure; these cases assert on the
+        // tab row itself.
+        $result = $m->invoke($c, new Event(['filters' => $contributed]), $user);
+        return $result['tabs'];
     }
 
     #[Test]

@@ -81,6 +81,20 @@ namespace Grav\Common {
             /** @var array<int, array{name: string, event: object}> Recorded event firings for test assertions. */
             private array $firedEvents = [];
 
+            /** @var array<string, array<int, callable>> Listeners registered by tests that need to exercise event-driven code. */
+            private array $listeners = [];
+
+            /**
+             * Register a listener so a test can simulate a plugin subscribing to
+             * an event (the real dispatcher is not available under the stubs).
+             * A listener that throws propagates out of fireEvent, exactly as
+             * Grav's real dispatcher would.
+             */
+            public function addListener(string $name, callable $listener): void
+            {
+                $this->listeners[$name][] = $listener;
+            }
+
             public static function instance(): static
             {
                 if (self::$instance === null) {
@@ -103,6 +117,9 @@ namespace Grav\Common {
             {
                 $event = $event ?? new \stdClass();
                 $this->firedEvents[] = ['name' => $name, 'event' => $event];
+                foreach ($this->listeners[$name] ?? [] as $listener) {
+                    $listener($event);
+                }
                 return $event;
             }
 
