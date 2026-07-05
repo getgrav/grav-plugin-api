@@ -637,6 +637,7 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('GET', '/gpm/themes/{slug}/fields', [GpmController::class, 'customFieldBundle']);
         $r->addRoute('GET', '/gpm/themes/{slug}/field/{type}', [GpmController::class, 'customFieldScript']);
         $r->addRoute('GET', '/gpm/updates', [GpmController::class, 'updates']);
+        $r->addRoute('GET', '/gpm/grav/changelog', [GpmController::class, 'gravChangelog']);
         $r->addRoute('POST', '/gpm/install', [GpmController::class, 'install']);
         $r->addRoute('POST', '/gpm/remove', [GpmController::class, 'remove']);
         $r->addRoute('POST', '/gpm/update', [GpmController::class, 'update']);

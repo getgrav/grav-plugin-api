@@ -1,3 +1,9 @@
+# v1.0.9
+## 07/05/2026
+
+1. [](#new)
+    * The new admin can now retrieve the Grav core changelog for versions newer than the one installed, so it can show what changed before you upgrade ([getgrav/grav-plugin-admin2#109](https://github.com/getgrav/grav-plugin-admin2/issues/109)).
+
 # v1.0.8
 ## 07/04/2026
 

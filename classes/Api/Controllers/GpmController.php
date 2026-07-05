@@ -1177,6 +1177,41 @@ class GpmController extends AbstractApiController
     }
 
     /**
+     * GET /gpm/grav/changelog - Get the Grav core changelog for versions newer
+     * than the one currently installed, assembled into a single markdown doc.
+     */
+    public function gravChangelog(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, self::PERMISSION_READ);
+
+        $query = $request->getQueryParams();
+        $flush = filter_var($query['flush'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
+        $gravInfo = $this->getGpm($flush)->getGrav();
+
+        // Only show entries newer than the installed version.
+        $changelog = $gravInfo ? (array) $gravInfo->getChangelog(GRAV_VERSION) : [];
+
+        // Each entry is either a markdown string or ['date' => ..., 'content' => markdown].
+        $parts = [];
+        foreach ($changelog as $version => $entry) {
+            $date = is_array($entry) ? ($entry['date'] ?? '') : '';
+            $body = is_array($entry) ? ($entry['content'] ?? '') : $entry;
+            $body = is_string($body) ? trim($body) : '';
+
+            $heading = "# v{$version}";
+            if ($date !== '') {
+                $heading .= " ({$date})";
+            }
+            $parts[] = "{$heading}\n\n{$body}";
+        }
+
+        return ApiResponse::create([
+            'content' => implode("\n\n", $parts),
+        ]);
+    }
+
+    /**
      * Resolve the filesystem path for an installed package.
      */
     private function resolvePackagePath(string $slug, string $type): string
