@@ -1,9 +1,11 @@
 # v1.0.9
-## 07/05/2026
+## 07/06/2026
 
 1. [](#new)
     * The new admin can now retrieve the Grav core changelog for versions newer than the one installed, so it can show what changed before you upgrade ([getgrav/grav-plugin-admin2#109](https://github.com/getgrav/grav-plugin-admin2/issues/109)).
     * Plugins can now add their own columns to the new admin's Users list, contributing safe per-user values that stay scoped to the page you are viewing ([getgrav/grav-plugin-admin2#111](https://github.com/getgrav/grav-plugin-admin2/issues/111)).
+1. [](#improved)
+    * Media listings now include each file's saved alt text and title from its metadata, so the admin can insert an image with proper alt text instead of the filename ([getgrav/grav-plugin-admin2#114](https://github.com/getgrav/grav-plugin-admin2/issues/114)).
 1. [](#bugfix)
     * The page summary preview now returns clean stripped text instead of a slice of raw Markdown, so leading links and images no longer leave broken fragments in the new admin's page list ([getgrav/grav-plugin-admin2#110](https://github.com/getgrav/grav-plugin-admin2/issues/110)).
 

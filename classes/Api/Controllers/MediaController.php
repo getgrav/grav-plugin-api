@@ -1606,6 +1606,16 @@ class MediaController extends AbstractApiController
             'size' => (int) filesize($filePath),
         ];
 
+        // Alt/title from the `.meta.yaml` sidecar so the media panel can insert
+        // `![alt](file)` rather than overwriting alt with the filename.
+        $meta = $this->readMetaSidecar($filePath);
+        if (isset($meta['alt']) && is_scalar($meta['alt']) && (string) $meta['alt'] !== '') {
+            $data['alt'] = (string) $meta['alt'];
+        }
+        if (isset($meta['title']) && is_scalar($meta['title']) && (string) $meta['title'] !== '') {
+            $data['title'] = (string) $meta['title'];
+        }
+
         if (str_starts_with($mime, 'image/') && $mime !== 'image/svg+xml') {
             if ($imageSize = @getimagesize($filePath)) {
                 $data['dimensions'] = [
