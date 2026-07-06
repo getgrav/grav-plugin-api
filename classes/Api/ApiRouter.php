@@ -410,9 +410,15 @@ class ApiRouter extends ProcessorBase
         // page type (e.g. .md, .txt, .html) before the route is built. Without
         // this re-attach, `DELETE /api/v1/media/notes.txt` would arrive as
         // `/media/notes` and 404.
+        //
+        // RequestProcessor lowercases the extension, but the route path keeps
+        // the file's original case. Compare case-insensitively so an uppercase
+        // extension (e.g. `photo.JPG`) is not treated as missing and a duplicate
+        // `.jpg` appended — which turned the filename into `photo.JPG.jpg` and
+        // 404'd every media file with a non-lowercase extension (getgrav/grav#4196).
         if ($route) {
             $extension = (string)$route->getExtension();
-            if ($extension !== '' && !str_ends_with($gravPath, '.' . $extension)) {
+            if ($extension !== '' && !str_ends_with(strtolower($gravPath), '.' . strtolower($extension))) {
                 $gravPath .= '.' . $extension;
             }
         }
@@ -590,6 +596,7 @@ class ApiRouter extends ProcessorBase
         // Static route registered before the /users/{username} catch-all so the
         // tab-discovery endpoint is never swallowed as a username lookup.
         $r->addRoute('GET', '/users/filters', [UsersController::class, 'filters']);
+        $r->addRoute('GET', '/users/columns', [UsersController::class, 'columns']);
         $r->addRoute('POST', '/users', [UsersController::class, 'create']);
         $r->addRoute('GET', '/users/{username}', [UsersController::class, 'show']);
         $r->addRoute('PATCH', '/users/{username}', [UsersController::class, 'update']);
@@ -637,6 +644,7 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('GET', '/gpm/themes/{slug}/fields', [GpmController::class, 'customFieldBundle']);
         $r->addRoute('GET', '/gpm/themes/{slug}/field/{type}', [GpmController::class, 'customFieldScript']);
         $r->addRoute('GET', '/gpm/updates', [GpmController::class, 'updates']);
+        $r->addRoute('GET', '/gpm/grav/changelog', [GpmController::class, 'gravChangelog']);
         $r->addRoute('POST', '/gpm/install', [GpmController::class, 'install']);
         $r->addRoute('POST', '/gpm/remove', [GpmController::class, 'remove']);
         $r->addRoute('POST', '/gpm/update', [GpmController::class, 'update']);

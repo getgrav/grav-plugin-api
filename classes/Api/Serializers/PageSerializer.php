@@ -6,7 +6,12 @@ namespace Grav\Plugin\Api\Serializers;
 
 use DateTimeImmutable;
 use DateTimeZone;
+use Grav\Common\Grav;
+use Grav\Common\Markdown\Parsedown;
+use Grav\Common\Markdown\ParsedownExtra;
 use Grav\Common\Page\Interfaces\PageInterface;
+use Grav\Common\Page\Markdown\Excerpts;
+use Grav\Common\Utils;
 
 class PageSerializer implements SerializerInterface
 {
@@ -167,28 +172,10 @@ class PageSerializer implements SerializerInterface
         $includeSummary = $options['include_summary'] ?? false;
         if ($includeSummary) {
             $summarySize = $options['summary_size'] ?? null;
-            // summary() runs the page through the full Twig / shortcode pipeline,
-            // so any page with a plugin shortcode whose dependencies aren't
-            // available in the API request context (e.g. a `[poll]` that wants
-            // the frontend theme's Twig env) can throw — we don't want that to
-            // take down the whole response for something the client is treating
-            // as a preview. Fall back to a plain-text rendering of the raw
-            // markdown, trimmed to the requested size.
-            try {
-                $data['summary'] = $summarySize
-                    ? $resource->summary($summarySize)
-                    : $resource->summary();
-            } catch (\Throwable $e) {
-                $raw = (string) $resource->rawMarkdown();
-                // Strip frontmatter artifacts, shortcodes, markdown syntax.
-                $plain = preg_replace('/\[[^\]]+\s*\/?\]/', '', $raw) ?? $raw;
-                $plain = preg_replace('/[#*_`>]/', '', $plain) ?? $plain;
-                $plain = trim(preg_replace('/\s+/', ' ', $plain) ?? $plain);
-                $max = $summarySize ?: 300;
-                $data['summary'] = mb_strlen($plain) > $max
-                    ? rtrim(mb_substr($plain, 0, $max)) . '…'
-                    : $plain;
-            }
+            $data['summary'] = $this->buildTextSummary(
+                $resource,
+                is_int($summarySize) ? $summarySize : null,
+            );
         }
 
         if ($includeMedia) {
@@ -321,5 +308,68 @@ class PageSerializer implements SerializerInterface
         return (new DateTimeImmutable('@' . (int) $timestamp))
             ->setTimezone(new DateTimeZone('UTC'))
             ->format(DateTimeImmutable::ATOM);
+    }
+
+    /**
+     * Build a plain-text summary for the page-list preview panel.
+     *
+     * The preview wants readable text, not markup: rendered images and
+     * shortcodes break more than they help in a small side panel, and
+     * truncating the raw markdown leaves orphaned link/image fragments
+     * (admin2#110). So we render the content, strip the tags, and truncate
+     * the resulting text.
+     *
+     * Page::summary(size, textOnly: true) is tried first so an author's manual
+     * "===" summary divider and summary config are honored. It renders through
+     * Twig, which can throw in the headless API request context (no active
+     * page / Twig env); on failure we render the raw markdown on its own — no
+     * Twig — and strip that instead.
+     */
+    private function buildTextSummary(PageInterface $resource, ?int $summarySize): string
+    {
+        $max = ($summarySize !== null && $summarySize > 0) ? $summarySize : 300;
+
+        try {
+            $text = (string) $resource->summary($max, true);
+        } catch (\Throwable) {
+            $text = strip_tags($this->renderMarkdown($resource));
+        }
+
+        // Drop any Twig / shortcode tokens the fallback path left unprocessed.
+        $text = preg_replace('/\{\{.*?\}\}|\{%.*?%\}|\{#.*?#\}/s', '', $text) ?? $text;
+        $text = preg_replace('/\[\/?[a-zA-Z][^\]]*\]/', '', $text) ?? $text;
+
+        $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = trim(preg_replace('/\s+/', ' ', $text) ?? $text);
+
+        return Utils::truncate($text, $max, true, ' ', '…');
+    }
+
+    /**
+     * Render a page's raw markdown to HTML without the Twig pass (which needs
+     * an active request / Twig env and throws headless). Mirrors Grav's own
+     * markdown step: Parsedown driven by an Excerpts instance, so the caller
+     * can strip clean tags rather than partially-processed markdown.
+     */
+    private function renderMarkdown(PageInterface $resource): string
+    {
+        $config = Grav::instance()['config'];
+
+        $markdownDefaults = (array) $config->get('system.pages.markdown');
+        $header = $resource->header();
+        if (isset($header->markdown) && is_array($header->markdown)) {
+            $markdownDefaults = array_merge($markdownDefaults, $header->markdown);
+        }
+
+        $excerpts = new Excerpts($resource, [
+            'markdown' => $markdownDefaults,
+            'images' => $config->get('system.images', []),
+        ]);
+
+        $parsedown = !empty($markdownDefaults['extra'])
+            ? new ParsedownExtra($excerpts)
+            : new Parsedown($excerpts);
+
+        return (string) $parsedown->text((string) $resource->rawMarkdown());
     }
 }

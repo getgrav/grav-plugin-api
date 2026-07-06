@@ -27,6 +27,18 @@ class MediaSerializer implements SerializerInterface
             'size' => (int) ($medium->get('size') ?? 0),
         ];
 
+        // Alt/title come from the `.meta.yaml` sidecar, which Grav merges into
+        // the medium's attributes. Exposing them here lets the media panel
+        // insert `![alt](file)` instead of overwriting alt with the filename.
+        $alt = $medium->get('alt');
+        if (is_string($alt) && $alt !== '') {
+            $data['alt'] = $alt;
+        }
+        $title = $medium->get('title');
+        if (is_string($title) && $title !== '') {
+            $data['title'] = $title;
+        }
+
         if (str_starts_with($mime, 'image/')) {
             $width = $medium->get('width');
             $height = $medium->get('height');
