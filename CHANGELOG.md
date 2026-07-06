@@ -8,6 +8,7 @@
     * Media listings now include each file's saved alt text and title from its metadata, so the admin can insert an image with proper alt text instead of the filename ([getgrav/grav-plugin-admin2#114](https://github.com/getgrav/grav-plugin-admin2/issues/114)).
 1. [](#bugfix)
     * The page summary preview now returns clean stripped text instead of a slice of raw Markdown, so leading links and images no longer leave broken fragments in the new admin's page list ([getgrav/grav-plugin-admin2#110](https://github.com/getgrav/grav-plugin-admin2/issues/110)).
+    * Media files whose extension has any uppercase letters, such as `.JPG`, can now be deleted instead of failing with a not-found error ([getgrav/grav#4196](https://github.com/getgrav/grav/issues/4196)).
 
 # v1.0.8
 ## 07/04/2026

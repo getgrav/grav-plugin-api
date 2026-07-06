@@ -410,9 +410,15 @@ class ApiRouter extends ProcessorBase
         // page type (e.g. .md, .txt, .html) before the route is built. Without
         // this re-attach, `DELETE /api/v1/media/notes.txt` would arrive as
         // `/media/notes` and 404.
+        //
+        // RequestProcessor lowercases the extension, but the route path keeps
+        // the file's original case. Compare case-insensitively so an uppercase
+        // extension (e.g. `photo.JPG`) is not treated as missing and a duplicate
+        // `.jpg` appended — which turned the filename into `photo.JPG.jpg` and
+        // 404'd every media file with a non-lowercase extension (getgrav/grav#4196).
         if ($route) {
             $extension = (string)$route->getExtension();
-            if ($extension !== '' && !str_ends_with($gravPath, '.' . $extension)) {
+            if ($extension !== '' && !str_ends_with(strtolower($gravPath), '.' . strtolower($extension))) {
                 $gravPath .= '.' . $extension;
             }
         }
