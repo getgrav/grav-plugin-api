@@ -132,6 +132,7 @@ class UsersController extends AbstractApiController
      *     'label'     => 'Valid until',          // display name (raw text)
      *     'field'     => 'subscription.valid_till', // key into each user's `extra`
      *     'formatter' => 'datetime',             // one of COLUMN_FORMATTERS; else 'text'
+     *     'labelField' => 'my-plugin.link_label', // optional for formatter=link; key for visible link text
      *     'sortable'  => false,                  // client-side, current page only
      *     'priority'  => 50,                     // optional sort order (higher = earlier)
      *     'authorize' => 'api.users.read',       // optional — string or array for any-of
@@ -199,10 +200,19 @@ class UsersController extends AbstractApiController
                     ? $column['formatter']
                     : 'text';
 
+            $labelField = isset($column['labelField']) && is_string($column['labelField'])
+                ? preg_replace('/[^A-Za-z0-9_.\-]/', '', $column['labelField'])
+                : '';
+
             $seen[$column['id']] = true;
             $column['field'] = $field;
             $column['formatter'] = $formatter;
             $column['sortable'] = (bool) ($column['sortable'] ?? false);
+            if ($formatter === 'link' && $labelField !== '') {
+                $column['labelField'] = $labelField;
+            } else {
+                unset($column['labelField']);
+            }
             // Strip the authorize field — server-side annotation, not client data.
             unset($column['authorize']);
             $columns[] = $column;
