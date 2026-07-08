@@ -602,6 +602,7 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('GET', '/media/meta', [MediaController::class, 'getSiteMediaMeta']);
         $r->addRoute('PATCH', '/media/meta', [MediaController::class, 'saveSiteMediaMeta']);
         $r->addRoute('DELETE', '/media/meta', [MediaController::class, 'deleteSiteMediaMeta']);
+        $r->addRoute('POST', '/media/batch/meta', [MediaController::class, 'batchSiteMediaMeta']);
         $r->addRoute('POST', '/media/order', [MediaController::class, 'setSiteMediaOrder']);
         $r->addRoute('POST', '/media/folders/rename', [MediaController::class, 'renameFolder']);
         $r->addRoute('DELETE', '/media/folders/{path:.+}', [MediaController::class, 'deleteFolder']);

@@ -6,7 +6,9 @@
     * Demo content resets back to a captured baseline on a timer or with the new `bin/plugin api demo:baseline` and `demo:reset` commands, so a shared demo cleans itself up after visitors.
 1. [](#improved)
     * The API plugin's own settings are now organized into tabs instead of one long scrolling form.
+    * Plugin-contributed link columns in the new admin's Users list can now show separate visible text from the link they point to ([getgrav/grav-plugin-admin2#111](https://github.com/getgrav/grav-plugin-admin2/issues/111)).
 1. [](#bugfix)
+    * Saving metadata with several media files selected now updates every selected file instead of only the last one ([getgrav/grav-plugin-admin2#117](https://github.com/getgrav/grav-plugin-admin2/issues/117)).
     * [security] Reading a configuration section through the API no longer exposes stored passwords, API keys, and other secret values in plain text.
     * [security] A user who can edit pages can no longer move a page to a location outside the pages folder, closing a path that let a page's files be written anywhere the server can write (GHSA-qjq4-jp55-4mx2).
     * [security] Inviting a new user into a group is now restricted to super administrators, so a user who can only manage accounts can no longer invite someone straight into a super-admin group (GHSA-m86m-jjcg-gcvv).
