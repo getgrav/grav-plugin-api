@@ -117,22 +117,29 @@ class SystemController extends AbstractApiController
         $plugins = $this->getPluginsInfo();
         $themes = $this->getThemesInfo();
 
+        // Demo accounts see the same report with server-path / host-fingerprint
+        // fields redacted (see getPhpConfig()); a public demo must not leak the
+        // host's filesystem layout, open_basedir, temp dir, or web-server banner.
+        $redact = $this->isDemoUser($request);
+
         $data = [
             'grav_version' => GRAV_VERSION,
             'php_version' => PHP_VERSION,
             'php_extensions' => get_loaded_extensions(),
-            'server_software' => $_SERVER['SERVER_SOFTWARE'] ?? 'unknown',
+            'server_software' => $redact ? self::DEMO_REDACTED : ($_SERVER['SERVER_SOFTWARE'] ?? 'unknown'),
             'environment' => $this->config->get('system.environment') ?? $this->grav['uri']->environment(),
             'plugins' => $plugins,
             'themes' => $themes,
-            'php_config' => $this->getPhpConfig(),
+            'php_config' => $this->getPhpConfig($redact),
         ];
 
         return ApiResponse::create($data);
     }
 
-    private function getPhpConfig(): array
+    private function getPhpConfig(bool $redact = false): array
     {
+        $path = fn (string $value): string => $redact ? self::DEMO_REDACTED : $value;
+
         $ini = function (string $key): string {
             return (string) ini_get($key);
         };
@@ -154,17 +161,17 @@ class SystemController extends AbstractApiController
                 'display_errors' => $ini('display_errors'),
                 'error_reporting' => (string) error_reporting(),
                 'log_errors' => $ini('log_errors'),
-                'error_log' => $ini('error_log') ?: '(none)',
+                'error_log' => $path($ini('error_log') ?: '(none)'),
             ],
             'Paths & Environment' => [
-                'open_basedir' => $ini('open_basedir') ?: '(none)',
-                'sys_temp_dir' => sys_get_temp_dir(),
-                'doc_root' => $_SERVER['DOCUMENT_ROOT'] ?? '(unknown)',
-                'include_path' => $ini('include_path'),
+                'open_basedir' => $path($ini('open_basedir') ?: '(none)'),
+                'sys_temp_dir' => $path(sys_get_temp_dir()),
+                'doc_root' => $path($_SERVER['DOCUMENT_ROOT'] ?? '(unknown)'),
+                'include_path' => $path($ini('include_path')),
             ],
             'Session' => [
                 'session.save_handler' => $ini('session.save_handler'),
-                'session.save_path' => $ini('session.save_path') ?: '(default)',
+                'session.save_path' => $path($ini('session.save_path') ?: '(default)'),
                 'session.gc_maxlifetime' => $ini('session.gc_maxlifetime') . 's',
                 'session.cookie_lifetime' => $ini('session.cookie_lifetime') . 's',
                 'session.cookie_secure' => $ini('session.cookie_secure'),
@@ -235,6 +242,10 @@ class SystemController extends AbstractApiController
     public function logFiles(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'api.system.read');
+        // Raw logs can carry stack traces with absolute paths, IPs, and the odd
+        // leaked token — too easy to miss something to redact line-by-line, so
+        // block the endpoint outright for demo accounts.
+        $this->denyIfDemo($request);
 
         $files = $this->getRegisteredLogFiles();
 
@@ -247,6 +258,7 @@ class SystemController extends AbstractApiController
     public function logs(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'api.system.read');
+        $this->denyIfDemo($request);
 
         $pagination = $this->getPagination($request);
         $query = $request->getQueryParams();
@@ -428,6 +440,10 @@ class SystemController extends AbstractApiController
         // operators explicitly trusted with the credential-bearing archive can
         // touch it (GHSA-2f86-9cp8-6hcf).
         $this->requirePermission($request, 'api.system.backup');
+        // Backup archives contain password hashes and config secrets — hide the
+        // whole backup surface (create/list/download/delete) from demo accounts,
+        // not just the mutating verbs the write gate already blocks.
+        $this->denyIfDemo($request);
 
         // Ensure backup directory is initialized
         $backups = $this->grav['backups'] ?? new Backups();
@@ -454,6 +470,10 @@ class SystemController extends AbstractApiController
     public function backups(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'api.system.backup');
+        // Backup archives contain password hashes and config secrets — hide the
+        // whole backup surface (create/list/download/delete) from demo accounts,
+        // not just the mutating verbs the write gate already blocks.
+        $this->denyIfDemo($request);
 
         // Ensure backup directory is initialized before listing
         $backups = $this->grav['backups'] ?? new Backups();
@@ -491,6 +511,10 @@ class SystemController extends AbstractApiController
     public function deleteBackup(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'api.system.backup');
+        // Backup archives contain password hashes and config secrets — hide the
+        // whole backup surface (create/list/download/delete) from demo accounts,
+        // not just the mutating verbs the write gate already blocks.
+        $this->denyIfDemo($request);
 
         $b = $this->grav['backups'] ?? new Backups();
         if (method_exists($b, 'init')) { $b->init(); }
@@ -520,6 +544,10 @@ class SystemController extends AbstractApiController
     public function downloadBackup(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'api.system.backup');
+        // Backup archives contain password hashes and config secrets — hide the
+        // whole backup surface (create/list/download/delete) from demo accounts,
+        // not just the mutating verbs the write gate already blocks.
+        $this->denyIfDemo($request);
 
         $b = $this->grav['backups'] ?? new Backups();
         if (method_exists($b, 'init')) { $b->init(); }

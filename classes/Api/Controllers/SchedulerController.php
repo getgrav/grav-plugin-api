@@ -90,11 +90,16 @@ class SchedulerController extends AbstractApiController
             || is_dir($this->grav['locator']->findResource('plugin://scheduler-webhook') ?: '');
         $webhookEnabled = method_exists($scheduler, 'isWebhookEnabled') && $scheduler->isWebhookEnabled();
 
+        // The command lines expose absolute bin/grav paths and the server user;
+        // redact those for demo accounts while leaving the operational status
+        // (installed/health/triggers) visible.
+        $redact = $this->isDemoUser($request);
+
         $data = [
             'crontab_status' => $statusMap[$crontabStatus] ?? 'unknown',
-            'cron_command' => $scheduler->getCronCommand(),
-            'scheduler_command' => $scheduler->getSchedulerCommand(),
-            'whoami' => $scheduler->whoami(),
+            'cron_command' => $redact ? self::DEMO_REDACTED : $scheduler->getCronCommand(),
+            'scheduler_command' => $redact ? self::DEMO_REDACTED : $scheduler->getSchedulerCommand(),
+            'whoami' => $redact ? self::DEMO_REDACTED : $scheduler->whoami(),
             'health' => $health,
             'triggers' => $triggers,
             'webhook_installed' => $webhookInstalled,

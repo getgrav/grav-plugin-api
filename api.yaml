@@ -51,6 +51,33 @@ rate_limit:
   window: 60
   storage: file
 
+demo:
+  # Demo mode is activated per-account via the `access.api.demo` flag, not by a
+  # global switch — a demo account browses everything (typically also granted
+  # access.api.super) but all writes are blocked except the resources listed
+  # below, and operational/secret data is redacted on read. These settings only
+  # tune the writable allowlist and the reset engine; they do nothing until an
+  # account is flagged and a baseline has been captured.
+  #
+  # Permissions a demo account may still write. Leave EMPTY ([]) for a fully
+  # read-only demo; use just [api.pages.write] to allow page editing without
+  # media uploads. A small hard denylist (config, users, gpm, system, backups,
+  # webhooks, and demo itself) is always blocked regardless of what's listed here.
+  writable:
+    - api.pages.write
+    - api.media.write
+  # Minutes between automatic resets of the demo content back to the captured
+  # baseline. Only takes effect once a baseline exists.
+  reset_interval: 30
+  # Lazily reset on incoming API requests when the content is stale. Recommended
+  # for installs that don't run `bin/grav scheduler` via cron.
+  reset_on_request: true
+  # Also register a Scheduler job (for installs running `bin/grav scheduler`).
+  reset_on_schedule: true
+  # A safety snapshot of the live content is taken before every reset, in case
+  # the baseline itself is wrong. Oldest snapshots beyond this count are purged.
+  keep_safety_snapshots: 5
+
 # Let the new admin's page editor preview an unpublished (published: false) page
 # on the front end. The preview is authorized by a short-lived, route-scoped
 # token minted only for users with page-read permission; turn this off to disable

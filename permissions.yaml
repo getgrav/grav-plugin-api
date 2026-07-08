@@ -7,6 +7,10 @@ actions:
     label: API Access
     type: access
 
+  api.demo:
+    label: Demo Mode (read-only account)
+    type: access
+
   api.pages:
     type: access
     label: Pages API

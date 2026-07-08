@@ -40,9 +40,12 @@ use Grav\Plugin\Api\Controllers\GroupsController;
 use Grav\Plugin\Api\Controllers\InvitationsController;
 use Grav\Plugin\Api\Controllers\AccountsConfigController;
 use Grav\Plugin\Api\Controllers\WebhookController;
+use Grav\Plugin\Api\Controllers\DemoController;
+use Grav\Plugin\Api\Demo\DemoManager;
 use Grav\Plugin\Api\Exceptions\ApiException;
 use Grav\Plugin\Api\Middleware\AuthMiddleware;
 use Grav\Plugin\Api\Middleware\CorsMiddleware;
+use Grav\Plugin\Api\Middleware\DemoModeMiddleware;
 use Grav\Plugin\Api\Middleware\JsonBodyParserMiddleware;
 use Grav\Plugin\Api\Middleware\MethodOverrideMiddleware;
 use Grav\Plugin\Api\Middleware\RateLimitMiddleware;
@@ -262,6 +265,22 @@ class ApiRouter extends ProcessorBase
             // concurrently instead of queuing (admin2#65).
             $this->closeSessionEarly($request->getMethod());
 
+            // Route path (base + version prefix stripped), computed once and
+            // shared by the demo gate and dispatch so they classify identically.
+            $apiRoutePath = $this->resolveApiRoutePath($request);
+
+            // Demo mode: block writes from demo accounts (except the writable
+            // allowlist and public /auth routes). Runs before rate limiting and
+            // dispatch so it uniformly catches core AND plugin-registered routes,
+            // and before any controller executes. No-op for non-demo users.
+            if ($user) {
+                (new DemoModeMiddleware())->check($user, $request->getMethod(), $apiRoutePath, $isPublic);
+            }
+
+            // Opportunistically reset stale demo content back to the baseline.
+            // Cheap and inert unless a baseline has been captured; never throws.
+            (new DemoManager($this->container, $this->config))->maybeAutoReset();
+
             // Rate limit (after auth so we can rate limit per-user)
             $rateLimitResult = (new RateLimitMiddleware($this->config))->check($request);
             if ($rateLimitResult['limited']) {
@@ -270,7 +289,7 @@ class ApiRouter extends ProcessorBase
             }
 
             // Dispatch the route
-            $response = $this->dispatch($request);
+            $response = $this->dispatch($request, $apiRoutePath);
 
             // Add rate limit headers to successful responses
             $response = $this->addRateLimitHeaders($response, $rateLimitResult);
@@ -393,11 +412,14 @@ class ApiRouter extends ProcessorBase
         }
     }
 
-    protected function dispatch(ServerRequestInterface $request): ResponseInterface
+    /**
+     * The API route path for this request — the URL path with the API base and
+     * version prefix peeled off (e.g. `/api/v1/pages/foo` → `/pages/foo`),
+     * normalized the same way dispatch() matches against. Extracted so the demo
+     * write gate in process() classifies routes exactly as the dispatcher does.
+     */
+    protected function resolveApiRoutePath(ServerRequestInterface $request): string
     {
-        $this->startPhase('route', 'API: Routing');
-        $dispatcher = $this->createDispatcher();
-
         $base = $this->config->get('plugins.api.route', '/api');
         $prefix = $this->config->get('plugins.api.version_prefix', 'v1');
         $basePath = '/' . trim($base, '/') . '/' . $prefix;
@@ -437,6 +459,14 @@ class ApiRouter extends ProcessorBase
         if (!str_starts_with($routePath, '/')) {
             $routePath = '/' . $routePath;
         }
+
+        return $routePath;
+    }
+
+    protected function dispatch(ServerRequestInterface $request, string $routePath): ResponseInterface
+    {
+        $this->startPhase('route', 'API: Routing');
+        $dispatcher = $this->createDispatcher();
 
         $method = $request->getMethod();
         $routeInfo = $dispatcher->dispatch($method, $routePath);
@@ -704,6 +734,12 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('DELETE', '/webhooks/{id}', [WebhookController::class, 'delete']);
         $r->addRoute('GET', '/webhooks/{id}/deliveries', [WebhookController::class, 'deliveries']);
         $r->addRoute('POST', '/webhooks/{id}/test', [WebhookController::class, 'test']);
+
+        // Demo mode — status is readable by any authenticated user (drives the
+        // banner/countdown); baseline capture + reset are super-admin only.
+        $r->addRoute('GET', '/demo/status', [DemoController::class, 'status']);
+        $r->addRoute('POST', '/demo/baseline', [DemoController::class, 'baseline']);
+        $r->addRoute('POST', '/demo/reset', [DemoController::class, 'reset']);
 
         // Data resolver — generic endpoint for data-options@ directives
         $r->addRoute('GET', '/data/resolve', [BlueprintController::class, 'resolveData']);

@@ -47,6 +47,10 @@ class ErrorResponse
             'detail' => $e->getMessage(),
         ];
 
+        if ($e->getErrorCode() !== null) {
+            $body['code'] = $e->getErrorCode();
+        }
+
         if ($e instanceof ValidationException && $e->getValidationErrors()) {
             $body['errors'] = $e->getValidationErrors();
         }

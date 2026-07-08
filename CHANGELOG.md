@@ -1,7 +1,13 @@
 # v1.0.10
-## 07/07/2026
+## 07/08/2026
 
+1. [](#new)
+    * A new per-account demo mode makes an account read-only across the whole admin, with an optional allowlist to still permit editing pages or uploading media.
+    * Demo content resets back to a captured baseline on a timer or with the new `bin/plugin api demo:baseline` and `demo:reset` commands, so a shared demo cleans itself up after visitors.
+1. [](#improved)
+    * The API plugin's own settings are now organized into tabs instead of one long scrolling form.
 1. [](#bugfix)
+    * [security] Reading a configuration section through the API no longer exposes stored passwords, API keys, and other secret values in plain text.
     * [security] A user who can edit pages can no longer move a page to a location outside the pages folder, closing a path that let a page's files be written anywhere the server can write (GHSA-qjq4-jp55-4mx2).
     * [security] Inviting a new user into a group is now restricted to super administrators, so a user who can only manage accounts can no longer invite someone straight into a super-admin group (GHSA-m86m-jjcg-gcvv).
     * [security] Changing the API plugin's own settings, such as its CORS policy and rate limiting, now requires a super administrator, so a user with general configuration access can no longer weaken the API's own protections (GHSA-4pqv-2qj5-38fp).

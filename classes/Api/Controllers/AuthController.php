@@ -12,7 +12,6 @@ use Grav\Plugin\Api\Exceptions\TooManyRequestsException;
 use Grav\Plugin\Api\Exceptions\UnauthorizedException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
-use Grav\Plugin\Api\Serializers\UserSerializer;
 use Grav\Plugin\Login\Login;
 use Grav\Plugin\Login\TwoFactorAuth\TwoFactorAuth;
 use Psr\Http\Message\ResponseInterface;
@@ -446,19 +445,8 @@ class AuthController extends AbstractApiController
         $this->requirePermission($request, 'api.access');
 
         $user = $this->getUser($request);
-        $isSuperAdmin = $this->isSuperAdmin($user);
 
-        $resolver = $this->getPermissionResolver();
-        $resolvedAccess = $resolver->resolvedMap($user, $isSuperAdmin);
-
-        return ApiResponse::create([
-            'username'    => $user->username,
-            'fullname'    => $user->get('fullname'),
-            'email'       => $user->get('email'),
-            'avatar_url'  => UserSerializer::resolveAvatarUrl($user),
-            'super_admin' => $isSuperAdmin,
-            'access'      => $resolvedAccess,
-            'content_editor' => $user->get('content_editor', ''),
+        return ApiResponse::create($this->buildUserProfile($user) + [
             'grav_version' => GRAV_VERSION,
             'admin_version' => $this->getAdminPluginVersion(),
         ]);

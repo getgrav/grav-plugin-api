@@ -13,6 +13,7 @@ use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Grav\Plugin\Api\Services\ConfigDiffer;
 use Grav\Plugin\Api\Services\ConfigScopes;
+use Grav\Plugin\Api\Services\ConfigSecretMasker;
 use Grav\Plugin\Api\Services\EnvironmentService;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -141,7 +142,12 @@ class ConfigController extends AbstractApiController
         // and the revert affordance in admin2 (see docs/config-overrides-revert).
         $meta = $this->overrideMeta($scope, $targetEnv);
 
-        return $this->respondWithEtag($this->effectiveConfig($scope, $targetEnv), 200, [], $etag, $meta);
+        // Mask secret values (passwords, API keys, tokens) before the config
+        // leaves the server. Applies to every caller, not just demo mode — a
+        // plain api.config.read must not expose SMTP passwords or licence keys.
+        $body = ConfigSecretMasker::mask($this->effectiveConfig($scope, $targetEnv), $this->loadBlueprint($scope));
+
+        return $this->respondWithEtag($body, 200, [], $etag, $meta);
     }
 
     /**
@@ -227,7 +233,13 @@ class ConfigController extends AbstractApiController
 
         $etag = $this->generateEtag($this->configEtagBasis($scope, $targetEnv));
         $meta = $this->overrideMeta($scope, $targetEnv);
-        return $this->respondWithEtag($effective, 200, $tags, $etag, $meta);
+        return $this->respondWithEtag(
+            ConfigSecretMasker::mask($effective, $this->loadBlueprint($scope)),
+            200,
+            $tags,
+            $etag,
+            $meta
+        );
     }
 
     /**
@@ -300,6 +312,16 @@ class ConfigController extends AbstractApiController
             $merged = is_array($existing) ? $this->mergePatch($existing, $body) : $body;
         }
 
+        // Restore any masked secret that round-tripped back unchanged. show()
+        // returns secrets as a sentinel (ConfigSecretMasker), and the form posts
+        // the whole scope back on save — so a password the user never touched
+        // arrives as the literal sentinel. Without this, the next unrelated save
+        // would persist the sentinel and destroy the real secret. A genuine
+        // change (empty, or any non-sentinel value) still passes through.
+        if ($blueprint !== null && is_array($existing) && is_array($merged)) {
+            $merged = ConfigSecretMasker::restoreSentinels($merged, $existing, $blueprint);
+        }
+
         // Validate the submitted fields against the blueprint before persisting
         // (getgrav/grav-plugin-admin2#30). A `validate.required` field sent
         // empty now returns 422 instead of silently saving. The admin-next form
@@ -358,7 +380,13 @@ class ConfigController extends AbstractApiController
         // next save even though default-equal values aren't written to disk.
         $etag = $this->generateEtag($this->configEtagBasis($scope, $targetEnv));
         $meta = $this->overrideMeta($scope, $targetEnv);
-        return $this->respondWithEtag($this->effectiveConfig($scope, $targetEnv), 200, $tags, $etag, $meta);
+        return $this->respondWithEtag(
+            ConfigSecretMasker::mask($this->effectiveConfig($scope, $targetEnv), $blueprint),
+            200,
+            $tags,
+            $etag,
+            $meta
+        );
     }
 
     /**
