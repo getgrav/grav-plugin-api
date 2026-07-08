@@ -1,3 +1,11 @@
+# v1.0.10
+## 07/07/2026
+
+1. [](#bugfix)
+    * [security] A user who can edit pages can no longer move a page to a location outside the pages folder, closing a path that let a page's files be written anywhere the server can write (GHSA-qjq4-jp55-4mx2).
+    * [security] Inviting a new user into a group is now restricted to super administrators, so a user who can only manage accounts can no longer invite someone straight into a super-admin group (GHSA-m86m-jjcg-gcvv).
+    * [security] Changing the API plugin's own settings, such as its CORS policy and rate limiting, now requires a super administrator, so a user with general configuration access can no longer weaken the API's own protections (GHSA-4pqv-2qj5-38fp).
+
 # v1.0.9
 ## 07/06/2026
 

@@ -96,8 +96,14 @@ class InvitationsController extends AbstractApiController
             $access = $this->stripSuperFlags($access);
         }
 
+        // `groups` is super-admin-only, exactly like `access` above and like
+        // UsersController create()/update() already enforce: group membership
+        // can confer any permission (including api.super) via groups.yaml, so a
+        // non-super inviter must not seed group assignments — otherwise an
+        // api.users.write caller could invite an account straight into a
+        // super-admin group (GHSA-m86m-jjcg-gcvv).
         $groups = [];
-        if (is_array($body['groups'] ?? null)) {
+        if ($this->isSuperAdmin($actor) && is_array($body['groups'] ?? null)) {
             $groups = array_values(array_filter(
                 $body['groups'],
                 static fn($g) => is_string($g) && $g !== '',

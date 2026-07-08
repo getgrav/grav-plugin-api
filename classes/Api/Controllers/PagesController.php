@@ -834,7 +834,23 @@ class PagesController extends AbstractApiController
         $this->requireFields($body, ['parent']);
 
         $newParentRoute = '/' . trim($body['parent'], '/');
-        $newSlug = ltrim($body['slug'] ?? $page->slug(), '.');
+
+        // The slug becomes a single page-folder name, never a path. Reject any
+        // separator, parent-traversal or null byte before it reaches the
+        // filesystem: Folder::move() has no containment check of its own, so an
+        // unvalidated slug like '01.home/../../../tmp/evil' would relocate the
+        // page directory outside user/pages (GHSA-qjq4-jp55-4mx2).
+        $rawSlug = $body['slug'] ?? $page->slug();
+        if (!is_string($rawSlug)
+            || preg_match('#[/\\\\]#', $rawSlug)
+            || strpos($rawSlug, '..') !== false
+            || strpbrk($rawSlug, "\0") !== false) {
+            throw new ValidationException('Invalid slug: must be a single path segment.');
+        }
+        $newSlug = ltrim($rawSlug, '.');
+        if ($newSlug === '') {
+            throw new ValidationException('Invalid slug: must not be empty.');
+        }
         // $page->order() returns the matched prefix INCLUDING the trailing
         // dot (e.g. '04.'), not a plain number. Concatenating that with the
         // dot in $dirName produces double-dot folder names like

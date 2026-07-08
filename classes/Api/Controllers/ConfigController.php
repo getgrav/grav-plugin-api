@@ -60,6 +60,16 @@ class ConfigController extends AbstractApiController
     private const SUPER_WRITE_SCOPES = ['system', 'security'];
 
     /**
+     * Plugin config scopes (`plugins/<name>`) whose settings own the API's own
+     * security posture — auth toggles, the CORS allow-list, and rate limiting.
+     * Like SUPER_WRITE_SCOPES these stay readable to any config reader but may
+     * only be WRITTEN by an API super user: a non-super `api.config.write`
+     * caller must not be able to disable rate limiting or widen CORS for the
+     * whole platform through PATCH /config/plugins/api (GHSA-4pqv-2qj5-38fp).
+     */
+    private const SUPER_WRITE_PLUGIN_SCOPES = ['api'];
+
+    /**
      * GET /config - List available configuration sections.
      */
     public function index(ServerRequestInterface $request): ResponseInterface
@@ -494,7 +504,17 @@ class ConfigController extends AbstractApiController
      */
     private function assertScopeWritable(ServerRequestInterface $request, ?string $scope): void
     {
-        if ($scope !== null && in_array($scope, self::SUPER_WRITE_SCOPES, true)
+        if ($scope === null) {
+            return;
+        }
+
+        // A security-bearing plugin scope (e.g. plugins/api owns CORS, auth and
+        // rate-limit settings) is write-gated to API super users, mirroring the
+        // core SUPER_WRITE_SCOPES treatment (GHSA-4pqv-2qj5-38fp).
+        $isSuperWritePlugin = str_starts_with($scope, 'plugins/')
+            && in_array(substr($scope, 8), self::SUPER_WRITE_PLUGIN_SCOPES, true);
+
+        if ((in_array($scope, self::SUPER_WRITE_SCOPES, true) || $isSuperWritePlugin)
             && !$this->isSuperAdmin($this->getUser($request))) {
             throw new ForbiddenException(
                 "Configuration scope '{$scope}' can only be modified by an API super user."
