@@ -39,6 +39,8 @@ use RocketTheme\Toolbox\Event\Event;
  */
 class SidebarController extends AbstractApiController
 {
+    use TranslatesAdminLabels;
+
     /**
      * GET /sidebar/items — Collect sidebar items from plugins, filtered by
      * the current user's permissions.
@@ -46,6 +48,7 @@ class SidebarController extends AbstractApiController
     public function items(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'api.access');
+        $this->primeAdminLanguages($request);
 
         $user = $this->getUser($request);
         $event = new Event(['items' => [], 'user' => $user]);
@@ -59,6 +62,9 @@ class SidebarController extends AbstractApiController
             }
             // Strip the authorize field — it's a server-side annotation, not client data
             unset($item['authorize']);
+            if (isset($item['label']) && is_string($item['label'])) {
+                $item['label'] = $this->translateLabel($item['label']);
+            }
             $filtered[] = $item;
         }
 
