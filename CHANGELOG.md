@@ -1,5 +1,5 @@
 # v1.0.10
-## 07/08/2026
+## 07/09/2026
 
 1. [](#new)
     * A new per-account demo mode makes an account read-only across the whole admin, with an optional allowlist to still permit editing pages or uploading media.
