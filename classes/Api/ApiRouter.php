@@ -628,10 +628,12 @@ class ApiRouter extends ProcessorBase
         // tab-discovery endpoint is never swallowed as a username lookup.
         $r->addRoute('GET', '/users/filters', [UsersController::class, 'filters']);
         $r->addRoute('GET', '/users/columns', [UsersController::class, 'columns']);
+        $r->addRoute('GET', '/users/row-actions', [UsersController::class, 'rowActions']);
         $r->addRoute('POST', '/users', [UsersController::class, 'create']);
         $r->addRoute('GET', '/users/{username}', [UsersController::class, 'show']);
         $r->addRoute('PATCH', '/users/{username}', [UsersController::class, 'update']);
         $r->addRoute('DELETE', '/users/{username}', [UsersController::class, 'delete']);
+        $r->addRoute('POST', '/users/{username}/row-action', [UsersController::class, 'rowAction']);
         $r->addRoute('POST', '/users/{username}/avatar', [UsersController::class, 'uploadAvatar']);
         $r->addRoute('DELETE', '/users/{username}/avatar', [UsersController::class, 'deleteAvatar']);
         $r->addRoute('POST', '/users/{username}/2fa', [UsersController::class, 'generate2fa']);

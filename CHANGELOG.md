@@ -4,11 +4,14 @@
 1. [](#new)
     * A new per-account demo mode makes an account read-only across the whole admin, with an optional allowlist to still permit editing pages or uploading media.
     * Demo content resets back to a captured baseline on a timer or with the new `bin/plugin api demo:baseline` and `demo:reset` commands, so a shared demo cleans itself up after visitors.
+    * Plugins can add per-user action buttons to the new admin's Users list that run a server-side operation against an account and can hand back a message or a safe redirect ([getgrav/grav-plugin-admin2#115](https://github.com/getgrav/grav-plugin-admin2/issues/115)).
+    * Autoloading admin widgets can declare the routes they apply to, so their script loads only on the matching admin screen instead of on every page ([getgrav/grav-plugin-admin2#116](https://github.com/getgrav/grav-plugin-admin2/issues/116)).
 1. [](#improved)
     * Plugin and theme details now include the documentation and issue-tracker links from their blueprint, so the admin can link straight to a project's docs and bug tracker.
     * The API plugin's own settings are now organized into tabs instead of one long scrolling form.
     * Plugin-contributed link columns in the new admin's Users list can now show separate visible text from the link they point to ([getgrav/grav-plugin-admin2#111](https://github.com/getgrav/grav-plugin-admin2/issues/111)).
 1. [](#bugfix)
+    * Plugin sidebar labels now display in the signed-in user's admin language instead of the site's content language, so the sidebar no longer mixes languages ([#14](https://github.com/getgrav/grav-plugin-api/pull/14)).
     * Filtering the pages list by published, visible, or routable status now actually filters the results instead of being ignored ([getgrav/grav-plugin-admin2#121](https://github.com/getgrav/grav-plugin-admin2/issues/121)).
     * Saving metadata with several media files selected now updates every selected file instead of only the last one ([getgrav/grav-plugin-admin2#117](https://github.com/getgrav/grav-plugin-admin2/issues/117)).
     * [security] Reading a configuration section through the API no longer exposes stored passwords, API keys, and other secret values in plain text.
