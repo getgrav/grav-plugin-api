@@ -8,6 +8,7 @@
     * The API plugin's own settings are now organized into tabs instead of one long scrolling form.
     * Plugin-contributed link columns in the new admin's Users list can now show separate visible text from the link they point to ([getgrav/grav-plugin-admin2#111](https://github.com/getgrav/grav-plugin-admin2/issues/111)).
 1. [](#bugfix)
+    * Filtering the pages list by published, visible, or routable status now actually filters the results instead of being ignored ([getgrav/grav-plugin-admin2#121](https://github.com/getgrav/grav-plugin-admin2/issues/121)).
     * Saving metadata with several media files selected now updates every selected file instead of only the last one ([getgrav/grav-plugin-admin2#117](https://github.com/getgrav/grav-plugin-admin2/issues/117)).
     * [security] Reading a configuration section through the API no longer exposes stored passwords, API keys, and other secret values in plain text.
     * [security] A user who can edit pages can no longer move a page to a location outside the pages folder, closing a path that let a page's files be written anywhere the server can write (GHSA-qjq4-jp55-4mx2).
