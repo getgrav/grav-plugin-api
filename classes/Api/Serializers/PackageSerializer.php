@@ -26,6 +26,16 @@ class PackageSerializer implements SerializerInterface
             'homepage' => $resource->homepage ?? $resource->url ?? null,
         ];
 
+        // Blueprint links the admin surfaces as "Documentation" / "Report an
+        // Issue". Only emit when the blueprint actually sets them so clients can
+        // hide the link rather than render a dead one.
+        if (!empty($resource->docs)) {
+            $data['docs'] = $resource->docs;
+        }
+        if (!empty($resource->bugs)) {
+            $data['bugs'] = $resource->bugs;
+        }
+
         // Include enabled status + symlink detection for installed packages
         if ($options['installed'] ?? false) {
             $data['enabled'] = $this->isEnabled($resource, $options);

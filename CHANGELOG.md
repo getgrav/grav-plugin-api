@@ -5,6 +5,7 @@
     * A new per-account demo mode makes an account read-only across the whole admin, with an optional allowlist to still permit editing pages or uploading media.
     * Demo content resets back to a captured baseline on a timer or with the new `bin/plugin api demo:baseline` and `demo:reset` commands, so a shared demo cleans itself up after visitors.
 1. [](#improved)
+    * Plugin and theme details now include the documentation and issue-tracker links from their blueprint, so the admin can link straight to a project's docs and bug tracker.
     * The API plugin's own settings are now organized into tabs instead of one long scrolling form.
     * Plugin-contributed link columns in the new admin's Users list can now show separate visible text from the link they point to ([getgrav/grav-plugin-admin2#111](https://github.com/getgrav/grav-plugin-admin2/issues/111)).
 1. [](#bugfix)
