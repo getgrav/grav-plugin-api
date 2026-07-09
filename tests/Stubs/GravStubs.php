@@ -213,6 +213,10 @@ namespace Grav\Common\Page\Interfaces {
             public function title($var = null): string;
             public function isModule(): bool;
             public function children(): \Traversable;
+            public function published(): bool;
+            public function visible(): bool;
+            public function routable(): bool;
+            public function template(): string;
         }
     }
 }

@@ -492,6 +492,84 @@ class MediaController extends AbstractApiController
     }
 
     /**
+     * POST /media/batch/meta - Apply the same metadata fields to several site
+     * media files at once. Only the fields present in the body are written to
+     * each file; every file keeps its other sidecar values (so a batch that
+     * changes just `tags` leaves each file's own `alt`/`title` untouched).
+     *
+     * Body: `{"files": ["a.jpg", "sub/b.png"], "fields": {"tags": ["hero"]}}`.
+     * Files are listed by path (relative to the media root) rather than via
+     * `?path=` because a batch targets many files. Each file is validated and
+     * written independently; a failure on one is reported without aborting the
+     * rest.
+     */
+    public function batchSiteMediaMeta(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.media.write');
+
+        $body = $this->getRequestBody($request);
+        $this->requireFields($body, ['files', 'fields']);
+
+        $files = $body['files'];
+        $fields = $body['fields'];
+
+        if (!is_array($files) || $files === []) {
+            throw new ValidationException("The 'files' field must be a non-empty array of media paths.");
+        }
+        if (!is_array($fields)) {
+            throw new ValidationException("The 'fields' field must be an object of metadata values.");
+        }
+
+        $maxBatch = (int) $this->config->get('plugins.api.batch.max_items', 50);
+        if (count($files) > $maxBatch) {
+            throw new ValidationException("Batch metadata updates are limited to {$maxBatch} files.");
+        }
+
+        $mediaPath = $this->getSiteMediaPath();
+        $results = [];
+        $parents = [];
+
+        foreach ($files as $file) {
+            if (!is_string($file) || $file === '') {
+                $results[] = ['path' => (string) $file, 'status' => 'error', 'message' => 'Invalid media path.'];
+                continue;
+            }
+
+            try {
+                $relativePath = $this->validateRelativePath($file, $mediaPath);
+                $filePath = $mediaPath . '/' . $relativePath;
+                if ($relativePath === '' || !is_file($filePath)) {
+                    throw new NotFoundException('Media file not found.');
+                }
+
+                $this->applyMetaWrite($filePath, $fields);
+                $this->fireEvent('onApiMediaMetadataUpdated', ['path' => $relativePath, 'filename' => basename($relativePath)]);
+
+                $results[] = ['path' => $relativePath, 'status' => 'success'];
+                $parents[ltrim(dirname($relativePath), '.')] = true;
+            } catch (\Throwable $e) {
+                $results[] = ['path' => $file, 'status' => 'error', 'message' => $e->getMessage()];
+            }
+        }
+
+        $tags = ['media:list'];
+        foreach (array_keys($parents) as $parentDir) {
+            $tags[] = 'media:update:' . ($parentDir !== '' ? $parentDir : '/');
+        }
+
+        return ApiResponse::create(
+            [
+                'results' => $results,
+                'total' => count($results),
+                'successful' => count(array_filter($results, static fn($r) => $r['status'] === 'success')),
+                'failed' => count(array_filter($results, static fn($r) => $r['status'] === 'error')),
+            ],
+            200,
+            $this->invalidationHeaders($tags),
+        );
+    }
+
+    /**
      * DELETE /media/meta?path=... - Clear a site media file's editable metadata.
      */
     public function deleteSiteMediaMeta(ServerRequestInterface $request): ResponseInterface

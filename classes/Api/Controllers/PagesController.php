@@ -99,28 +99,17 @@ class PagesController extends AbstractApiController
             $collection = $collection->search($search);
         }
 
-        // Apply filters using flex methods where available
-        if (isset($filters['published'])) {
-            $bool = filter_var($filters['published'], FILTER_VALIDATE_BOOLEAN);
-            if (method_exists($collection, 'withPublished')) {
-                $collection = $collection->withPublished($bool);
-            }
-        }
-        if (isset($filters['visible'])) {
-            $bool = filter_var($filters['visible'], FILTER_VALIDATE_BOOLEAN);
-            if (method_exists($collection, 'withVisible')) {
-                $collection = $collection->withVisible($bool);
-            }
-        }
-        if (isset($filters['routable'])) {
-            $bool = filter_var($filters['routable'], FILTER_VALIDATE_BOOLEAN);
-            if (method_exists($collection, 'withRoutable')) {
-                $collection = $collection->withRoutable($bool);
-            }
-        }
-
-        // Template, parent, children_of, root — filter manually on the collection
-        if (isset($filters['template']) || isset($filters['parent']) || isset($filters['children_of']) || isset($filters['root'])) {
+        // Apply every filter (published, visible, routable, template, parent,
+        // children_of, root) by testing each page against matchesFilters().
+        //
+        // We deliberately do NOT use the flex withPublished()/withVisible()/
+        // withRoutable() shortcuts: $directory->getCollection() hands back a
+        // PageIndex, and those methods live only on PageCollection. The old
+        // method_exists() guards therefore never fired for a PageIndex and
+        // silently dropped the published/visible/routable filters, returning
+        // every page unfiltered (getgrav/grav-plugin-admin2#121). matchesFilters()
+        // covers all filter keys and works on any collection/index type.
+        if ($filters) {
             $filtered = [];
             foreach ($collection as $page) {
                 if ($page instanceof PageInterface && $this->matchesFilters($page, $filters)) {
@@ -834,7 +823,23 @@ class PagesController extends AbstractApiController
         $this->requireFields($body, ['parent']);
 
         $newParentRoute = '/' . trim($body['parent'], '/');
-        $newSlug = ltrim($body['slug'] ?? $page->slug(), '.');
+
+        // The slug becomes a single page-folder name, never a path. Reject any
+        // separator, parent-traversal or null byte before it reaches the
+        // filesystem: Folder::move() has no containment check of its own, so an
+        // unvalidated slug like '01.home/../../../tmp/evil' would relocate the
+        // page directory outside user/pages (GHSA-qjq4-jp55-4mx2).
+        $rawSlug = $body['slug'] ?? $page->slug();
+        if (!is_string($rawSlug)
+            || preg_match('#[/\\\\]#', $rawSlug)
+            || strpos($rawSlug, '..') !== false
+            || strpbrk($rawSlug, "\0") !== false) {
+            throw new ValidationException('Invalid slug: must be a single path segment.');
+        }
+        $newSlug = ltrim($rawSlug, '.');
+        if ($newSlug === '') {
+            throw new ValidationException('Invalid slug: must not be empty.');
+        }
         // $page->order() returns the matched prefix INCLUDING the trailing
         // dot (e.g. '04.'), not a plain number. Concatenating that with the
         // dot in $dirName produces double-dot folder names like
@@ -2017,7 +2022,12 @@ class PagesController extends AbstractApiController
                 if ($page->route() === $childRoute || $page->rawRoute() === $childRoute) {
                     $parent = $page;
                 }
-                if ($this->isDirectChildOf($page, $filters['children_of'])) {
+                // matchesFilters() covers children_of (via isDirectChildOf) *and*
+                // the published/visible/routable/template filters. Testing only
+                // isDirectChildOf here silently dropped those boolean filters on
+                // the default-sort path used by the tree and columns views —
+                // the same class of bug as getgrav/grav-plugin-admin2#121.
+                if ($this->matchesFilters($page, $filters)) {
                     $items[] = $page;
                 }
             }

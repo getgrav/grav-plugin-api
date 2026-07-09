@@ -52,6 +52,9 @@ class AuditSubscriber
         'onApiGroupDeleted'     => ['group.delete', 'warning', 'users'],
         // Config
         'onApiConfigUpdated'    => ['config.update', 'notice', 'config'],
+
+        'onApiDemoBaselineCaptured' => ['demo.baseline.capture', 'notice',  'config'],
+        'onApiDemoReset'            => ['demo.reset',            'warning', 'config'],
         // Packages / system
         'onApiPackageInstalled' => ['gpm.install', 'notice',  'packages'],
         'onApiPackageUpdated'   => ['gpm.update',  'notice',  'packages'],

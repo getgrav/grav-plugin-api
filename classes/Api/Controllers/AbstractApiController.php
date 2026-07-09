@@ -11,6 +11,8 @@ use Grav\Common\Grav;
 use Grav\Common\Page\Interfaces\PageInterface;
 use Grav\Common\User\Interfaces\UserInterface;
 use Grav\Plugin\Api\Auth\JwtAuthenticator;
+use Grav\Plugin\Api\Demo\DemoManager;
+use Grav\Plugin\Api\Exceptions\DemoModeException;
 use Grav\Plugin\Api\Exceptions\ForbiddenException;
 use Grav\Plugin\Api\Exceptions\UnauthorizedException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
@@ -68,6 +70,15 @@ abstract class AbstractApiController
             throw new ForbiddenException("API key is not authorized for: {$permission}");
         }
 
+        // Demo write-lock. Keyed on the exact permission being exercised — so
+        // page-media (api.media.write) and page-content (api.pages.write) are
+        // distinguished correctly even though they share the /pages route prefix.
+        // Enforced BEFORE the super-admin short-circuit because a demo account is
+        // typically also super. Reads are never blocked (browsing stays open).
+        if ($this->isDemoUser($request) && $this->demoWriteBlocked($permission)) {
+            throw new DemoModeException();
+        }
+
         // Super admin can do anything
         if ($this->isSuperAdmin($user)) {
             return;
@@ -120,6 +131,51 @@ abstract class AbstractApiController
     protected function isSuperAdmin(UserInterface $user): bool
     {
         return (bool) $user->get('access.api.super');
+    }
+
+    /**
+     * Placeholder substituted for path/secret-revealing values that are hidden
+     * from demo accounts (server paths in phpinfo, cron command lines, etc.).
+     */
+    protected const DEMO_REDACTED = '(hidden in demo mode)';
+
+    /**
+     * Whether the request's authenticated user is a demo account
+     * (access.api.demo). Demo accounts browse everything but are write-blocked
+     * by DemoModeMiddleware and have operational/secret data redacted on read.
+     */
+    protected function isDemoUser(ServerRequestInterface $request): bool
+    {
+        $user = $request->getAttribute('api_user');
+        return $user instanceof UserInterface && (bool) $user->get('access.api.demo');
+    }
+
+    /**
+     * Block an endpoint outright for demo accounts. Used for reads that can't be
+     * safely redacted field-by-field — raw logs, and backup archives that
+     * contain password hashes and config secrets.
+     */
+    protected function denyIfDemo(ServerRequestInterface $request, string $detail = 'This information is hidden in demo mode.'): void
+    {
+        if ($this->isDemoUser($request)) {
+            throw new DemoModeException($detail);
+        }
+    }
+
+    /**
+     * Whether demo mode blocks the given permission. Read permissions (`*.read`)
+     * are always allowed so a demo account can browse everything; any other
+     * (mutating) permission is blocked unless it's in `plugins.api.demo.writable`.
+     * This is the single source of truth for the writable allowlist — the router
+     * middleware is only a coarse fail-closed backstop.
+     */
+    protected function demoWriteBlocked(string $permission): bool
+    {
+        if (str_ends_with($permission, '.read')) {
+            return false;
+        }
+        $writable = (array) $this->config->get('plugins.api.demo.writable', []);
+        return !in_array($permission, $writable, true);
     }
 
     /**
@@ -647,24 +703,59 @@ abstract class AbstractApiController
         $refreshToken = $jwt->generateRefreshToken($user);
         $expiresIn = (int) $this->config->get('plugins.api.auth.jwt_expiry', 3600);
 
-        $isSuperAdmin = $this->isSuperAdmin($user);
-        $resolver = $this->getPermissionResolver();
-        $resolvedAccess = $resolver->resolvedMap($user, $isSuperAdmin);
-
         return [
             'access_token'  => $accessToken,
             'refresh_token' => $refreshToken,
             'token_type'    => 'Bearer',
             'expires_in'    => $expiresIn,
-            'user' => [
-                'username'    => $user->username,
-                'fullname'    => $user->get('fullname'),
-                'email'       => $user->get('email'),
-                'avatar_url'  => UserSerializer::resolveAvatarUrl($user),
-                'super_admin' => $isSuperAdmin,
-                'access'      => $resolvedAccess,
-                'content_editor' => $user->get('content_editor', ''),
-            ],
+            'user' => $this->buildUserProfile($user),
+        ];
+    }
+
+    /**
+     * The canonical "who am I / what can I do" envelope for a user, shared by
+     * every login transport's token-pair response and GET /me so the two never
+     * drift. Includes the resolved permission map and the per-account demo_mode
+     * block the Admin Next SPA reads to gate writes and show the demo banner.
+     *
+     * @return array<string, mixed>
+     */
+    protected function buildUserProfile(UserInterface $user): array
+    {
+        $isSuperAdmin = $this->isSuperAdmin($user);
+        $resolvedAccess = $this->getPermissionResolver()->resolvedMap($user, $isSuperAdmin);
+
+        return [
+            'username'    => $user->username,
+            'fullname'    => $user->get('fullname'),
+            'email'       => $user->get('email'),
+            'avatar_url'  => UserSerializer::resolveAvatarUrl($user),
+            'super_admin' => $isSuperAdmin,
+            'access'      => $resolvedAccess,
+            'content_editor' => $user->get('content_editor', ''),
+            'demo_mode'   => $this->buildDemoModePayload($user),
+        ];
+    }
+
+    /**
+     * Per-account demo-mode state for the SPA. `enabled` reflects the account's
+     * access.api.demo flag; the writable allowlist and reset countdown are only
+     * exposed for a demo account (a normal user gets `writable: []`,
+     * `seconds_until_reset: null`). `reset_interval` is harmless config metadata,
+     * always present so the client needn't make a second call.
+     *
+     * @return array{enabled: bool, writable: list<string>, reset_interval: int, seconds_until_reset: int|null}
+     */
+    protected function buildDemoModePayload(UserInterface $user): array
+    {
+        $enabled = (bool) $user->get('access.api.demo');
+        $manager = new DemoManager($this->grav, $this->config);
+
+        return [
+            'enabled' => $enabled,
+            'writable' => $enabled ? array_values((array) $this->config->get('plugins.api.demo.writable', [])) : [],
+            'reset_interval' => $manager->resetIntervalMinutes(),
+            'seconds_until_reset' => $enabled ? $manager->secondsUntilReset() : null,
         ];
     }
 

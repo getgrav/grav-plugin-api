@@ -1,7 +1,7 @@
 name: API
 slug: api
 type: plugin
-version: 1.0.9
+version: 1.0.10
 description: RESTful API for Grav CMS. Provides headless access to pages, media, configuration, users, and system management.
 icon: plug
 author:
@@ -34,449 +34,543 @@ form:
       validate:
         type: bool
 
-    section_general:
-      type: section
-      title: General Settings
-      underline: true
-
-    route:
-      type: text
-      label: API Route
-      help: The base route for the API
-      default: /api
-      validate:
-        type: text
-
-    version_prefix:
-      type: text
-      label: Version Prefix
-      help: Current API version prefix
-      default: v1
-      validate:
-        type: text
-
-    section_auth:
-      type: section
-      title: Authentication
-      underline: true
-
-    auth.api_keys_enabled:
-      type: toggle
-      label: API Key Authentication
-      highlight: 1
-      default: 1
-      options:
-        1: Enabled
-        0: Disabled
-      validate:
-        type: bool
-
-    auth.jwt_enabled:
-      type: toggle
-      label: JWT Authentication
-      highlight: 1
-      default: 1
-      options:
-        1: Enabled
-        0: Disabled
-      validate:
-        type: bool
-
-    auth.jwt_expiry:
-      type: text
-      label: JWT Access Token Expiry
-      help: Access token lifetime in seconds
-      default: 3600
-      validate:
-        type: int
-
-    auth.jwt_refresh_expiry:
-      type: text
-      label: JWT Refresh Token Expiry
-      help: Refresh token lifetime in seconds
-      default: 604800
-      validate:
-        type: int
-
-    auth.jwt_algorithm:
-      type: select
-      label: JWT Signing Algorithm
-      help: "HMAC algorithm used to sign and verify API tokens. Only symmetric HS variants are supported because tokens are signed with a single shared secret. Leave on HS256 unless you have a specific reason to change it."
-      default: HS256
-      options:
-        HS256: "HS256"
-        HS384: "HS384"
-        HS512: "HS512"
-      validate:
-        type: string
-
-    auth.session_enabled:
-      type: toggle
-      label: Session Authentication
-      help: Allow existing admin sessions to access the API
-      highlight: 1
-      default: 1
-      options:
-        1: Enabled
-        0: Disabled
-      validate:
-        type: bool
-
-    auth.key_cache_ttl:
-      type: text
-      label: API Key Verification Cache
-      help: "How long (seconds) to remember a verified API key so repeat requests skip the deliberately-slow bcrypt check. Revoking, disabling or expiring a key still takes effect immediately. Set to 0 to verify every request."
-      default: 600
-      validate:
-        type: int
-        min: 0
-
-    session_early_close:
-      type: toggle
-      label: Release Session Lock Early
-      help: "Commit the session right after authentication on read-only (GET) requests so the new admin's parallel calls don't queue behind PHP's per-session file lock. Recommended on. Turn off only if a custom read endpoint writes to the session."
-      highlight: 1
-      default: 1
-      options:
-        1: Enabled
-        0: Disabled
-      validate:
-        type: bool
-
-    protect_frontend_session:
-      type: toggle
-      label: Protect Front-end Session
-      help: "When a token- or key-authenticated API call arrives without its own session cookie, don't let it plant a new front-end session cookie. This stops the API from booting a visitor who is logged in to the public site in the same browser. Recommended on."
-      highlight: 1
-      default: 1
-      options:
-        1: Enabled
-        0: Disabled
-      validate:
-        type: bool
-
-    allow_draft_preview:
-      type: toggle
-      label: Allow Draft Preview
-      help: "Let the new admin's page editor preview an unpublished page on the front end. The preview is authorized by a short-lived token minted only for users who can read the page, so turning this off disables draft previews entirely. Recommended on."
-      highlight: 1
-      default: 1
-      options:
-        1: Enabled
-        0: Disabled
-      validate:
-        type: bool
-
-    section_cors:
-      type: section
-      title: CORS Settings
-      underline: true
-
-    cors.enabled:
-      type: toggle
-      label: Enable CORS
-      highlight: 1
-      default: 1
-      options:
-        1: Enabled
-        0: Disabled
-      validate:
-        type: bool
-
-    cors.origins:
-      type: array
-      label: Allowed Origins
-      help: 'Exact origins (scheme + host) allowed to call the API from a browser, e.g. https://app.example.com. Empty means same-origin only. Avoid "*": it lets any website read authenticated responses, so a configured wildcard is honored only for unauthenticated endpoints.'
-      value_only: true
-
-    cors.methods:
-      type: selectize
-      label: Allowed Methods
-      help: HTTP methods allowed for CORS requests
-      default:
-        - GET
-        - POST
-        - PATCH
-        - DELETE
-        - OPTIONS
-      multiple: true
-      validate:
-        type: commalist
-
-    cors.headers:
-      type: array
-      label: Allowed Headers
-      default:
-        - Content-Type
-        - Authorization
-        - X-API-Key
-        - X-Grav-Environment
-        - If-Match
-        - If-None-Match
-      value_only: true
-
-    section_backend:
-      type: section
-      title: Backend
-      underline: true
-
-    flex_backend.pages:
-      type: toggle
-      label: Flex Pages Backend
-      help: Use Flex-Objects for page listings (faster search, filtering, and pagination)
-      highlight: 1
-      default: 1
-      options:
-        1: Enabled
-        0: Disabled
-      validate:
-        type: bool
-
-    flex_backend.accounts:
-      type: toggle
-      label: Flex Accounts Backend
-      help: Use Flex-Objects for user listings (faster search and pagination)
-      highlight: 1
-      default: 1
-      options:
-        1: Enabled
-        0: Disabled
-      validate:
-        type: bool
-
-    force_cache:
-      type: toggle
-      label: Keep Cache for API Requests
-      help: "Keep Grav's object cache on for API requests even when the global cache is turned off. Disabling the cache is a frontend-dev convenience (to see template changes live), but the API renders no frontend pages — so leaving this on keeps the admin fast while the frontend runs uncached. Turn off only if you need the API to honor the global cache setting."
-      highlight: 1
-      default: 1
-      options:
-        1: Enabled
-        0: Disabled
-      validate:
-        type: bool
-
-    section_media_metadata:
-      type: section
-      title: Media Metadata
-      underline: true
-
-    media_metadata.max_length:
-      type: text
-      label: Maximum Value Length
-      help: "Longest metadata value (characters) accepted when saving. Values are also stripped of HTML tags, since they render into image attributes on the site."
-      default: 2000
-      validate:
-        type: int
-        min: 1
-
-    media_metadata.fields:
-      type: list
-      label: Editable Metadata Fields
-      help: "Descriptive fields shown in the media metadata editor. The key is written verbatim into the .meta.yaml sidecar. Any other keys (EXIF, dimensions, upload info) are left untouched on save."
+    tabs:
+      type: tabs
+      classes: side-tabs
       fields:
-        .key:
-          type: text
-          label: Key
-          help: "Sidecar key, e.g. alt, title, caption. Letters, numbers, dot, dash and underscore only."
-          validate:
-            type: text
-        .label:
-          type: text
-          label: Label
-        .type:
-          type: select
-          label: Field Type
-          default: text
-          options:
-            text: "Single line"
-            textarea: "Multi-line"
-            tags: "Tags (list)"
+        tab_general:
+          type: tab
+          title: General
+          fields:
+            section_general:
+              type: section
+              title: General Settings
+              underline: true
 
-    section_rate_limit:
-      type: section
-      title: Rate Limiting
-      underline: true
+            route:
+              type: text
+              label: API Route
+              help: The base route for the API
+              default: /api
+              validate:
+                type: text
 
-    rate_limit.enabled:
-      type: toggle
-      label: Enable Rate Limiting
-      highlight: 1
-      default: 1
-      options:
-        1: Enabled
-        0: Disabled
-      validate:
-        type: bool
+            version_prefix:
+              type: text
+              label: Version Prefix
+              help: Current API version prefix
+              default: v1
+              validate:
+                type: text
 
-    rate_limit.requests:
-      type: text
-      label: Requests Per Window
-      help: Maximum number of requests per time window
-      default: 120
-      validate:
-        type: int
+            section_backend:
+              type: section
+              title: Backend
+              underline: true
 
-    rate_limit.window:
-      type: text
-      label: Time Window
-      help: Rate limit window in seconds
-      default: 60
-      validate:
-        type: int
+            flex_backend.pages:
+              type: toggle
+              label: Flex Pages Backend
+              help: Use Flex-Objects for page listings (faster search, filtering, and pagination)
+              highlight: 1
+              default: 1
+              options:
+                1: Enabled
+                0: Disabled
+              validate:
+                type: bool
 
-    section_popularity:
-      type: section
-      title: Page Statistics
-      underline: true
+            flex_backend.accounts:
+              type: toggle
+              label: Flex Accounts Backend
+              help: Use Flex-Objects for user listings (faster search and pagination)
+              highlight: 1
+              default: 1
+              options:
+                1: Enabled
+                0: Disabled
+              validate:
+                type: bool
 
-    popularity.enabled:
-      type: toggle
-      label: Track Page Views
-      help: Record frontend page views for the Page Statistics dashboard
-      highlight: 1
-      default: 1
-      options:
-        1: Enabled
-        0: Disabled
-      validate:
-        type: bool
+            force_cache:
+              type: toggle
+              label: Keep Cache for API Requests
+              help: "Keep Grav's object cache on for API requests even when the global cache is turned off. Disabling the cache is a frontend-dev convenience (to see template changes live), but the API renders no frontend pages — so leaving this on keeps the admin fast while the frontend runs uncached. Turn off only if you need the API to honor the global cache setting."
+              highlight: 1
+              default: 1
+              options:
+                1: Enabled
+                0: Disabled
+              validate:
+                type: bool
 
-    popularity.exclude_admin:
-      type: toggle
-      label: Exclude Logged-in Admins
-      help: Skip page views made while logged in with admin access, so your own testing and demo visits don't skew the stats
-      highlight: 1
-      default: 1
-      options:
-        1: Enabled
-        0: Disabled
-      validate:
-        type: bool
+        tab_authentication:
+          type: tab
+          title: Authentication
+          fields:
+            section_auth:
+              type: section
+              title: Authentication
+              underline: true
 
-    popularity.exclude_ips:
-      type: array
-      label: Excluded IP Addresses
-      help: "Visitor IPs or CIDR ranges to exclude from tracking, e.g. 203.0.113.7 or 203.0.113.0/24. IPv4 and IPv6 are both supported."
-      value_only: true
+            auth.api_keys_enabled:
+              type: toggle
+              label: API Key Authentication
+              highlight: 1
+              default: 1
+              options:
+                1: Enabled
+                0: Disabled
+              validate:
+                type: bool
 
-    section_audit:
-      type: section
-      title: Audit Trail
-      underline: true
+            auth.jwt_enabled:
+              type: toggle
+              label: JWT Authentication
+              highlight: 1
+              default: 1
+              options:
+                1: Enabled
+                0: Disabled
+              validate:
+                type: bool
 
-    audit.enabled:
-      type: toggle
-      label: Enable Audit Trail
-      help: Record API activity (logins, content, user, config, and package changes) to a queryable log shown under Tools. Visible to super admins only. Off by default.
-      highlight: 0
-      default: 0
-      options:
-        1: Enabled
-        0: Disabled
-      validate:
-        type: bool
+            auth.jwt_expiry:
+              type: text
+              label: JWT Access Token Expiry
+              help: Access token lifetime in seconds
+              default: 3600
+              validate:
+                type: int
 
-    audit.coverage:
-      type: select
-      label: Detail Level
-      help: "Standard records who did what, when, and from where. Detailed additionally captures field-level before/after values for page edits (more storage)."
-      default: standard
-      options:
-        standard: "Standard (activity stream)"
-        detailed: "Detailed (with change diffs)"
+            auth.jwt_refresh_expiry:
+              type: text
+              label: JWT Refresh Token Expiry
+              help: Refresh token lifetime in seconds
+              default: 604800
+              validate:
+                type: int
 
-    audit.retention_days:
-      type: text
-      label: Retention (days)
-      help: Automatically delete entries older than this many days. Set 0 to keep entries indefinitely.
-      default: 90
-      validate:
-        type: int
-        min: 0
+            auth.jwt_algorithm:
+              type: select
+              label: JWT Signing Algorithm
+              help: "HMAC algorithm used to sign and verify API tokens. Only symmetric HS variants are supported because tokens are signed with a single shared secret. Leave on HS256 unless you have a specific reason to change it."
+              default: HS256
+              options:
+                HS256: "HS256"
+                HS384: "HS384"
+                HS512: "HS512"
+              validate:
+                type: string
 
-    audit.retention_max_rows:
-      type: text
-      label: Maximum Entries
-      help: Hard cap on stored entries; the oldest are trimmed once exceeded. Set 0 for no cap.
-      default: 100000
-      validate:
-        type: int
-        min: 0
+            auth.session_enabled:
+              type: toggle
+              label: Session Authentication
+              help: Allow existing admin sessions to access the API
+              highlight: 1
+              default: 1
+              options:
+                1: Enabled
+                0: Disabled
+              validate:
+                type: bool
 
-    audit.anonymize_ip:
-      type: toggle
-      label: Anonymize IP Addresses
-      help: Mask the last part of each IP before storing (last octet for IPv4, last 80 bits for IPv6), for GDPR-friendlier logs. Off keeps full addresses for forensic detail.
-      default: 0
-      options:
-        1: Enabled
-        0: Disabled
-      validate:
-        type: bool
+            auth.key_cache_ttl:
+              type: text
+              label: API Key Verification Cache
+              help: "How long (seconds) to remember a verified API key so repeat requests skip the deliberately-slow bcrypt check. Revoking, disabling or expiring a key still takes effect immediately. Set to 0 to verify every request."
+              default: 600
+              validate:
+                type: int
+                min: 0
 
-    audit.capture.auth:
-      type: toggle
-      label: Capture Authentication
-      help: Logins, failed logins, logouts, and password resets
-      default: 1
-      options:
-        1: Enabled
-        0: Disabled
-      validate:
-        type: bool
+            session_early_close:
+              type: toggle
+              label: Release Session Lock Early
+              help: "Commit the session right after authentication on read-only (GET) requests so the new admin's parallel calls don't queue behind PHP's per-session file lock. Recommended on. Turn off only if a custom read endpoint writes to the session."
+              highlight: 1
+              default: 1
+              options:
+                1: Enabled
+                0: Disabled
+              validate:
+                type: bool
 
-    audit.capture.content:
-      type: toggle
-      label: Capture Content Changes
-      help: Page create, update, delete, move, and translate
-      default: 1
-      options:
-        1: Enabled
-        0: Disabled
-      validate:
-        type: bool
+            protect_frontend_session:
+              type: toggle
+              label: Protect Front-end Session
+              help: "When a token- or key-authenticated API call arrives without its own session cookie, don't let it plant a new front-end session cookie. This stops the API from booting a visitor who is logged in to the public site in the same browser. Recommended on."
+              highlight: 1
+              default: 1
+              options:
+                1: Enabled
+                0: Disabled
+              validate:
+                type: bool
 
-    audit.capture.media:
-      type: toggle
-      label: Capture Media Changes
-      help: Media uploads and deletions
-      default: 1
-      options:
-        1: Enabled
-        0: Disabled
-      validate:
-        type: bool
+            allow_draft_preview:
+              type: toggle
+              label: Allow Draft Preview
+              help: "Let the new admin's page editor preview an unpublished page on the front end. The preview is authorized by a short-lived token minted only for users who can read the page, so turning this off disables draft previews entirely. Recommended on."
+              highlight: 1
+              default: 1
+              options:
+                1: Enabled
+                0: Disabled
+              validate:
+                type: bool
 
-    audit.capture.users:
-      type: toggle
-      label: Capture User & Group Changes
-      help: User and group create, update, and delete
-      default: 1
-      options:
-        1: Enabled
-        0: Disabled
-      validate:
-        type: bool
+        tab_cors:
+          type: tab
+          title: CORS
+          fields:
+            section_cors:
+              type: section
+              title: CORS Settings
+              underline: true
 
-    audit.capture.config:
-      type: toggle
-      label: Capture Configuration Changes
-      help: System and plugin configuration updates
-      default: 1
-      options:
-        1: Enabled
-        0: Disabled
-      validate:
-        type: bool
+            cors.enabled:
+              type: toggle
+              label: Enable CORS
+              highlight: 1
+              default: 1
+              options:
+                1: Enabled
+                0: Disabled
+              validate:
+                type: bool
 
-    audit.capture.packages:
-      type: toggle
-      label: Capture Package Changes
-      help: Plugin and theme install, update, remove, and Grav upgrades
-      default: 1
-      options:
-        1: Enabled
-        0: Disabled
-      validate:
-        type: bool
+            cors.origins:
+              type: array
+              label: Allowed Origins
+              help: 'Exact origins (scheme + host) allowed to call the API from a browser, e.g. https://app.example.com. Empty means same-origin only. Avoid "*": it lets any website read authenticated responses, so a configured wildcard is honored only for unauthenticated endpoints.'
+              value_only: true
+
+            cors.methods:
+              type: selectize
+              label: Allowed Methods
+              help: HTTP methods allowed for CORS requests
+              default:
+                - GET
+                - POST
+                - PATCH
+                - DELETE
+                - OPTIONS
+              multiple: true
+              validate:
+                type: commalist
+
+            cors.headers:
+              type: array
+              label: Allowed Headers
+              default:
+                - Content-Type
+                - Authorization
+                - X-API-Key
+                - X-Grav-Environment
+                - If-Match
+                - If-None-Match
+              value_only: true
+
+        tab_rate_limiting:
+          type: tab
+          title: Rate Limiting
+          fields:
+            section_rate_limit:
+              type: section
+              title: Rate Limiting
+              underline: true
+
+            rate_limit.enabled:
+              type: toggle
+              label: Enable Rate Limiting
+              highlight: 1
+              default: 1
+              options:
+                1: Enabled
+                0: Disabled
+              validate:
+                type: bool
+
+            rate_limit.requests:
+              type: text
+              label: Requests Per Window
+              help: Maximum number of requests per time window
+              default: 120
+              validate:
+                type: int
+
+            rate_limit.window:
+              type: text
+              label: Time Window
+              help: Rate limit window in seconds
+              default: 60
+              validate:
+                type: int
+
+        tab_content:
+          type: tab
+          title: Content
+          fields:
+            section_media_metadata:
+              type: section
+              title: Media Metadata
+              underline: true
+
+            media_metadata.max_length:
+              type: text
+              label: Maximum Value Length
+              help: "Longest metadata value (characters) accepted when saving. Values are also stripped of HTML tags, since they render into image attributes on the site."
+              default: 2000
+              validate:
+                type: int
+                min: 1
+
+            media_metadata.fields:
+              type: list
+              label: Editable Metadata Fields
+              help: "Descriptive fields shown in the media metadata editor. The key is written verbatim into the .meta.yaml sidecar. Any other keys (EXIF, dimensions, upload info) are left untouched on save."
+              fields:
+                .key:
+                  type: text
+                  label: Key
+                  help: "Sidecar key, e.g. alt, title, caption. Letters, numbers, dot, dash and underscore only."
+                  validate:
+                    type: text
+                .label:
+                  type: text
+                  label: Label
+                .type:
+                  type: select
+                  label: Field Type
+                  default: text
+                  options:
+                    text: "Single line"
+                    textarea: "Multi-line"
+                    tags: "Tags (list)"
+
+            section_popularity:
+              type: section
+              title: Page Statistics
+              underline: true
+
+            popularity.enabled:
+              type: toggle
+              label: Track Page Views
+              help: Record frontend page views for the Page Statistics dashboard
+              highlight: 1
+              default: 1
+              options:
+                1: Enabled
+                0: Disabled
+              validate:
+                type: bool
+
+            popularity.exclude_admin:
+              type: toggle
+              label: Exclude Logged-in Admins
+              help: Skip page views made while logged in with admin access, so your own testing and demo visits don't skew the stats
+              highlight: 1
+              default: 1
+              options:
+                1: Enabled
+                0: Disabled
+              validate:
+                type: bool
+
+            popularity.exclude_ips:
+              type: array
+              label: Excluded IP Addresses
+              help: "Visitor IPs or CIDR ranges to exclude from tracking, e.g. 203.0.113.7 or 203.0.113.0/24. IPv4 and IPv6 are both supported."
+              value_only: true
+
+        tab_audit_trail:
+          type: tab
+          title: Audit Trail
+          fields:
+            section_audit:
+              type: section
+              title: Audit Trail
+              underline: true
+
+            audit.enabled:
+              type: toggle
+              label: Enable Audit Trail
+              help: Record API activity (logins, content, user, config, and package changes) to a queryable log shown under Tools. Visible to super admins only. Off by default.
+              highlight: 0
+              default: 0
+              options:
+                1: Enabled
+                0: Disabled
+              validate:
+                type: bool
+
+            audit.coverage:
+              type: select
+              label: Detail Level
+              help: "Standard records who did what, when, and from where. Detailed additionally captures field-level before/after values for page edits (more storage)."
+              default: standard
+              options:
+                standard: "Standard (activity stream)"
+                detailed: "Detailed (with change diffs)"
+
+            audit.retention_days:
+              type: text
+              label: Retention (days)
+              help: Automatically delete entries older than this many days. Set 0 to keep entries indefinitely.
+              default: 90
+              validate:
+                type: int
+                min: 0
+
+            audit.retention_max_rows:
+              type: text
+              label: Maximum Entries
+              help: Hard cap on stored entries; the oldest are trimmed once exceeded. Set 0 for no cap.
+              default: 100000
+              validate:
+                type: int
+                min: 0
+
+            audit.anonymize_ip:
+              type: toggle
+              label: Anonymize IP Addresses
+              help: Mask the last part of each IP before storing (last octet for IPv4, last 80 bits for IPv6), for GDPR-friendlier logs. Off keeps full addresses for forensic detail.
+              default: 0
+              options:
+                1: Enabled
+                0: Disabled
+              validate:
+                type: bool
+
+            audit.capture.auth:
+              type: toggle
+              label: Capture Authentication
+              help: Logins, failed logins, logouts, and password resets
+              default: 1
+              options:
+                1: Enabled
+                0: Disabled
+              validate:
+                type: bool
+
+            audit.capture.content:
+              type: toggle
+              label: Capture Content Changes
+              help: Page create, update, delete, move, and translate
+              default: 1
+              options:
+                1: Enabled
+                0: Disabled
+              validate:
+                type: bool
+
+            audit.capture.media:
+              type: toggle
+              label: Capture Media Changes
+              help: Media uploads and deletions
+              default: 1
+              options:
+                1: Enabled
+                0: Disabled
+              validate:
+                type: bool
+
+            audit.capture.users:
+              type: toggle
+              label: Capture User & Group Changes
+              help: User and group create, update, and delete
+              default: 1
+              options:
+                1: Enabled
+                0: Disabled
+              validate:
+                type: bool
+
+            audit.capture.config:
+              type: toggle
+              label: Capture Configuration Changes
+              help: System and plugin configuration updates
+              default: 1
+              options:
+                1: Enabled
+                0: Disabled
+              validate:
+                type: bool
+
+            audit.capture.packages:
+              type: toggle
+              label: Capture Package Changes
+              help: Plugin and theme install, update, remove, and Grav upgrades
+              default: 1
+              options:
+                1: Enabled
+                0: Disabled
+              validate:
+                type: bool
+
+        tab_demo_mode:
+          type: tab
+          title: Demo Mode
+          fields:
+            section_demo:
+              type: section
+              title: Demo Mode
+              underline: true
+
+            demo.notice:
+              type: display
+              markdown: true
+              content: "Demo mode is turned on **per account**, by granting an account the *Demo Mode* access flag (`access.api.demo`) in its permissions. A demo account can browse everything but cannot save changes except to the resources below, and server paths, logs, and backups are hidden from it. Capture the baseline and reset the content from the **Set Baseline / Reset Now** panel, or with `bin/plugin api demo:baseline` and `bin/plugin api demo:reset`."
+
+            demo.writable:
+              type: select
+              multiple: true
+              label: Writable Resources
+              help: "Resources a demo account may still create, update, or delete. Leave empty for a fully read-only demo; select Pages only to allow content editing without media uploads. Config, users, packages, system, backups, and webhooks are always blocked regardless of this list."
+              default:
+                - api.pages.write
+                - api.media.write
+              options:
+                api.pages.write: Pages
+                api.media.write: Media
+
+            demo.reset_interval:
+              type: text
+              label: Reset Interval (minutes)
+              help: How often demo content resets back to the captured baseline. Only takes effect once a baseline exists.
+              default: 30
+              validate:
+                type: int
+                min: 1
+
+            demo.reset_on_request:
+              type: toggle
+              label: Reset On Request (Lazy)
+              help: Reset opportunistically on incoming API requests when the content is stale. Recommended for installs that don't run `bin/grav scheduler` via cron.
+              default: 1
+              options:
+                1: Enabled
+                0: Disabled
+              validate:
+                type: bool
+
+            demo.reset_on_schedule:
+              type: toggle
+              label: Reset On Schedule
+              help: Also register a Scheduler job, for installs that run `bin/grav scheduler` via cron.
+              default: 1
+              options:
+                1: Enabled
+                0: Disabled
+              validate:
+                type: bool
+
+            demo.keep_safety_snapshots:
+              type: text
+              label: Safety Snapshots to Retain
+              help: A safety snapshot of the current content is taken before every reset, in case the baseline itself is wrong. Oldest snapshots beyond this count are purged.
+              default: 5
+              validate:
+                type: int
+                min: 0

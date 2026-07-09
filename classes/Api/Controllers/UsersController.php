@@ -43,6 +43,12 @@ class UsersController extends AbstractApiController
     private const COLUMN_MAX_FIELDS = 32;
     private const COLUMN_VALUE_MAX_LEN = 2048;
 
+    /** Hard cap on plugin-declared row actions per user row. */
+    private const ROW_ACTIONS_MAX = 24;
+
+    /** Cap on the toast message a row-action handler may return. */
+    private const ROW_ACTION_MESSAGE_MAX_LEN = 512;
+
     private ?UserSerializer $serializer = null;
 
     public function index(ServerRequestInterface $request): ResponseInterface
@@ -132,6 +138,7 @@ class UsersController extends AbstractApiController
      *     'label'     => 'Valid until',          // display name (raw text)
      *     'field'     => 'subscription.valid_till', // key into each user's `extra`
      *     'formatter' => 'datetime',             // one of COLUMN_FORMATTERS; else 'text'
+     *     'labelField' => 'my-plugin.link_label', // optional for formatter=link; key for visible link text
      *     'sortable'  => false,                  // client-side, current page only
      *     'priority'  => 50,                     // optional sort order (higher = earlier)
      *     'authorize' => 'api.users.read',       // optional — string or array for any-of
@@ -199,10 +206,19 @@ class UsersController extends AbstractApiController
                     ? $column['formatter']
                     : 'text';
 
+            $labelField = isset($column['labelField']) && is_string($column['labelField'])
+                ? preg_replace('/[^A-Za-z0-9_.\-]/', '', $column['labelField'])
+                : '';
+
             $seen[$column['id']] = true;
             $column['field'] = $field;
             $column['formatter'] = $formatter;
             $column['sortable'] = (bool) ($column['sortable'] ?? false);
+            if ($formatter === 'link' && $labelField !== '') {
+                $column['labelField'] = $labelField;
+            } else {
+                unset($column['labelField']);
+            }
             // Strip the authorize field — server-side annotation, not client data.
             unset($column['authorize']);
             $columns[] = $column;
@@ -211,6 +227,268 @@ class UsersController extends AbstractApiController
         usort($columns, fn($a, $b) => ($b['priority'] ?? 0) <=> ($a['priority'] ?? 0));
 
         return $columns;
+    }
+
+    /**
+     * GET /users/row-actions — plugin-declared per-user action buttons for the
+     * Users list (getgrav/grav-plugin-admin2#115).
+     *
+     * The execution half of the Users extension contract: a plugin declares
+     * actions via the `onApiUserListRowActions` event; Admin2 renders them in
+     * each user row's native Actions cell (next to edit/delete) and invokes the
+     * chosen one over POST /users/{username}/row-action, which fires
+     * `onApiUserListRowAction` server-side with the target username. This
+     * replaces the impersonate-style DOM injection that patched the rendered
+     * table client-side.
+     *
+     * Action format (mirrors the columns / filters contract):
+     *   [
+     *     'id'        => 'impersonate-user',   // required, unique; client + exec key
+     *     'plugin'    => 'impersonate',        // owning plugin slug
+     *     'label'     => 'Impersonate',        // display name (raw text, not a key)
+     *     'icon'      => 'fa-user-secret',     // optional FA icon class
+     *     'action'    => 'start',              // optional verb passed back to the handler
+     *     'priority'  => 80,                   // optional sort order (higher = earlier)
+     *     'confirm'   => 'Impersonate this user?', // optional client confirm prompt
+     *     'authorize' => ['admin.impersonate', 'admin.super'], // string or array (any-of)
+     *   ]
+     *
+     * Like columns, this is deliberately narrow: no raw HTML or renderer
+     * functions cross the wire, only a formatter-free descriptor the client
+     * turns into a button. `authorize` gates which buttons render but is NOT a
+     * security boundary — the execution endpoint re-authorizes independently.
+     *
+     * Response shape: { "actions": [ ... ] }
+     */
+    public function rowActions(ServerRequestInterface $request): ResponseInterface
+    {
+        // Row actions only mean something to a caller who can list users.
+        $this->requirePermission($request, 'api.users.read');
+
+        $user = $this->getUser($request);
+        $event = $this->fireEvent('onApiUserListRowActions', [
+            'actions' => [],
+            'user' => $user,
+        ]);
+
+        return ApiResponse::create(['actions' => $this->assembleRowActions($event, $user)]);
+    }
+
+    /**
+     * Validate and normalize plugin-declared row actions: drop malformed
+     * entries and actions the caller isn't authorized for, coerce the display
+     * fields to safe scalars, then order by descending priority. Mirrors
+     * assembleColumns() — `authorize` is a server-side annotation stripped
+     * before the action reaches the client.
+     *
+     * @param Event $event The onApiUserListRowActions event after plugins ran
+     * @return array<int, array<string, mixed>>
+     */
+    private function assembleRowActions(Event $event, UserInterface $user): array
+    {
+        $isSuperAdmin = $this->isSuperAdmin($user);
+
+        $actions = [];
+        $seen = [];
+        foreach ((array) ($event['actions'] ?? []) as $action) {
+            if (count($actions) >= self::ROW_ACTIONS_MAX) {
+                break;
+            }
+            if (!is_array($action) || !isset($action['id']) || !is_string($action['id']) || $action['id'] === '') {
+                continue;
+            }
+            if (isset($seen[$action['id']])) {
+                continue; // first declaration of an id wins
+            }
+            if (!$this->userPassesAuthorize($user, $action['authorize'] ?? null, $isSuperAdmin)) {
+                continue;
+            }
+
+            $seen[$action['id']] = true;
+            // Keep only known descriptor keys as safe scalars — no HTML, no
+            // renderer functions, nothing the client would eval.
+            $clean = [
+                'id'     => $action['id'],
+                'plugin' => isset($action['plugin']) && is_string($action['plugin']) ? $action['plugin'] : '',
+                'label'  => isset($action['label']) && is_string($action['label']) ? $action['label'] : $action['id'],
+            ];
+            if (isset($action['icon']) && is_string($action['icon'])) {
+                $clean['icon'] = $action['icon'];
+            }
+            if (isset($action['action']) && is_string($action['action'])) {
+                $clean['action'] = $action['action'];
+            }
+            if (isset($action['confirm']) && is_string($action['confirm']) && $action['confirm'] !== '') {
+                $clean['confirm'] = $action['confirm'];
+            }
+            $clean['priority'] = (int) ($action['priority'] ?? 0);
+            $actions[] = $clean;
+        }
+
+        usort($actions, fn($a, $b) => ($b['priority'] ?? 0) <=> ($a['priority'] ?? 0));
+
+        return $actions;
+    }
+
+    /**
+     * POST /users/{username}/row-action — execute a plugin-declared row action
+     * against one user (getgrav/grav-plugin-admin2#115).
+     *
+     * Body: { "id": "<action-id>" } — the id of a declared row action.
+     *
+     * Security model (declaration-time `authorize` is UX, not a boundary):
+     *   1. The caller must be able to list users (api.users.read).
+     *   2. We re-run the declaration event and re-check the action's own
+     *      `authorize` against the current user server-side, so a client can't
+     *      invoke a button it was never authorized to see.
+     *   3. The plugin handler receives the target username and MUST re-check
+     *      permission against that specific target — this endpoint can't know a
+     *      plugin's per-target rules. The two checks are independent.
+     *
+     * The handler returns a result via `$event['result']`; we sanitize it to a
+     * fixed { status, message, url } shape. Any `url` is validated as a
+     * same-origin/relative redirect before it reaches the client, so an
+     * impersonate-style "return a URL and go there" flow can't become an
+     * open-redirect. A throwing handler degrades to an error toast rather than
+     * breaking the Users list.
+     */
+    public function rowAction(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.users.read');
+
+        $currentUser = $this->getUser($request);
+        $username = $this->getRouteParam($request, 'username');
+        // Resolve against a real, existing account — the same identity space the
+        // list itself serves. A non-existent target is a 404, never handed to a
+        // plugin handler.
+        $target = $this->loadUserOrFail($username);
+
+        $body = $this->getRequestBody($request);
+        $id = isset($body['id']) && is_string($body['id']) ? trim($body['id']) : '';
+        if ($id === '') {
+            throw new ValidationException('Row action id is required.');
+        }
+
+        // Re-assemble the declared actions and locate the requested one. Because
+        // assembleRowActions() applies the same `authorize` filter as the
+        // declaration endpoint, an action the caller isn't authorized for is
+        // simply absent here — indistinguishable from an unknown id (404), so we
+        // never leak which actions exist to an unauthorized caller.
+        $event = $this->fireEvent('onApiUserListRowActions', [
+            'actions' => [],
+            'user' => $currentUser,
+        ]);
+        $declared = null;
+        foreach ($this->assembleRowActions($event, $currentUser) as $candidate) {
+            if (($candidate['id'] ?? null) === $id) {
+                $declared = $candidate;
+                break;
+            }
+        }
+        if ($declared === null) {
+            throw new NotFoundException("Row action '{$id}' is not available.");
+        }
+
+        try {
+            $result = $this->fireEvent('onApiUserListRowAction', [
+                'id'       => $id,
+                'plugin'   => $declared['plugin'] ?? '',
+                'action'   => $declared['action'] ?? '',
+                'username' => $target->username,
+                'user'     => $currentUser,
+                'result'   => null,
+            ]);
+        } catch (ForbiddenException $e) {
+            // A handler's own per-target permission check is a real 403 — let it
+            // propagate so the client shows the right status.
+            throw $e;
+        } catch (\Throwable $e) {
+            // Isolation: any other handler fault degrades to an error toast
+            // instead of 500-ing the Users page.
+            $this->grav['log']->warning('[api] onApiUserListRowAction failed: ' . $e->getMessage());
+            return ApiResponse::create([
+                'status'  => 'error',
+                'message' => 'The action could not be completed.',
+            ]);
+        }
+
+        return ApiResponse::create(
+            $this->sanitizeActionResult($result['result'] ?? null, $request),
+        );
+    }
+
+    /**
+     * Normalize a row-action handler's result into the fixed client contract:
+     * { status: 'success'|'error', message: string, url?: string }.
+     *
+     * `url` survives only when it's a safe same-origin redirect (a root-relative
+     * path, or an absolute URL whose host matches the current request). Anything
+     * else — a `javascript:`/`data:` scheme, a protocol-relative `//evil` URL,
+     * or a cross-origin absolute URL — is dropped rather than navigated to, so
+     * the impersonate-style redirect flow can't be turned into an open redirect.
+     *
+     * @param mixed $result
+     * @return array<string, string>
+     */
+    private function sanitizeActionResult($result, ServerRequestInterface $request): array
+    {
+        $result = is_array($result) ? $result : [];
+
+        $status = ($result['status'] ?? 'success') === 'error' ? 'error' : 'success';
+
+        $out = ['status' => $status];
+
+        if (isset($result['message']) && is_string($result['message']) && $result['message'] !== '') {
+            $message = $result['message'];
+            if (strlen($message) > self::ROW_ACTION_MESSAGE_MAX_LEN) {
+                $message = substr($message, 0, self::ROW_ACTION_MESSAGE_MAX_LEN);
+            }
+            $out['message'] = $message;
+        }
+
+        if (isset($result['url']) && is_string($result['url'])) {
+            $safe = $this->safeRedirectUrl($result['url'], $request);
+            if ($safe !== null) {
+                $out['url'] = $safe;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Validate a handler-supplied redirect URL, returning it only when it's a
+     * safe same-origin target. Accepts a root-relative path (`/...`, but not the
+     * protocol-relative `//host` form) or an absolute http(s) URL whose host and
+     * port match the current request. Returns null for everything else.
+     */
+    private function safeRedirectUrl(string $url, ServerRequestInterface $request): ?string
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return null;
+        }
+
+        // Root-relative path — safe, but reject the protocol-relative `//host`
+        // form which browsers treat as an absolute cross-origin URL.
+        if ($url[0] === '/') {
+            return isset($url[1]) && $url[1] === '/' ? null : $url;
+        }
+
+        $parts = parse_url($url);
+        if ($parts === false || !isset($parts['scheme'], $parts['host'])) {
+            return null; // no scheme/host, or a scheme-relative/opaque value like javascript:
+        }
+        $scheme = strtolower($parts['scheme']);
+        if ($scheme !== 'http' && $scheme !== 'https') {
+            return null;
+        }
+
+        $reqUri = $request->getUri();
+        $sameHost = strtolower($parts['host']) === strtolower($reqUri->getHost());
+        $samePort = ($parts['port'] ?? null) === $reqUri->getPort();
+
+        return ($sameHost && $samePort) ? $url : null;
     }
 
     /**

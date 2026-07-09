@@ -15,6 +15,7 @@ use Grav\Plugin\Api\ApiRouter;
 use Grav\Plugin\Api\Auth\JwtAuthenticator;
 use Grav\Plugin\Api\Audit\AuditStore;
 use Grav\Plugin\Api\Audit\AuditSubscriber;
+use Grav\Plugin\Api\Demo\DemoManager;
 use Grav\Plugin\Api\Auth\ApiKeyManager;
 use Grav\Plugin\Api\Popularity\PopularityTracker;
 use Grav\Plugin\Api\Webhooks\WebhookDispatcher;
@@ -165,6 +166,10 @@ class ApiPlugin extends Plugin
         // audit.enabled flag at fire time, so this is a no-op when the feature is
         // off (it is off by default)..
         $this->registerAuditListeners();
+
+        // Register the demo-mode reset scheduler job. Inert until a baseline has
+        // been captured, so this is a no-op on normal installs.
+        $this->registerDemoListeners();
 
         // Page-view tracking subscribes for FRONTEND requests only — the
         // handler itself short-circuits for admin/API/non-page requests.
@@ -514,6 +519,22 @@ class ApiPlugin extends Plugin
                 $subscriber->{$method}($eventName, $event);
             }, $priority);
         }
+    }
+
+    /**
+     * Register the demo-mode reset scheduler job. The listener forwards the
+     * onSchedulerInitialized event to DemoManager, which itself no-ops unless
+     * reset_on_schedule is on AND a baseline has been captured — so this stays
+     * dormant on any install that isn't running a demo.
+     */
+    protected function registerDemoListeners(): void
+    {
+        /** @var \Symfony\Component\EventDispatcher\EventDispatcher $eventDispatcher */
+        $eventDispatcher = $this->grav['events'];
+
+        $eventDispatcher->addListener('onSchedulerInitialized', function (Event $event) {
+            (new DemoManager($this->grav, $this->grav['config']))->onSchedulerInitialized($event);
+        });
     }
 
     /**

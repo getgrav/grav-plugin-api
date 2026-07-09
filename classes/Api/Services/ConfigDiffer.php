@@ -169,7 +169,7 @@ class ConfigDiffer
             if ($isWholeScope) {
                 return is_array($value) ? $value : $data;
             }
-            $data = $this->setDotPath($data, substr($key, strlen($prefix) + 1), $value);
+            $data = self::setDotPath($data, substr($key, strlen($prefix) + 1), $value);
         }
 
         return $data;
@@ -182,7 +182,7 @@ class ConfigDiffer
      * @param array<mixed> $data
      * @return array<mixed>
      */
-    private function setDotPath(array $data, string $path, mixed $value): array
+    public static function setDotPath(array $data, string $path, mixed $value): array
     {
         $parts = explode('.', $path);
         $ref = &$data;
