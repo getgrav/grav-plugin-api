@@ -12,6 +12,7 @@ use Grav\Common\Language\LanguageCodes;
 use Grav\Common\Page\Interfaces\PageInterface;
 use Grav\Common\Page\Page;
 use Grav\Common\Page\PageOrdering;
+use Grav\Common\Security;
 use Grav\Framework\Flex\FlexDirectory;
 use Grav\Common\User\Interfaces\UserInterface;
 use Grav\Plugin\Api\Exceptions\ApiException;
@@ -2526,6 +2527,23 @@ class PagesController extends AbstractApiController
         }
 
         $this->validateChangedFields($changes, $page->getBlueprint());
+
+        // Render-time XSS backstop for assembled content Twig. The core save path
+        // (PageObject::onBeforeSave) enforces this unconditionally; surfacing it
+        // here as a field-level error lets admin-next report it cleanly instead of
+        // a bare save exception. (GHSA-2c4f-86xc-cr74)
+        if (array_key_exists('content', $changes) && $page instanceof PageInterface) {
+            $found = Security::detectXssInEditorContent((string) $changes['content'], $page);
+            if ($found !== null) {
+                throw new ValidationException(
+                    'The submitted data did not pass blueprint validation.',
+                    [[
+                        'field' => 'content',
+                        'message' => sprintf('Page content resolves to disallowed markup (%s) after Twig processing.', $found),
+                    ]]
+                );
+            }
+        }
     }
 
     /**
