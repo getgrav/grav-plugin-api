@@ -330,7 +330,12 @@ class PageSerializer implements SerializerInterface
         $max = ($summarySize !== null && $summarySize > 0) ? $summarySize : 300;
 
         try {
-            $text = (string) $resource->summary($max, true);
+            // Page::summary(size, textOnly: true) is documented to return text, but
+            // core short-circuits to full rendered HTML when summaries are disabled
+            // (site.summary.enabled: false), ignoring textOnly. Strip tags here so
+            // the `summary` field is always plain text as clients expect — otherwise
+            // the admin renders raw markup as literal text (admin2#125).
+            $text = strip_tags((string) $resource->summary($max, true));
         } catch (\Throwable) {
             $text = strip_tags($this->renderMarkdown($resource));
         }
