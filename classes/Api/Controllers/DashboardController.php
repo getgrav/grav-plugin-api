@@ -269,11 +269,13 @@ class DashboardController extends AbstractApiController
         $pluginUpdates = 0;
         $themeUpdates = 0;
         $gravUpdatable = false;
+        $activeThemeUpdatable = false;
         try {
-            $counts = self::extractUpdateCounts(new GPM(false));
+            $counts = self::extractUpdateCounts(new GPM(false), is_string($activeTheme) ? $activeTheme : null);
             $pluginUpdates = $counts['plugins'];
             $themeUpdates = $counts['themes'];
             $gravUpdatable = $counts['grav'];
+            $activeThemeUpdatable = $counts['active_theme'];
         } catch (\Throwable $e) {
             $this->grav['log']->warning('[api] Dashboard stats could not read GPM update counts: ' . $e->getMessage());
         }
@@ -343,6 +345,7 @@ class DashboardController extends AbstractApiController
             'themes' => [
                 'total' => $totalThemes,
                 'updatable' => $themeUpdates,
+                'active_updatable' => $activeThemeUpdatable,
             ],
             'grav' => [
                 'updatable' => $gravUpdatable,
@@ -360,22 +363,28 @@ class DashboardController extends AbstractApiController
     }
 
     /**
-     * Reduce a GPM instance to the available-update counts the sidebar badges
-     * need: number of updatable plugins, number of updatable themes, and
-     * whether Grav core itself has an update. Pure and side-effect free so it
-     * can be unit-tested against a mocked GPM without booting Grav.
+     * Reduce a GPM instance to the available-update counts the dashboard needs:
+     * number of updatable plugins, number of updatable themes, whether Grav core
+     * itself has an update, and whether the currently active theme specifically
+     * has one (so the "Active Theme" card only flags an update for the theme it
+     * actually names). Pure and side-effect free so it can be unit-tested against
+     * a mocked GPM without booting Grav.
      *
-     * @return array{plugins: int, themes: int, grav: bool}
+     * @param string|null $activeThemeSlug Slug of the active theme, or null to skip the active-theme check
+     * @return array{plugins: int, themes: int, grav: bool, active_theme: bool}
      */
-    public static function extractUpdateCounts(GPM $gpm): array
+    public static function extractUpdateCounts(GPM $gpm, ?string $activeThemeSlug = null): array
     {
         $updatable = $gpm->getUpdatable();
         $gravInfo = $gpm->getGrav();
 
+        $updatableThemes = is_array($updatable['themes'] ?? null) ? $updatable['themes'] : [];
+
         return [
             'plugins' => is_countable($updatable['plugins'] ?? null) ? count($updatable['plugins']) : 0,
-            'themes' => is_countable($updatable['themes'] ?? null) ? count($updatable['themes']) : 0,
+            'themes' => count($updatableThemes),
             'grav' => $gravInfo ? $gravInfo->isUpdatable() : false,
+            'active_theme' => $activeThemeSlug !== null && isset($updatableThemes[$activeThemeSlug]),
         ];
     }
 

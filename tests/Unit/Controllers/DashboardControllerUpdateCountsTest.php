@@ -103,4 +103,38 @@ class DashboardControllerUpdateCountsTest extends TestCase
 
         $this->assertTrue($counts['grav']);
     }
+
+    #[Test]
+    public function flags_active_theme_only_when_the_active_theme_is_updatable(): void
+    {
+        // DeliverNext (a non-active theme) has the update; the active theme
+        // (quark2) does not. The active-theme flag must stay false so the
+        // "Active Theme" card doesn't imply quark2 is outdated.
+        $gpm = $this->makeGpm(['plugins' => [], 'themes' => ['delivernext' => (object) []]], false);
+
+        $counts = DashboardController::extractUpdateCounts($gpm, 'quark2');
+
+        $this->assertSame(1, $counts['themes']);
+        $this->assertFalse($counts['active_theme']);
+    }
+
+    #[Test]
+    public function flags_active_theme_when_it_is_the_one_updatable(): void
+    {
+        $gpm = $this->makeGpm(['plugins' => [], 'themes' => ['quark2' => (object) []]], false);
+
+        $counts = DashboardController::extractUpdateCounts($gpm, 'quark2');
+
+        $this->assertTrue($counts['active_theme']);
+    }
+
+    #[Test]
+    public function active_theme_flag_is_false_without_a_slug(): void
+    {
+        $gpm = $this->makeGpm(['plugins' => [], 'themes' => ['quark2' => (object) []]], false);
+
+        $counts = DashboardController::extractUpdateCounts($gpm);
+
+        $this->assertFalse($counts['active_theme']);
+    }
 }
