@@ -1,3 +1,9 @@
+# v1.0.11
+## 07/13/2026
+
+1. [](#new)
+    * The page media listing endpoint can now filter and sort by the metadata fields configured for the plugin, for example `GET /pages/{route}/media?filter=rating:>=:3&sort=rating&order=desc`. Fixes [getgrav/grav#4200](https://github.com/getgrav/grav/issues/4200).
+
 # v1.0.10
 ## 07/09/2026
 
