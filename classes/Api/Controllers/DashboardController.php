@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Grav\Plugin\Api\Controllers;
 
+use Grav\Common\GPM\GPM;
 use Grav\Common\HTTP\Response;
 use Grav\Common\User\DataUser\User as DataUser;
 use Grav\Plugin\Api\FlexBackend;
@@ -261,6 +262,22 @@ class DashboardController extends AbstractApiController
         // Active theme
         $activeTheme = $this->grav['config']->get('system.pages.theme');
 
+        // Available-update counts for the sidebar badges. Read from Grav's cached
+        // GPM data (new GPM(false)) so this stays a fast, network-free lookup — an
+        // empty/never-checked cache simply reports zero updates. Wrapped so a GPM
+        // hiccup can never take down the dashboard.
+        $pluginUpdates = 0;
+        $themeUpdates = 0;
+        $gravUpdatable = false;
+        try {
+            $counts = self::extractUpdateCounts(new GPM(false));
+            $pluginUpdates = $counts['plugins'];
+            $themeUpdates = $counts['themes'];
+            $gravUpdatable = $counts['grav'];
+        } catch (\Throwable $e) {
+            $this->grav['log']->warning('[api] Dashboard stats could not read GPM update counts: ' . $e->getMessage());
+        }
+
         // Count media files. The recursive walk is O(total files) and runs on a
         // dashboard endpoint, so the tally is cached for a few minutes — a
         // slightly stale count is invisible on a dashboard card, while walking
@@ -321,9 +338,14 @@ class DashboardController extends AbstractApiController
             'plugins' => [
                 'total' => count($plugins),
                 'active' => $activePlugins,
+                'updatable' => $pluginUpdates,
             ],
             'themes' => [
                 'total' => $totalThemes,
+                'updatable' => $themeUpdates,
+            ],
+            'grav' => [
+                'updatable' => $gravUpdatable,
             ],
             'media' => [
                 'total' => $totalMedia,
@@ -335,6 +357,26 @@ class DashboardController extends AbstractApiController
         ];
 
         return ApiResponse::create($data);
+    }
+
+    /**
+     * Reduce a GPM instance to the available-update counts the sidebar badges
+     * need: number of updatable plugins, number of updatable themes, and
+     * whether Grav core itself has an update. Pure and side-effect free so it
+     * can be unit-tested against a mocked GPM without booting Grav.
+     *
+     * @return array{plugins: int, themes: int, grav: bool}
+     */
+    public static function extractUpdateCounts(GPM $gpm): array
+    {
+        $updatable = $gpm->getUpdatable();
+        $gravInfo = $gpm->getGrav();
+
+        return [
+            'plugins' => is_countable($updatable['plugins'] ?? null) ? count($updatable['plugins']) : 0,
+            'themes' => is_countable($updatable['themes'] ?? null) ? count($updatable['themes']) : 0,
+            'grav' => $gravInfo ? $gravInfo->isUpdatable() : false,
+        ];
     }
 
     /**
