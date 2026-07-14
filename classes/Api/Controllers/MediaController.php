@@ -55,6 +55,13 @@ class MediaController extends AbstractApiController
     private const MAX_TAGS = 50;
 
     /**
+     * Maximum number of repeatable `?filter=` clauses accepted on a media list
+     * request. Bounds the per-request query work, mirroring the `batch.max_items`
+     * cap on writes.
+     */
+    private const MAX_FILTER_CLAUSES = 10;
+
+    /**
      * GET /pages/{route}/media - List all media for a page.
      */
     public function pageMedia(ServerRequestInterface $request): ResponseInterface
@@ -66,7 +73,11 @@ class MediaController extends AbstractApiController
 
         // Create fresh Media object to avoid stale page cache
         $media = new \Grav\Common\Page\Media($pagePath);
-        $serialized = $this->getSerializer()->serializeCollection($media->all());
+
+        // Optional metadata filter/sort, bound to the configured schema.
+        $collection = $this->applyMediaQuery($media, $request);
+
+        $serialized = $this->getSerializer()->serializeCollection($collection);
 
         return ApiResponse::create($serialized);
     }
@@ -1212,6 +1223,185 @@ class MediaController extends AbstractApiController
         }
 
         return $defs !== [] ? $defs : self::DEFAULT_META_FIELDS;
+    }
+
+    /**
+     * Apply the optional metadata filter/sort query params to a page's media
+     * collection, returning the (possibly filtered/sorted) collection to
+     * serialize. With no query params this is a no-op returning `$media->all()`.
+     *
+     * The filterable/sortable surface is bound to the configured
+     * `media_metadata.fields` schema (via {@see getMetadataFieldDefs()}): only
+     * admin-defined keys are accepted and each field's `type` drives which
+     * operators are legal. Unknown fields are ignored leniently; malformed
+     * clauses and unsupported operators are rejected with a 400. Filtering rides
+     * the existing `api.media.read` permission and adds no path or file input.
+     *
+     * Supported params:
+     *  - `filter=field:op:value` or `filter=field:value` (repeatable via
+     *    `filter[]=…`). Operators: {@see AbstractMedia::META_OPERATORS}.
+     *  - `sort=field` with `order=asc|desc` (`dir=` accepted as an alias).
+     *
+     * @return iterable<\Grav\Common\Media\Interfaces\MediaObjectInterface>
+     */
+    private function applyMediaQuery(\Grav\Common\Page\Media $media, ServerRequestInterface $request): iterable
+    {
+        // Guard against a core older than the one that shipped the query
+        // methods; degrade to the full unfiltered listing rather than error.
+        if (!method_exists($media, 'filterBy')) {
+            return $media->all();
+        }
+
+        $query = $request->getQueryParams();
+
+        $typeByKey = [];
+        foreach ($this->getMetadataFieldDefs() as $def) {
+            $typeByKey[$def['key']] = $def['type'];
+        }
+        $maxLen = $this->getMetadataMaxLength();
+
+        $collection = $media;
+        $applied = false;
+
+        // --- filters ---
+        $clauses = $this->normalizeFilterParam($query['filter'] ?? null);
+        if (count($clauses) > self::MAX_FILTER_CLAUSES) {
+            throw new ValidationException(
+                sprintf('Too many filter clauses (maximum %d).', self::MAX_FILTER_CLAUSES)
+            );
+        }
+        foreach ($clauses as $clause) {
+            $parsed = $this->parseFilterClause($clause, $typeByKey, $maxLen);
+            if ($parsed === null) {
+                // Unknown/absent field: ignored, never fatal.
+                continue;
+            }
+            [$field, $operator, $value] = $parsed;
+            $collection = $collection->filterBy($field, $value, $operator);
+            $applied = true;
+        }
+
+        // --- sort ---
+        $sort = $query['sort'] ?? null;
+        if (is_string($sort) && $sort !== '') {
+            // Configured metadata keys plus intrinsic keys the list already
+            // exposes (so ?sort=filename etc. leaks nothing new).
+            $sortable = array_merge(array_keys($typeByKey), ['filename', 'size', 'modified']);
+            if (!in_array($sort, $sortable, true)) {
+                throw new ValidationException(sprintf("Invalid sort field '%s'.", $sort));
+            }
+            // Prefer `order` (consistent with the rest of the API); accept `dir`.
+            $dir = strtolower((string) ($query['order'] ?? $query['dir'] ?? 'asc'));
+            if (!in_array($dir, ['asc', 'desc'], true)) {
+                $dir = 'asc';
+            }
+            $collection = $collection->sortBy($sort, $dir);
+            $applied = true;
+        }
+
+        // Return the collection object (not ->all(), which would re-order and
+        // undo an applied sort); it iterates in filtered/sorted order.
+        return $applied ? $collection : $media->all();
+    }
+
+    /**
+     * Normalize the `filter` query param to a list of clause strings. Accepts a
+     * single `filter=…` string or a repeatable `filter[]=…` array.
+     *
+     * @param mixed $raw
+     * @return list<string>
+     */
+    private function normalizeFilterParam(mixed $raw): array
+    {
+        if (is_array($raw)) {
+            $out = [];
+            foreach ($raw as $value) {
+                if (is_string($value) && $value !== '') {
+                    $out[] = $value;
+                }
+            }
+            return $out;
+        }
+
+        return is_string($raw) && $raw !== '' ? [$raw] : [];
+    }
+
+    /**
+     * Parse and validate one `filter` clause into `[field, operator, value]`,
+     * or null if the field is not part of the configured schema (ignored
+     * leniently). Throws {@see ValidationException} for a malformed clause,
+     * unknown operator, or an operator disallowed for the field's type.
+     *
+     * @param array<string, string> $typeByKey field key => field type
+     * @return array{0: string, 1: string, 2: string|list<string>}|null
+     */
+    private function parseFilterClause(string $clause, array $typeByKey, int $maxLen): ?array
+    {
+        $parts = explode(':', $clause, 3);
+        $field = trim($parts[0]);
+
+        if ($field === '' || !preg_match('/^[A-Za-z0-9_.-]+$/', $field)) {
+            throw new ValidationException(sprintf("Malformed filter field in '%s'.", $clause));
+        }
+
+        // Schema-bound: only configured keys are filterable.
+        if (!array_key_exists($field, $typeByKey)) {
+            return null;
+        }
+        $type = $typeByKey[$field];
+
+        if (count($parts) === 3) {
+            $operator = trim($parts[1]);
+            $rawValue = $parts[2];
+        } elseif (count($parts) === 2) {
+            // `field:value` shorthand — operator inferred from the field type.
+            $operator = $type === 'tags' ? 'contains' : '==';
+            $rawValue = $parts[1];
+        } else {
+            throw new ValidationException(
+                sprintf("Malformed filter clause '%s'. Use field:value or field:operator:value.", $clause)
+            );
+        }
+
+        if (!in_array($operator, \Grav\Common\Page\Medium\AbstractMedia::META_OPERATORS, true)) {
+            throw new ValidationException(sprintf("Unsupported filter operator '%s'.", $operator));
+        }
+
+        // Type-aware policy: a tags (list) field only takes membership operators.
+        if ($type === 'tags' && !in_array($operator, ['in', 'contains'], true)) {
+            throw new ValidationException(
+                sprintf("Field '%s' is a tags field; use the 'in' or 'contains' operator.", $field)
+            );
+        }
+
+        if ($operator === 'in') {
+            $value = array_values(array_filter(
+                array_map(fn($v) => $this->sanitizeFilterValue($v, $maxLen), explode(',', $rawValue)),
+                static fn($v) => $v !== ''
+            ));
+        } else {
+            $value = $this->sanitizeFilterValue($rawValue, $maxLen);
+        }
+
+        return [$field, $operator, $value];
+    }
+
+    /**
+     * Sanitize a filter value the same way write input is treated: strip tags
+     * and control characters, collapse whitespace, and cap the length. Read-only
+     * — there is no path, regex, or callable surface here.
+     */
+    private function sanitizeFilterValue(string $value, int $maxLen): string
+    {
+        $value = strip_tags($value);
+        $value = (string) preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $value);
+        $value = trim((string) preg_replace('/\s+/u', ' ', $value));
+
+        if (mb_strlen($value) > $maxLen) {
+            $value = mb_substr($value, 0, $maxLen);
+        }
+
+        return $value;
     }
 
     /** Maximum accepted length for a single metadata value. */

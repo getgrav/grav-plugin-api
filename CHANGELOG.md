@@ -1,3 +1,11 @@
+# v1.0.11
+## 07/13/2026
+
+1. [](#new)
+    * The page media listing endpoint can now filter and sort by the metadata fields configured for the plugin, for example `GET /pages/{route}/media?filter=rating:>=:3&sort=rating&order=desc`. Fixes [getgrav/grav#4200](https://github.com/getgrav/grav/issues/4200).
+1. [](#improved)
+    * The dashboard statistics endpoint now reports how many plugin, theme, and Grav core updates are available, plus whether the active theme itself has one, so the admin can show update counts without a separate request ([getgrav/grav-plugin-admin2#124](https://github.com/getgrav/grav-plugin-admin2/issues/124)).
+
 # v1.0.10
 ## 07/09/2026
 

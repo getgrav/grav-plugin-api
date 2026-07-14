@@ -581,6 +581,7 @@ namespace Grav\Common\GPM {
 
             public function getUpdatable(): array { return []; }
             public function isUpdatable(string $slug): bool { return false; }
+            public function getGrav() { return null; }
             public function checkPackagesCanBeInstalled(array $slugs): void {}
             public function getDependencies(array $slugs): array { return []; }
         }

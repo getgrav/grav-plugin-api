@@ -111,7 +111,6 @@ class ReportsController extends AbstractApiController
         $config = $this->grav['config'];
         $gate        = (bool) $config->get('security.twig_content.process_enabled', false);
         $sandbox     = (bool) $config->get('security.twig_sandbox.enabled', true);
-        $xssScan     = (bool) $config->get('security.twig_content.xss_scan_output', true);
         $editorWide  = (bool) $config->get('security.twig_content.editor_enabled', false);
 
         // The 1.7-migration trap: a site-wide `system.pages.process.twig: true`
@@ -183,7 +182,6 @@ class ReportsController extends AbstractApiController
             'meta'      => [
                 'gate'                => $gate,
                 'sandbox'             => $sandbox,
-                'xss_scan'            => $xssScan,
                 'editor_enabled'      => $editorWide,
                 'leak_count'          => $leakCount,
                 'event_count'         => $eventCount,
@@ -198,7 +196,7 @@ class ReportsController extends AbstractApiController
 
     /**
      * Build the "Add to allowlist" descriptor for a sandbox-block event, or null
-     * for events with no allowlist remedy (gate_blocked, xss_blanked).
+     * for events with no allowlist remedy (gate_blocked).
      *
      * @param array{type:string,token:string,class:string} $event
      * @return array{rule:string,key:string,kind:string,token:string,class:string}|null
