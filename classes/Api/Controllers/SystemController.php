@@ -17,6 +17,13 @@ use Psr\Http\Message\ServerRequestInterface;
 class SystemController extends AbstractApiController
 {
     /**
+     * Locale every other locale falls back to, and the one admin2 authors its
+     * strings in. Must be the canonical form `normalizeLangCode()` produces, so a
+     * request for `en` or `en-US` skips the backfill instead of merging with itself.
+     */
+    private const FALLBACK_LANG = 'en-US';
+
+    /**
      * GET /system/environments — list writable environment targets.
      *
      * Response shape:
@@ -613,38 +620,33 @@ class SystemController extends AbstractApiController
         // for `/translations/en` resolves to admin2's `en-US.yaml`.
         $lang = self::normalizeLangCode($lang);
 
-        /** @var \Grav\Common\Config\Languages $languages */
-        $languages = $this->grav['languages'];
+        $translations = $this->buildTranslationDictionary($lang);
 
-        try {
-            $translations = $languages->flattenByLang($lang);
-        } catch (\Throwable) {
-            $translations = [];
-        }
-
-        // Strip strings contributed only by disabled plugins. Grav core's
-        // `flattenByLang()` reads every plugin's lang yaml regardless of enabled
-        // state — fine for the legacy admin, broken for admin2: a disabled plugin
-        // would still influence what admin2 renders. The service walks each
-        // plugin's lang yaml to determine provenance and returns keys unique to
-        // disabled plugins. Keys also shipped by enabled sources stay.
-        if (is_array($translations)) {
-            $disabledIndex = new DisabledPluginLangIndex($this->grav);
-            foreach ($disabledIndex->disabledOnlyKeys($lang) as $key) {
-                unset($translations[$key]);
-            }
-        }
-
-        // Drop flat `<key>` entries when an `ICU.<key>` shadow exists. Admin2 ships
-        // the canonical PLUGIN_ADMIN.* vocabulary under ICU; if a 3rd-party plugin
-        // still using the Grav 1 flat convention is also installed, its values
-        // would otherwise leak into the dictionary served to the client. Keeping
-        // only the ICU side guarantees admin2 is the source of truth.
-        if (is_array($translations)) {
-            foreach (array_keys($translations) as $key) {
-                if (is_string($key) && !str_starts_with($key, 'ICU.') && isset($translations['ICU.' . $key])) {
-                    unset($translations[$key]);
+        // Backfill gaps from English. `flattenByLang()` returns the requested
+        // language *only* — it does not merge a base locale — so any key a
+        // translator hasn't reached yet simply vanishes from the response and the
+        // client humanizes it: `ADMIN_NEXT.CACHE_CLEAR_BUTTON.LABEL` rendered as
+        // "Label" instead of "Cache" (admin2#129). Worse, a humanized key reads as
+        // plausible English, so gaps stay invisible until someone runs the admin in
+        // another language. Merging here fixes it once for every client, needs no
+        // extra request, and keeps the checksum honest.
+        //
+        // The requested language always wins: we only add keys it doesn't already
+        // resolve. The `ICU.<key>` / `<key>` pair counts as one key for that test —
+        // backfilling `ICU.FOO` from English when the requested language only ships
+        // the flat `FOO` would shadow a real translation, because the client checks
+        // ICU first.
+        if ($lang !== self::FALLBACK_LANG) {
+            $base = $this->buildTranslationDictionary(self::FALLBACK_LANG);
+            foreach ($base as $key => $value) {
+                if (!is_string($key) || isset($translations[$key])) {
+                    continue;
                 }
+                $twin = str_starts_with($key, 'ICU.') ? substr($key, 4) : 'ICU.' . $key;
+                if (isset($translations[$twin])) {
+                    continue;
+                }
+                $translations[$key] = $value;
             }
         }
 
@@ -804,6 +806,56 @@ class SystemController extends AbstractApiController
      * so any lookup against it has to go through here when the input might
      * be region/script-qualified.
      */
+    /**
+     * Build the flat translation dictionary for a single language.
+     *
+     * Wraps core's `flattenByLang()` and applies the two filters admin2 relies on:
+     * disabled-plugin provenance stripping, and dropping flat `<key>` entries that
+     * an `ICU.<key>` already shadows. Both run per-language, before any cross-language
+     * merge, so each language is filtered against its own sources.
+     *
+     * @return array<string, string>
+     */
+    private function buildTranslationDictionary(string $lang): array
+    {
+        /** @var \Grav\Common\Config\Languages $languages */
+        $languages = $this->grav['languages'];
+
+        try {
+            $translations = $languages->flattenByLang($lang);
+        } catch (\Throwable) {
+            $translations = [];
+        }
+
+        if (!is_array($translations)) {
+            return [];
+        }
+
+        // Strip strings contributed only by disabled plugins. Grav core's
+        // `flattenByLang()` reads every plugin's lang yaml regardless of enabled
+        // state — fine for the legacy admin, broken for admin2: a disabled plugin
+        // would still influence what admin2 renders. The service walks each
+        // plugin's lang yaml to determine provenance and returns keys unique to
+        // disabled plugins. Keys also shipped by enabled sources stay.
+        $disabledIndex = new DisabledPluginLangIndex($this->grav);
+        foreach ($disabledIndex->disabledOnlyKeys($lang) as $key) {
+            unset($translations[$key]);
+        }
+
+        // Drop flat `<key>` entries when an `ICU.<key>` shadow exists. Admin2 ships
+        // the canonical PLUGIN_ADMIN.* vocabulary under ICU; if a 3rd-party plugin
+        // still using the Grav 1 flat convention is also installed, its values
+        // would otherwise leak into the dictionary served to the client. Keeping
+        // only the ICU side guarantees admin2 is the source of truth.
+        foreach (array_keys($translations) as $key) {
+            if (is_string($key) && !str_starts_with($key, 'ICU.') && isset($translations['ICU.' . $key])) {
+                unset($translations[$key]);
+            }
+        }
+
+        return $translations;
+    }
+
     private static function primarySubtag(string $code): string
     {
         return strtolower(explode('-', $code, 2)[0]);
