@@ -1,3 +1,10 @@
+# v1.0.12
+## 07/15/2026
+
+1. [](#bugfix)
+    * Blueprint option lists that come from a theme or plugin now resolve against the same approved-provider list Grav core uses, and a theme or plugin can register its own provider.
+    * Invalid input to the option-resolving and backup endpoints now returns a proper validation error instead of a server error.
+
 # v1.0.11
 ## 07/13/2026
 

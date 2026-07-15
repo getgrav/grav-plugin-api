@@ -21,19 +21,11 @@ class BlueprintController extends AbstractApiController
     use TranslatesAdminLabels;
 
     /**
-     * Whitelist of callable patterns allowed by the resolve endpoint.
-     * Only static methods from known Grav namespaces are permitted.
-     */
-    private const RESOLVE_ALLOWED_NAMESPACES = [
-        'Grav\\Common\\',
-        'Grav\\Plugin\\',
-    ];
-
-    /**
      * GET /data/resolve?callable=\Grav\Common\Page\Pages::pageTypes
      *
      * Generic endpoint for resolving data-options@ directives used in blueprints.
-     * Returns the array result of calling a whitelisted static PHP method.
+     * Returns the array result of calling one of core's approved dynamic-data
+     * providers ({@see Blueprint::isSafeDynamicCall()}).
      * Client should cache responses — these are effectively static data.
      */
     public function resolveData(ServerRequestInterface $request): ResponseInterface
@@ -44,30 +36,45 @@ class BlueprintController extends AbstractApiController
         $callable = $query['callable'] ?? null;
 
         if (!$callable || !is_string($callable)) {
-            throw new ValidationException(['callable' => ['The callable query parameter is required.']]);
+            throw new ValidationException(
+                'The callable query parameter is required.',
+                [['field' => 'callable', 'message' => "A 'callable' query parameter is required."]],
+            );
         }
 
         $callable = ltrim($callable, '\\');
 
-        // Validate against whitelist
-        $allowed = false;
-        foreach (self::RESOLVE_ALLOWED_NAMESPACES as $ns) {
-            if (str_starts_with($callable, $ns)) {
-                $allowed = true;
-                break;
-            }
+        // Format check runs BEFORE the safety gate below: isSafeDynamicCall()
+        // only consults its allowlist for strings containing `::`, and falls
+        // back to a bare-function *denylist* otherwise — so a plain function
+        // name would pass the gate. Rejecting non-`Class::method` input up
+        // front keeps that branch unreachable from here.
+        if (!str_contains($callable, '::')) {
+            throw new ValidationException(
+                "Callable '{$callable}' must be in Class::method format.",
+                [['field' => 'callable', 'message' => 'Callable must be in Class::method format.']],
+            );
         }
-        if (!$allowed) {
-            throw new ValidationException(['callable' => ['Callable is not in the allowed namespace list.']]);
+
+        // Defer to core's approved dynamic-data provider allowlist rather than
+        // testing a namespace prefix. Prefix-trust accepted ANY public no-arg
+        // static under Grav\Common\ / Grav\Plugin\ — broader than core, which
+        // switched to an exact-match allowlist for GHSA-7pgq-cr25-xvc8 /
+        // GHSA-cxv3-5jj3-cpgr (Grav 2.0.11). That gap let this read-only
+        // endpoint reach side-effecting statics that its own `api.pages.read`
+        // permission was never meant to cover. Delegating keeps the two lists
+        // from drifting again, and lets a theme or plugin opt its own provider
+        // in via Blueprint::addAllowedDynamicCallable().
+        if (!Blueprint::isSafeDynamicCall($callable, [])) {
+            throw new ValidationException(
+                "Callable '{$callable}' is not an approved data provider.",
+                [['field' => 'callable', 'message' => 'Callable is not an approved data provider.']],
+            );
         }
 
         // Ensure Pages subsystem for Page-related callables
         if (str_contains($callable, 'Page')) {
             $this->ensurePagesEnabled();
-        }
-
-        if (!str_contains($callable, '::')) {
-            throw new ValidationException(['callable' => ['Callable must be in Class::method format.']]);
         }
 
         [$class, $method] = explode('::', $callable, 2);
