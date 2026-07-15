@@ -1069,6 +1069,21 @@ class BlueprintController extends AbstractApiController
 
             // Parse Class::method format
             if (str_contains($callable, '::')) {
+                // The same gate core applies in Blueprint::dynamicData(). Core
+                // refuses a provider that isn't on the allowlist, and resolving it
+                // here anyway would silently override that refusal and repopulate
+                // the options core declined to build. The directive reaches us from
+                // an on-disk blueprint rather than a query parameter, so this is not
+                // the page-edit vector core hardened, but leaving it ungated keeps
+                // this path more permissive than both core and /data/resolve, and
+                // turns it into an arbitrary-static-call sink the moment a
+                // user-influenced blueprint is routed through the serializer.
+                // Providers opt in via Blueprint::addAllowedDynamicCallable().
+                // (GHSA-7pgq-cr25-xvc8, GHSA-cxv3-5jj3-cpgr)
+                if (!Blueprint::isSafeDynamicCall($callable, [])) {
+                    return null;
+                }
+
                 [$class, $method] = explode('::', $callable, 2);
                 $class = '\\' . $class;
 
