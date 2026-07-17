@@ -343,6 +343,40 @@ class PagesController extends AbstractApiController
     }
 
     /**
+     * Structural route of a page's parent, resolved from the real hierarchy.
+     *
+     * Never derive a parent by string-splitting the public route(): when
+     * `system.home.hide_in_urls` is on, a child of the home page has its
+     * home segment stripped from route() (e.g. '/child' instead of
+     * '/home/child'), so routeParent(route()) collapses to '/', which the
+     * move/copy/reorganize code then treats as the pages filesystem root —
+     * physically relocating the page out of home (getgrav/grav-plugin-admin2#132).
+     * The parent's rawRoute() carries the real structural segment ('/home'),
+     * and a genuine top-level page reports '/' because its parent is the
+     * pages-root. Mirrors the hierarchy-based logic in {@see isDirectChildOf()}.
+     *
+     * Falls back to string-splitting the public route only for objects with no
+     * materialized parent pointer (e.g. test doubles); real pages always carry
+     * one, so the hidden-home fix always takes the hierarchy path in practice.
+     */
+    private static function structuralParentRoute(object $page): string
+    {
+        if (method_exists($page, 'parent')) {
+            $parent = $page->parent();
+            if ($parent !== null) {
+                if (method_exists($parent, 'root') && $parent->root()) {
+                    return '/';
+                }
+                if (method_exists($parent, 'rawRoute') && $parent->rawRoute()) {
+                    return $parent->rawRoute();
+                }
+            }
+        }
+
+        return self::routeParent($page->route());
+    }
+
+    /**
      * POST /pages - Create a new page.
      */
     public function create(ServerRequestInterface $request): ResponseInterface
@@ -1647,7 +1681,7 @@ class PagesController extends AbstractApiController
                 throw new ValidationException("Page not found at route: {$route}");
             }
 
-            $currentParentRoute = self::routeParent($page->route());
+            $currentParentRoute = self::structuralParentRoute($page);
             $affectedParentRoutes[$currentParentRoute] = true;
 
             // Resolve destination parent
@@ -1822,8 +1856,12 @@ class PagesController extends AbstractApiController
         // --- Phase 4: Build response with all affected pages ---
         $affectedData = [];
         foreach (array_keys($affectedParentRoutes) as $parentRoute) {
+            // '/' means the pages-root (genuine top-level pages), NOT the home
+            // page — find('/') resolves to home when it's the default route, so
+            // reporting its children would list home's children instead of the
+            // real top-level set (getgrav/grav-plugin-admin2#132).
             $parent = $parentRoute === '/'
-                ? $this->grav['pages']->find('/')
+                ? $this->grav['pages']->root()
                 : $this->grav['pages']->find($parentRoute);
 
             if (!$parent) {
@@ -2211,7 +2249,7 @@ class PagesController extends AbstractApiController
      */
     private function batchCopy(PageInterface $page, array $options): void
     {
-        $destParent = $options['destination'] ?? self::routeParent($page->route());
+        $destParent = $options['destination'] ?? self::structuralParentRoute($page);
         $suffix = $options['suffix'] ?? '-copy';
         $destSlug = $page->slug() . $suffix;
 

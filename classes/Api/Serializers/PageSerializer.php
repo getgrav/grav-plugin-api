@@ -99,6 +99,17 @@ class PageSerializer implements SerializerInterface
             // public alias '/' but rawRoute() returns the actual page like
             // '/home'. Clients editing/finding pages should prefer this.
             'raw_route' => $resource->rawRoute(),
+            // Structural route of the parent, from the real hierarchy — '/'
+            // for a genuine top-level page (parent is the pages-root). Clients
+            // must use THIS (not a string-split of the public route) when
+            // moving/reparenting: under home.hide_in_urls a home child's public
+            // route has the home segment stripped, so guessing the parent from
+            // it yields '/' and relocates the page to the site root
+            // (getgrav/grav-plugin-admin2#132).
+            'parent_route' => (static function () use ($resource): string {
+                $parent = $resource->parent();
+                return ($parent && !$parent->root()) ? $parent->rawRoute() : '/';
+            })(),
             'slug' => $resource->slug(),
             // The on-disk folder basename, including any numeric ordering
             // prefix (e.g. `01.consulting`). `slug` is the prefix-stripped
