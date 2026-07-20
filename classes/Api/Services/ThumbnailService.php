@@ -16,8 +16,8 @@ class ThumbnailService
         $this->maxSize = $maxSize;
         $this->quality = $quality;
 
-        if (!is_dir($this->cacheDir)) {
-            mkdir($this->cacheDir, 0755, true);
+        if (!is_dir($this->cacheDir) && !mkdir($this->cacheDir, 0755, true) && !is_dir($this->cacheDir)) {
+            throw new \RuntimeException(sprintf('Unable to create thumbnail cache directory "%s"', $this->cacheDir));
         }
     }
 

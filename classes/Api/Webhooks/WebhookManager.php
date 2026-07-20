@@ -130,8 +130,8 @@ class WebhookManager
     public function recordDelivery(string $webhookId, array $delivery): void
     {
         $dir = $this->deliveryPath . '/' . $webhookId;
-        if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
+        if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) {
+            throw new \RuntimeException(sprintf('Unable to create directory "%s"', $dir));
         }
 
         $file = $dir . '/' . $delivery['id'] . '.yaml';

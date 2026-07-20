@@ -576,7 +576,7 @@ class PreferencesResolver
             if ($userPath && $createDir) {
                 $userConfigDir = $userPath . '/config';
                 if (!is_dir($userConfigDir)) {
-                    mkdir($userConfigDir, 0775, true);
+                    @mkdir($userConfigDir, 0775, true);
                 }
             }
         }
