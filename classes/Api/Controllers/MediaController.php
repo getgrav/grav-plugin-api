@@ -320,6 +320,17 @@ class MediaController extends AbstractApiController
 
         $currentPath = $relativePath !== '' ? $mediaPath . '/' . $relativePath : $mediaPath;
 
+        // Is a metadata filter/sort query requested? (mirrors page media, #4210)
+        $hasMetaQuery = isset($queryParams['filter'])
+            || (isset($queryParams['sort']) && $queryParams['sort'] !== '');
+
+        // Search is a recursive filename scan; metadata filter/sort is a
+        // per-folder collection query. Combining them has no coherent meaning,
+        // so reject it rather than silently ignoring one (#4210).
+        if (!empty($queryParams['search']) && $hasMetaQuery) {
+            throw new ValidationException('search cannot be combined with filter or sort.');
+        }
+
         // Handle search mode
         if (!empty($queryParams['search'])) {
             return $this->handleMediaSearch($request, $mediaPath, $queryParams);
@@ -340,9 +351,44 @@ class MediaController extends AbstractApiController
         $result['files'] = $this->applySiteMediaOrder($result['files'], $currentPath);
         $pagination = $this->getPagination($request);
 
+        $files = $result['files'];
+
+        // Optional metadata filter/sort, bound to the configured schema and
+        // shared with page media (#4210). Only build a real Media collection
+        // when a query is actually requested: constructing Media can trigger an
+        // EXIF `.meta.yaml` auto-write on GET when `system.media.auto_metadata_exif`
+        // is on, so the plain scan path above must stay side-effect-free.
+        if ($hasMetaQuery) {
+            $media = new \Grav\Common\Page\Media($currentPath);
+            // Throws ValidationException on too many clauses / unknown sort
+            // field — let it propagate, matching page media.
+            $collection = $this->applyMediaQuery($media, $request);
+
+            // The collection is keyed by filename ("<basename>.<ext>"), the same
+            // names scanMediaDirectoryWithFolders() produces, so its keys map
+            // straight back onto the scanned list.
+            $queried = [];
+            foreach ($collection as $name => $medium) {
+                $queried[] = is_string($name) && $name !== ''
+                    ? $name
+                    : ($medium->get('filename') ?: basename((string) $medium->path()));
+            }
+
+            if (isset($queryParams['sort']) && $queryParams['sort'] !== '') {
+                // A sort overrides the manual-order sidecar: the collection's
+                // order wins.
+                $files = $queried;
+            } else {
+                // Filter-only: keep the folder's manual order but drop anything
+                // the collection filtered out. Files that don't resolve as media
+                // simply won't appear — acceptable per #4210.
+                $keep = array_flip($queried);
+                $files = array_values(array_filter($files, static fn(string $f) => isset($keep[$f])));
+            }
+        }
+
         // Apply type filter
         $typeFilter = $queryParams['type'] ?? null;
-        $files = $result['files'];
         if ($typeFilter) {
             $files = array_values(array_filter($files, function (string $file) use ($currentPath, $typeFilter) {
                 $mime = mime_content_type($currentPath . '/' . $file) ?: '';
@@ -1226,9 +1272,12 @@ class MediaController extends AbstractApiController
     }
 
     /**
-     * Apply the optional metadata filter/sort query params to a page's media
+     * Apply the optional metadata filter/sort query params to a media
      * collection, returning the (possibly filtered/sorted) collection to
      * serialize. With no query params this is a no-op returning `$media->all()`.
+     * Shared by page media (`GET /pages/{route}/media`) and site media
+     * (`GET /media`); the parameter is typed to the `AbstractMedia` base both
+     * `Page\Media` and `GlobalMedia` extend.
      *
      * The filterable/sortable surface is bound to the configured
      * `media_metadata.fields` schema (via {@see getMetadataFieldDefs()}): only
@@ -1242,9 +1291,10 @@ class MediaController extends AbstractApiController
      *    `filter[]=…`). Operators: {@see AbstractMedia::META_OPERATORS}.
      *  - `sort=field` with `order=asc|desc` (`dir=` accepted as an alias).
      *
+     * @param \Grav\Common\Page\Medium\AbstractMedia $media
      * @return iterable<\Grav\Common\Media\Interfaces\MediaObjectInterface>
      */
-    private function applyMediaQuery(\Grav\Common\Page\Media $media, ServerRequestInterface $request): iterable
+    private function applyMediaQuery(\Grav\Common\Page\Medium\AbstractMedia $media, ServerRequestInterface $request): iterable
     {
         // Guard against a core older than the one that shipped the query
         // methods; degrade to the full unfiltered listing rather than error.
