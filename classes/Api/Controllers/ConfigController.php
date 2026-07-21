@@ -211,8 +211,8 @@ class ConfigController extends AbstractApiController
                 }
             } else {
                 $dir = dirname($filePath);
-                if (!is_dir($dir)) {
-                    mkdir($dir, 0775, true);
+                if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
+                    throw new \RuntimeException(sprintf('Unable to create directory "%s"', $dir));
                 }
                 file_put_contents($filePath, Yaml::dump($delta));
             }
@@ -601,8 +601,8 @@ class ConfigController extends AbstractApiController
         // write dir. We never create env roots — those must be opted into
         // explicitly via POST /system/environments.
         $dir = dirname($filePath);
-        if (!is_dir($dir)) {
-            mkdir($dir, 0775, true);
+        if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
+            throw new \RuntimeException(sprintf('Unable to create directory "%s"', $dir));
         }
 
         file_put_contents($filePath, Yaml::dump($delta));

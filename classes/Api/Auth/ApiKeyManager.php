@@ -253,8 +253,8 @@ class ApiKeyManager
         $file = $this->getKeysFile();
         $dir = dirname($file);
 
-        if (!is_dir($dir)) {
-            mkdir($dir, 0775, true);
+        if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
+            throw new \RuntimeException(sprintf('Unable to create directory "%s"', $dir));
         }
 
         // Write atomically

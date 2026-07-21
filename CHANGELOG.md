@@ -1,3 +1,16 @@
+# v1.0.12
+## 07/20/2026
+
+1. [](#new)
+    * The site media listing can now filter and sort by the same metadata fields as page media, for example `GET /media?filter=rating:>=:3&sort=rating&order=desc` ([getgrav/grav#4210](https://github.com/getgrav/grav/issues/4210)).
+1. [](#improved)
+    * Translations now fall back to English for any string a language has not translated yet, instead of showing a mangled version of the key name ([getgrav/grav-plugin-admin2#129](https://github.com/getgrav/grav-plugin-admin2/issues/129)).
+1. [](#bugfix)
+    * Blueprint option lists that come from a theme or plugin now resolve against the same approved-provider list Grav core uses, and a theme or plugin can register its own provider.
+    * Invalid input to the option-resolving and backup endpoints now returns a proper validation error instead of a server error.
+    * Reordering or copying a page beneath a Home page that is hidden from URLs now uses its real folder location, so the page is no longer moved out to the site root ([getgrav/grav-plugin-admin2#132](https://github.com/getgrav/grav-plugin-admin2/issues/132)).
+    * Concurrent dashboard requests no longer occasionally fail with a "mkdir(): File already exists" error when several of them create the same cache folder at once ([#18](https://github.com/getgrav/grav-plugin-api/issues/18)).
+
 # v1.0.11
 ## 07/13/2026
 

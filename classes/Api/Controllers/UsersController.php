@@ -1126,8 +1126,8 @@ class UsersController extends AbstractApiController
         // Save to account://avatars/
         $locator = $this->grav['locator'];
         $avatarDir = $locator->findResource('account://', true) . '/avatars';
-        if (!is_dir($avatarDir)) {
-            mkdir($avatarDir, 0755, true);
+        if (!is_dir($avatarDir) && !mkdir($avatarDir, 0755, true) && !is_dir($avatarDir)) {
+            throw new \RuntimeException(sprintf('Unable to create avatar directory "%s"', $avatarDir));
         }
 
         $filename = $username . '-' . substr(md5((string) time()), 0, 8) . '.' . $ext;
