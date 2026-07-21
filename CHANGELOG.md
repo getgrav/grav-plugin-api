@@ -1,3 +1,9 @@
+# v1.0.13
+## 07/20/2026
+
+1. [](#bugfix)
+    * [security] A scoped API key created on a super-admin account is now held to its declared scopes when writing groups, account settings, site preferences, and the shared dashboard layout, so a limited or read-only key can no longer be used to grant itself or others super-admin access ([GHSA-jqgq-v53x-x99g](https://github.com/getgrav/grav-plugin-api/security/advisories/GHSA-jqgq-v53x-x99g)).
+
 # v1.0.12
 ## 07/20/2026
 

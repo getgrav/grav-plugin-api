@@ -313,12 +313,10 @@ class GroupsController extends AbstractApiController
      */
     private function requireSuperOrAdmin(ServerRequestInterface $request): void
     {
-        $user = $this->getUser($request);
-        if ($this->isSuperAdmin($user)) {
-            return;
-        }
-        // Fall through to permission check so the error response carries the
-        // standard "missing permission" shape rather than a bare forbidden.
-        $this->requirePermission($request, 'admin.super');
+        // requireSuper() runs the API-key scope cap before the super short-circuit,
+        // so a scoped key minted on a super account cannot write groups it wasn't
+        // scoped for (GHSA-jqgq-v53x-x99g). Do NOT replace this with a bare
+        // isSuperAdmin() early-return — that skips the cap.
+        $this->requireSuper($request);
     }
 }

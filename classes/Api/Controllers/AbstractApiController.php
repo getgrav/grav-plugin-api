@@ -96,6 +96,22 @@ abstract class AbstractApiController
     }
 
     /**
+     * Require super-admin for a privileged write, with the API-key scope cap applied.
+     *
+     * Prefer this over a bare `isSuperAdmin()` check on super-only endpoints. A
+     * bare check reads the authenticated user's super flag directly, so a scoped
+     * key minted on a super-admin account passes it and reaches the sink without
+     * the `api_key_scopes` cap ever running (GHSA-jqgq-v53x-x99g). Routing through
+     * requirePermission() enforces the cap first: an unscoped credential (session,
+     * JWT, or unscoped key) on a super account still passes, but a scoped key must
+     * carry `admin.super` (or `*`) in its scopes or it is rejected here.
+     */
+    protected function requireSuper(ServerRequestInterface $request): void
+    {
+        $this->requirePermission($request, 'admin.super');
+    }
+
+    /**
      * Whether a non-empty API-key scope list grants the requested permission.
      *
      * A scope grants its own permission and everything beneath it — scope
