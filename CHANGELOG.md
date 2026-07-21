@@ -1,5 +1,5 @@
 # v1.0.12
-## 07/17/2026
+## 07/20/2026
 
 1. [](#new)
     * The site media listing can now filter and sort by the same metadata fields as page media, for example `GET /media?filter=rating:>=:3&sort=rating&order=desc` ([getgrav/grav#4210](https://github.com/getgrav/grav/issues/4210)).
