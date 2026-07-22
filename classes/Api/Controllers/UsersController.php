@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Grav\Plugin\Api\Controllers;
 
+use Grav\Common\Data\Blueprint;
 use Grav\Common\User\Authentication;
 use Grav\Common\User\DataUser\User as DataUser;
 use Grav\Common\User\Interfaces\UserCollectionInterface;
@@ -48,6 +49,34 @@ class UsersController extends AbstractApiController
 
     /** Cap on the toast message a row-action handler may return. */
     private const ROW_ACTION_MESSAGE_MAX_LEN = 512;
+
+    /**
+     * Account fields create()/update() apply explicitly (each with its own
+     * privilege gate) or that are internally managed. The custom-field sweep
+     * skips these so it can't bypass a gate or clobber server-managed state;
+     * every other field the account blueprint declares is fair game so a
+     * site's own account fields persist (admin2#138).
+     */
+    private const RESERVED_ACCOUNT_FIELDS = [
+        // Applied explicitly, with permission gating, in create()/update().
+        'email', 'fullname', 'title', 'language', 'content_editor', 'twofa_enabled',
+        'state', 'access', 'groups',
+        // Credentials / identity — never mass-assigned through the sweep.
+        'password', 'hashed_password', 'username',
+        // Server-managed bookkeeping.
+        'authenticated', 'authorized', 'created', 'modified', 'api_tokens_valid_after',
+    ];
+
+    /**
+     * Blueprint field types the custom-field sweep never persists: layout /
+     * display containers, and inputs with dedicated handling (file avatars,
+     * 2FA secrets, the permissions matrix).
+     */
+    private const NON_DATA_FIELD_TYPES = [
+        'section', 'spacer', 'conditional', 'fieldset', 'tab', 'tabs',
+        'columns', 'column', 'userinfo', 'button', 'file', '2fa_secret',
+        'permissions', 'frontmatter', 'key',
+    ];
 
     private ?UserSerializer $serializer = null;
 
@@ -896,13 +925,17 @@ class UsersController extends AbstractApiController
             $user->set('groups', $body['groups']);
         }
 
+        // Persist any custom fields the site added by extending the account
+        // blueprint, the same as update() (admin2#138).
+        $this->applyCustomAccountFields($user, $body);
+
         // Allow plugins to modify the user before save
         $this->fireAdminEvent('onAdminSave', ['object' => &$user]);
 
         // Validate the submitted fields against the account blueprint before
         // writing to disk (admin2#30) — e.g. a password that fails the
         // configured pwd_regex, or a required field sent empty, now returns 422.
-        $this->validateChangedFields($body, method_exists($user, 'getBlueprint') ? $user->getBlueprint() : null);
+        $this->validateChangedFields($body, $this->accountBlueprint($user));
 
         $user->save();
 
@@ -1005,6 +1038,11 @@ class UsersController extends AbstractApiController
             }
         }
 
+        // Persist any custom fields the site added by extending the account
+        // blueprint. The built-in fields above keep their privilege gates;
+        // this only touches extra, non-reserved blueprint fields (admin2#138).
+        $this->applyCustomAccountFields($user, $body);
+
         // Hash password if provided
         $passwordChanged = isset($body['password']) && $body['password'] !== '';
         if ($passwordChanged) {
@@ -1030,7 +1068,7 @@ class UsersController extends AbstractApiController
 
         // Validate the submitted fields against the account blueprint before
         // writing to disk (admin2#30).
-        $this->validateChangedFields($body, method_exists($user, 'getBlueprint') ? $user->getBlueprint() : null);
+        $this->validateChangedFields($body, $this->accountBlueprint($user));
 
         $user->save();
 
@@ -1500,6 +1538,73 @@ class UsersController extends AbstractApiController
     private function serializeUser(UserInterface $user): array
     {
         return $this->getSerializer()->serialize($user);
+    }
+
+    /**
+     * Resolve the account blueprint for a user regardless of the accounts
+     * backend. Flex accounts expose getBlueprint(); classic DataUser accounts
+     * expose blueprints(). Both resolve `user/account`, so a site extension at
+     * user/blueprints/user/account.yaml is already merged in — which is what
+     * lets custom account fields validate and persist (admin2#138). Returns
+     * null only for an exotic user type that offers neither.
+     */
+    private function accountBlueprint(UserInterface $user): ?Blueprint
+    {
+        if (method_exists($user, 'getBlueprint')) {
+            $blueprint = $user->getBlueprint();
+            return $blueprint instanceof Blueprint ? $blueprint : null;
+        }
+        if (method_exists($user, 'blueprints')) {
+            $blueprint = $user->blueprints();
+            return $blueprint instanceof Blueprint ? $blueprint : null;
+        }
+        return null;
+    }
+
+    /**
+     * Persist the site's custom account fields from the request body.
+     *
+     * The account blueprint's built-in fields are applied explicitly by
+     * create()/update() so their privilege gates stay in force. A site can
+     * also extend the account blueprint (user/blueprints/user/account.yaml)
+     * with its own fields; those were previously dropped on save (admin2#138).
+     * We walk the submitted body and set any key the (extended) account
+     * blueprint declares as an editable input, skipping reserved/privileged
+     * fields, display/container types, and anything a `security@` gate has
+     * marked off-limits for the current caller. Keys the blueprint doesn't
+     * define are ignored, so this can't mass-assign internal account state.
+     */
+    private function applyCustomAccountFields(UserInterface $user, array $body): void
+    {
+        $blueprint = $this->accountBlueprint($user);
+        if ($blueprint === null) {
+            return;
+        }
+        $schema = $blueprint->schema();
+
+        foreach ($body as $field => $value) {
+            if (!is_string($field) || in_array($field, self::RESERVED_ACCOUNT_FIELDS, true)) {
+                continue;
+            }
+
+            $property = $schema->getProperty($field);
+            if (!is_array($property) || !isset($property['type'])) {
+                // Not a field the account blueprint declares — ignore it so an
+                // invented key can't reach $user->set().
+                continue;
+            }
+            if (in_array($property['type'], self::NON_DATA_FIELD_TYPES, true)) {
+                continue;
+            }
+            // A `security@` gate the current caller fails resolves to
+            // validate.ignore=true; respect it so a self-editor can't write an
+            // admin-only custom field.
+            if (!empty($property['validate']['ignore'])) {
+                continue;
+            }
+
+            $user->set($field, $value);
+        }
     }
 
     /**

@@ -186,14 +186,16 @@ final class TestHelper
         string $username = 'testuser',
         array $data = [],
         bool $exists = true,
+        ?object $blueprint = null,
     ): UserInterface {
-        return new class ($username, $data, $exists) implements UserInterface {
+        return new class ($username, $data, $exists, $blueprint) implements UserInterface {
             public readonly string $username;
 
             public function __construct(
                 string $username,
                 private array $data,
                 private readonly bool $existsFlag,
+                private readonly ?object $blueprint = null,
             ) {
                 $this->username = $username;
             }
@@ -221,6 +223,18 @@ final class TestHelper
             public function getAvatarImage(): ?object
             {
                 return null;
+            }
+
+            /**
+             * Classic (DataUser) accounts expose the account blueprint via
+             * blueprints(); UsersController::accountBlueprint() reads it to
+             * apply and validate custom account fields (admin2#138). Returns
+             * null unless a test injects one, keeping every other test's mock
+             * blueprint-less exactly as before.
+             */
+            public function blueprints(): ?object
+            {
+                return $this->blueprint;
             }
         };
     }

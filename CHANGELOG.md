@@ -3,6 +3,7 @@
 
 1. [](#bugfix)
     * [security] A scoped API key created on a super-admin account is now held to its declared scopes when writing groups, account settings, site preferences, and the shared dashboard layout, so a limited or read-only key can no longer be used to grant itself or others super-admin access ([GHSA-jqgq-v53x-x99g](https://github.com/getgrav/grav-plugin-api/security/advisories/GHSA-jqgq-v53x-x99g)).
+    * Custom fields added to the account form by extending the account blueprint are now saved instead of being silently dropped ([getgrav/grav-plugin-admin2#138](https://github.com/getgrav/grav-plugin-admin2/issues/138)).
 
 # v1.0.12
 ## 07/20/2026
