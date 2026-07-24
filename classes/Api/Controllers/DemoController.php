@@ -75,18 +75,9 @@ class DemoController extends AbstractApiController
         return new DemoManager($this->grav, $this->config);
     }
 
-    /**
-     * Baseline/reset are engine administration, gated on API super authority
-     * (access.api.super) — the same authority tier the rest of the plugin uses
-     * for privileged operations.
-     */
-    private function requireSuper(ServerRequestInterface $request): void
-    {
-        $user = $this->getUser($request);
-        if ($this->isSuperAdmin($user)) {
-            return;
-        }
-        // Fall through so the response carries the standard missing-permission shape.
-        $this->requirePermission($request, 'api.super');
-    }
+    // Baseline/reset call requireSuper() inherited from AbstractApiController,
+    // which runs the API-key scope cap before the super check. A previous local
+    // override here checked isSuperAdmin() first and so let a scoped key on a
+    // super account past the cap (GHSA-vq9w-jwj5-wfjg); it also checked the wrong
+    // permission string. Removing it restores the shared, cap-first behavior.
 }

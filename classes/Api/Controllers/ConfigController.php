@@ -517,8 +517,12 @@ class ConfigController extends AbstractApiController
      */
     private function assertScopeAllowed(ServerRequestInterface $request, ?string $scope): void
     {
+        // isSuperWithinScope() applies the API-key scope cap before the super
+        // check, so a key scoped below super on a super account cannot reach these
+        // tool-managed scopes (scheduler config → command execution). See
+        // GHSA-2x29-3mjq-2pvx; a bare isSuperAdmin() skipped the cap.
         if ($scope !== null && in_array($scope, self::PRIVILEGED_SCOPES, true)
-            && !$this->isSuperAdmin($this->getUser($request))) {
+            && !$this->isSuperWithinScope($request)) {
             throw new ForbiddenException(
                 "Configuration scope '{$scope}' is tool-managed and restricted to API super users."
             );
@@ -543,7 +547,7 @@ class ConfigController extends AbstractApiController
             && in_array(substr($scope, 8), self::SUPER_WRITE_PLUGIN_SCOPES, true);
 
         if ((in_array($scope, self::SUPER_WRITE_SCOPES, true) || $isSuperWritePlugin)
-            && !$this->isSuperAdmin($this->getUser($request))) {
+            && !$this->isSuperWithinScope($request)) {
             throw new ForbiddenException(
                 "Configuration scope '{$scope}' can only be modified by an API super user."
             );

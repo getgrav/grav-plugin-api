@@ -913,15 +913,18 @@ class UsersController extends AbstractApiController
         if (isset($body['access'])) {
             // A non-super creator must not mint a super-admin account — granting
             // super is a tier the caller does not hold. See GHSA-p97c-g455-q447.
-            if (!$this->isSuperAdmin($this->getUser($request)) && $this->accessGrantsSuper($body['access'])) {
+            // isSuperWithinScope() also rejects a scoped key on a super account,
+            // which a bare isSuperAdmin() would have let through (GHSA-jrm3-jpp7-3gmx).
+            if (!$this->isSuperWithinScope($request) && $this->accessGrantsSuper($body['access'])) {
                 throw new ForbiddenException('Granting super-admin access requires super-admin privileges.');
             }
             $user->set('access', $body['access']);
         }
 
         // `groups` is super-admin-only (see update()): group membership can grant
-        // access, so a non-super creator must not seed group assignments.
-        if (isset($body['groups']) && $this->isSuperAdmin($this->getUser($request))) {
+        // access, so a non-super creator must not seed group assignments. Gated on
+        // the scope cap too, so a scoped key on a super account cannot (GHSA-jrm3).
+        if (isset($body['groups']) && $this->isSuperWithinScope($request)) {
             $user->set('groups', $body['groups']);
         }
 
@@ -973,7 +976,12 @@ class UsersController extends AbstractApiController
         // which sits outside the per-field permission gate) and seize the instance.
         // The target check covers both super flags (admin.super and api.super): a
         // classic admin.super account may not carry api.super. See GHSA-p97c-g455-q447.
-        $isSuper = $this->isSuperAdmin($currentUser);
+        //
+        // Resolved through the scope cap (GHSA-jrm3-jpp7-3gmx): a key scoped below
+        // super on a super account is treated as non-super here, so it cannot edit
+        // super-admin targets, assign groups, or grant super via `access`. An
+        // unscoped super credential (session, JWT, unscoped key) is unaffected.
+        $isSuper = $this->isSuperWithinScope($request);
         if (!$isSuper && $this->accessGrantsSuper($user->get('access'))) {
             throw new ForbiddenException('Only super-admins can modify super-admin accounts.');
         }
@@ -1342,7 +1350,12 @@ class UsersController extends AbstractApiController
 
         $currentUser = $this->getUser($request);
         $isSelf = $currentUser->username === $username;
-        $isAdmin = $this->isSuperAdmin($currentUser) || $this->hasPermission($currentUser, 'api.users.write');
+        // The admin/force-disable authority is gated on the API-key scope cap too
+        // (GHSA-22p9-6fh4-mmf2): a key that does not carry api.users.write in its
+        // scopes is not treated as admin here, so it cannot force-remove another
+        // user's 2FA even when its owning account holds the permission.
+        $isAdmin = $this->scopeAllows($request, 'api.users.write')
+            && ($this->isSuperAdmin($currentUser) || $this->hasPermission($currentUser, 'api.users.write'));
 
         if (!$isSelf && !$isAdmin) {
             throw new ForbiddenException('You do not have permission to disable 2FA for this user.');
@@ -1406,6 +1419,28 @@ class UsersController extends AbstractApiController
         $name = $body['name'] ?? '';
         $scopes = $body['scopes'] ?? [];
         $expiryDays = isset($body['expiry_days']) ? (int) $body['expiry_days'] : null;
+
+        // GHSA-95v9-4fcj-96gh: a new key must not exceed the caller's own
+        // authority. A scoped caller (non-empty api_key_scopes) may only mint a
+        // key whose scopes are a subset of its own, and must NOT mint an unscoped
+        // (full-access) key — otherwise a deliberately-restricted key on a super
+        // account could self-mint an uncapped super key. An unscoped caller
+        // (session, JWT, or unscoped key) may still mint any scopes.
+        $callerScopes = $request->getAttribute('api_key_scopes');
+        if (is_array($callerScopes) && $callerScopes !== []) {
+            $requested = is_array($scopes)
+                ? array_values(array_filter($scopes, static fn($s) => is_string($s) && $s !== ''))
+                : [];
+            if ($requested === []) {
+                throw new ForbiddenException('A scoped API key cannot create an unscoped key.');
+            }
+            foreach ($requested as $scope) {
+                if (!$this->scopeAllows($request, $scope)) {
+                    throw new ForbiddenException("API key cannot grant a scope outside its own: {$scope}");
+                }
+            }
+            $scopes = $requested;
+        }
 
         $manager = new ApiKeyManager();
         $result = $manager->generateKey($user, $name, $scopes, $expiryDays);

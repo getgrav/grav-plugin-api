@@ -112,6 +112,37 @@ abstract class AbstractApiController
     }
 
     /**
+     * Non-throwing form of the API-key scope cap: whether the request's key is
+     * permitted to exercise $permission. An unscoped credential (session, JWT, or
+     * unscoped key) always returns true; a scoped key must carry the permission
+     * (or a parent scope, or `*`) in its scopes.
+     *
+     * Use this for SOFT gates that strip or branch rather than reject — e.g. a
+     * "may this caller grant super?" decision that must fall back to stripping the
+     * super flag for a legitimate non-super, instead of throwing. A bare
+     * isSuperAdmin() on such a gate skips the cap (GHSA-jqgq-v53x-x99g class).
+     */
+    protected function scopeAllows(ServerRequestInterface $request, string $permission): bool
+    {
+        $scopes = $request->getAttribute('api_key_scopes');
+
+        return !is_array($scopes) || $scopes === [] || $this->scopesPermit($scopes, $permission);
+    }
+
+    /**
+     * Whether the caller is a super-admin AND the API-key scope cap permits super
+     * authority. Equivalent to isSuperAdmin() but honoring the scope cap, so a
+     * scoped key minted on a super account returns false unless it carries
+     * `admin.super` (or `*`). Use where the code needs super-ness as a boolean to
+     * assemble a response rather than to hard-gate (which is requireSuper()).
+     */
+    protected function isSuperWithinScope(ServerRequestInterface $request): bool
+    {
+        return $this->isSuperAdmin($this->getUser($request))
+            && $this->scopeAllows($request, 'admin.super');
+    }
+
+    /**
      * Whether a non-empty API-key scope list grants the requested permission.
      *
      * A scope grants its own permission and everything beneath it — scope
