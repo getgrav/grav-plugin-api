@@ -99,10 +99,8 @@ class AccountsConfigController extends AbstractApiController
 
     private function requireSuperOrAdmin(ServerRequestInterface $request): void
     {
-        $user = $this->getUser($request);
-        if ($this->isSuperAdmin($user)) {
-            return;
-        }
-        $this->requirePermission($request, 'admin.super');
+        // Scope cap must run before the super short-circuit, or a scoped key on a
+        // super account rewrites accounts config uncapped (GHSA-jqgq-v53x-x99g).
+        $this->requireSuper($request);
     }
 }

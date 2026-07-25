@@ -7,7 +7,6 @@ namespace Grav\Plugin\Api\Controllers;
 use Grav\Common\Helpers\YamlLinter;
 use Grav\Common\Page\Pages;
 use Grav\Common\Security;
-use Grav\Plugin\Api\Exceptions\ForbiddenException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Psr\Http\Message\ResponseInterface;
@@ -238,10 +237,11 @@ class ReportsController extends AbstractApiController
      */
     public function allowlistAdd(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, 'api.config.write');
-        if (!$this->isSuperAdmin($this->getUser($request))) {
-            throw new ForbiddenException('The Twig sandbox allowlist can only be modified by an API super user.');
-        }
+        // requireSuper() runs the API-key scope cap before the super check, so a
+        // key scoped to api.config.write on a super account can no longer widen the
+        // Twig sandbox allowlist (an SSTI precursor). A bare isSuperAdmin() after
+        // the api.config.write check skipped the cap (GHSA-v5ph-7v92-wqm6).
+        $this->requireSuper($request);
 
         $body  = $this->getRequestBody($request);
         $rule  = is_string($body['rule'] ?? null) ? trim($body['rule']) : '';

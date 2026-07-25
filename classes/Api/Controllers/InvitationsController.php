@@ -91,8 +91,10 @@ class InvitationsController extends AbstractApiController
         // Permissions the invitee will receive. Strip super flags unless the
         // inviting admin is itself super — an admin cannot grant authority it
         // does not hold, and this is the core "can't make yourself super" gate.
+        // isSuperWithinScope() also rejects a scoped key on a super account, which
+        // a bare isSuperAdmin() would have let seed super access (GHSA-wvpj-fg8h-843q).
         $access = is_array($body['access'] ?? null) ? $body['access'] : [];
-        if (!$this->isSuperAdmin($actor)) {
+        if (!$this->isSuperWithinScope($request)) {
             $access = $this->stripSuperFlags($access);
         }
 
@@ -103,7 +105,7 @@ class InvitationsController extends AbstractApiController
         // api.users.write caller could invite an account straight into a
         // super-admin group (GHSA-m86m-jjcg-gcvv).
         $groups = [];
-        if ($this->isSuperAdmin($actor) && is_array($body['groups'] ?? null)) {
+        if ($this->isSuperWithinScope($request) && is_array($body['groups'] ?? null)) {
             $groups = array_values(array_filter(
                 $body['groups'],
                 static fn($g) => is_string($g) && $g !== '',

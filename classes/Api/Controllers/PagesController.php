@@ -14,7 +14,6 @@ use Grav\Common\Page\Page;
 use Grav\Common\Page\PageOrdering;
 use Grav\Common\Security;
 use Grav\Framework\Flex\FlexDirectory;
-use Grav\Common\User\Interfaces\UserInterface;
 use Grav\Plugin\Api\Exceptions\ApiException;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\TwigContentForbiddenException;
@@ -243,7 +242,7 @@ class PagesController extends AbstractApiController
             // governs writes also governs reading the full record. Returning
             // the editor view to a user who can't save it is misleading; let
             // Admin Next show the toast on the show() failure instead.
-            $this->guardTwigContent($page, [], $this->getUser($request));
+            $this->guardTwigContent($request, $page, []);
 
             $query = $request->getQueryParams();
             $summary = filter_var($query['summary'] ?? false, FILTER_VALIDATE_BOOLEAN);
@@ -464,7 +463,7 @@ class PagesController extends AbstractApiController
             // Enforce security.twig_content.* gate before any plugin event can
             // mutate the header — reject the create up-front if the request
             // wants process.twig:true and the user isn't allowed.
-            $this->guardTwigContent(null, $header, $this->getUser($request));
+            $this->guardTwigContent($request, null, $header);
 
             // Fire before event — plugins can modify $header/$content or throw to cancel
             $this->fireEvent('onApiBeforePageCreate', [
@@ -680,7 +679,7 @@ class PagesController extends AbstractApiController
             // and the existing page state, before any plugin event can mutate
             // either. Covers two cases: user tries to flip process.twig:true,
             // or user tries to edit a page that already has it on.
-            $this->guardTwigContent($page, (array) ($body['header'] ?? []), $this->getUser($request));
+            $this->guardTwigContent($request, $page, (array) ($body['header'] ?? []));
 
             // Fire before event — plugins can modify $body or throw to cancel
             $this->fireEvent('onApiBeforePageUpdate', ['page' => $page, 'data' => &$body]);
@@ -2617,8 +2616,9 @@ class PagesController extends AbstractApiController
      * `admin.pages` hierarchy so granting `admin.pages` does NOT implicitly
      * grant twig-toggle (the Flex ACL walks parent prefixes).
      */
-    private function guardTwigContent(?PageInterface $existingPage, array $incomingHeader, UserInterface $user): void
+    private function guardTwigContent(ServerRequestInterface $request, ?PageInterface $existingPage, array $incomingHeader): void
     {
+        $user = $this->getUser($request);
         $existingTwig = false;
         if ($existingPage !== null) {
             $existingHeader = $this->headerToArray($existingPage->header());
@@ -2647,7 +2647,12 @@ class PagesController extends AbstractApiController
             return;
         }
 
-        if ($this->isSuperAdmin($user) || $this->hasPermission($user, 'admin.pages_twig')) {
+        // The scope cap runs here too: a key scoped to api.pages.write on a super
+        // account must also carry admin.pages_twig in its scopes, otherwise the
+        // bare isSuperAdmin() branch would re-grant a capability the key was scoped
+        // out of and let it enable Twig-in-content (GHSA-96xv-p87j-58mx).
+        if ($this->scopeAllows($request, 'admin.pages_twig')
+            && ($this->isSuperAdmin($user) || $this->hasPermission($user, 'admin.pages_twig'))) {
             return;
         }
 

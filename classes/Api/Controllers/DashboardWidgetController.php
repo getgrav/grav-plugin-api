@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Grav\Plugin\Api\Controllers;
 
-use Grav\Plugin\Api\Exceptions\ForbiddenException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\PermissionResolver;
 use Grav\Plugin\Api\Response\ApiResponse;
@@ -63,10 +62,11 @@ class DashboardWidgetController extends AbstractApiController
      */
     public function saveSiteLayout(ServerRequestInterface $request): ResponseInterface
     {
+        // requireSuper() runs the API-key scope cap before the super check, so a
+        // scoped key on a super account can't rewrite the site-wide dashboard
+        // uncapped (GHSA-jqgq-v53x-x99g). A bare isSuperAdmin() check skips the cap.
+        $this->requireSuper($request);
         $user = $this->getUser($request);
-        if (!$this->isSuperAdmin($user)) {
-            throw new ForbiddenException('Only super-admins can edit the site dashboard layout.');
-        }
 
         $body = $this->getRequestBody($request);
         if (!is_array($body)) {
