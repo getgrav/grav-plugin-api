@@ -168,16 +168,26 @@ abstract class AbstractApiController
     }
 
     /**
-     * Check if user is an API super user via direct access array lookup.
+     * Check if user is an API super user.
      *
      * API authority is strictly scoped to access.api.super — admin.super
      * (admin-classic's legacy global super) is intentionally NOT honored
      * here. Grav 2.0 separates admin-classic and API/Admin-Next authority
      * so operators can grant one without implicitly granting the other.
+     *
+     * Resolved through the PermissionResolver so a grant from one of the user's
+     * groups counts, exactly like every other api.* permission (admin2#57). A
+     * direct `$user->get('access.api.super')` read only ever saw the account's
+     * own access map, so a group-based super admin — the normal setup for
+     * directory-backed logins such as login-ldap, whose access model is entirely
+     * group-driven — was silently demoted to their granular permissions.
+     *
+     * `resolveExact()` rather than `resolve()`: super must be granted
+     * deliberately and must not be inherited from a blanket parent `api` key.
      */
     protected function isSuperAdmin(UserInterface $user): bool
     {
-        return (bool) $user->get('access.api.super');
+        return $this->getPermissionResolver()->resolveExact($user, 'api.super') === true;
     }
 
     /**

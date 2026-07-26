@@ -123,7 +123,7 @@ class PagesControllerReorganizeTest extends TestCase
         // access.admin.super is intentionally NOT honored by the API — see
         // AbstractApiController::isSuperAdmin()).
         $superAdmin = TestHelper::createMockUser('admin', [
-            'access.api.super' => true,
+            'access' => ['api' => ['super' => true]],
         ]);
 
         return TestHelper::createMockRequest(

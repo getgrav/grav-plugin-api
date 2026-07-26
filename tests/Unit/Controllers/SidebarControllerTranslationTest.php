@@ -24,7 +24,7 @@ class SidebarControllerTranslationTest extends TestCase
         $user = $this->createMock(UserInterface::class);
         $user->method('get')->willReturnCallback(
             static fn($key, mixed $default = null) => match ($key) {
-                'access.api.super' => true,
+                'access' => ['api' => ['super' => true]],
                 'admin_next' => ['preferences' => ['adminLanguage' => 'en-US']],
                 default => $default,
             },
