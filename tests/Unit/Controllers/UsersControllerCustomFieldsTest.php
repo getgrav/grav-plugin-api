@@ -13,6 +13,7 @@ use Grav\Plugin\Api\Tests\Unit\TestHelper;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
@@ -23,7 +24,12 @@ use Psr\Http\Message\ServerRequestInterface;
  * update()/create() only applied a fixed whitelist of built-in fields. The fix
  * sweeps the request body for any field the (extended) account blueprint
  * declares and persists it, while still refusing reserved/privileged fields and
- * keys the blueprint doesn't define. These tests pin that behaviour.
+ * keys the blueprint doesn't define.
+ *
+ * The value then had to come back out again: the serializer emitted a fixed set
+ * of built-in fields, so a custom field saved fine but the admin form redrew it
+ * empty on the very next read. The same blueprint sweep now runs on the way out.
+ * These tests pin both halves of that round trip.
  */
 #[CoversClass(UsersController::class)]
 class UsersControllerCustomFieldsTest extends TestCase
@@ -176,6 +182,26 @@ class UsersControllerCustomFieldsTest extends TestCase
         );
     }
 
+    private function makeShowRequest(UserInterface $caller, string $targetUsername): ServerRequestInterface
+    {
+        return TestHelper::createMockRequest(
+            method: 'GET',
+            path: '/api/v1/users/' . $targetUsername,
+            attributes: [
+                'api_user'     => $caller,
+                'route_params' => ['username' => $targetUsername],
+            ],
+        );
+    }
+
+    /** @return array<string, mixed> */
+    private function decodeData(ResponseInterface $response): array
+    {
+        $body = json_decode((string) $response->getBody(), true);
+
+        return is_array($body['data'] ?? null) ? $body['data'] : [];
+    }
+
     #[Test]
     public function self_edit_persists_a_custom_blueprint_field(): void
     {
@@ -231,5 +257,58 @@ class UsersControllerCustomFieldsTest extends TestCase
 
         $this->assertSame('ok', $user->get('custom_field1'));
         $this->assertNull($user->get('hashed_password'), 'hashed_password must not be settable via the custom-field sweep.');
+    }
+
+    #[Test]
+    public function the_save_response_echoes_the_custom_field_back(): void
+    {
+        $user = TestHelper::createMockUser('user1', [
+            'access' => ['api' => ['access' => true]],
+            'email'  => 'user1@example.com',
+        ], true, $this->accountBlueprint());
+
+        $controller = $this->buildController($user);
+
+        $response = $controller->update($this->makeRequest($user, 'user1', [
+            'custom_field1' => 'hello world',
+        ]));
+
+        // Without this the admin form repopulates from the save response and
+        // blanks the field the user just filled in (admin2#138).
+        $this->assertSame('hello world', $this->decodeData($response)['custom_field1'] ?? null);
+    }
+
+    #[Test]
+    public function show_returns_a_stored_custom_field(): void
+    {
+        $user = TestHelper::createMockUser('user1', [
+            'access'        => ['api' => ['access' => true]],
+            'email'         => 'user1@example.com',
+            'custom_field1' => 'stored value',
+        ], true, $this->accountBlueprint());
+
+        $controller = $this->buildController($user);
+
+        $data = $this->decodeData($controller->show($this->makeShowRequest($user, 'user1')));
+
+        $this->assertSame('stored value', $data['custom_field1'] ?? null);
+    }
+
+    #[Test]
+    public function show_does_not_leak_reserved_account_fields(): void
+    {
+        $user = TestHelper::createMockUser('user1', [
+            'access'          => ['api' => ['access' => true]],
+            'email'           => 'user1@example.com',
+            'hashed_password' => 'super-secret-hash',
+            'custom_field1'   => 'stored value',
+        ], true, $this->accountBlueprint());
+
+        $controller = $this->buildController($user);
+
+        $data = $this->decodeData($controller->show($this->makeShowRequest($user, 'user1')));
+
+        $this->assertSame('stored value', $data['custom_field1'] ?? null);
+        $this->assertArrayNotHasKey('hashed_password', $data, 'The read sweep must never expose credentials.');
     }
 }

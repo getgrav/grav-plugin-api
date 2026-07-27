@@ -54,11 +54,9 @@ class EditorButtonsController extends AbstractApiController
         $user = $this->getUser($request);
         $event = new Event(['buttons' => [], 'user' => $user]);
         $this->grav->fireEvent('onApiMarkdownEditorButtons', $event);
-
-        $isSuperAdmin = $this->isSuperAdmin($user);
         $filtered = [];
         foreach ($event['buttons'] as $button) {
-            if (!$this->userPassesAuthorize($user, $button['authorize'] ?? null, $isSuperAdmin)) {
+            if (!$this->userPassesAuthorize($user, $button['authorize'] ?? null, $request)) {
                 continue;
             }
             // Strip the authorize field — it's a server-side annotation, not client data

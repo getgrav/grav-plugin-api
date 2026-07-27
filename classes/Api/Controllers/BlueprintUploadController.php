@@ -86,7 +86,12 @@ class BlueprintUploadController extends AbstractApiController
         }
         $this->resolver()->assertSafe($destination);
 
-        $targetDir = $this->resolver()->resolve($destination, $scope, $this->getUser($request));
+        $targetDir = $this->resolver()->resolve(
+            $destination,
+            $scope,
+            $this->getUser($request),
+            $this->mayWriteUsersScope($request)
+        );
         $this->guardConfigBearingTarget($targetDir);
 
         $files = $this->flattenUploadedFiles($request->getUploadedFiles());

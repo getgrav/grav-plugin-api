@@ -50,11 +50,9 @@ class FloatingWidgetController extends AbstractApiController
         $user = $this->getUser($request);
         $event = new Event(['widgets' => [], 'user' => $user]);
         $this->grav->fireEvent('onApiFloatingWidgets', $event);
-
-        $isSuperAdmin = $this->isSuperAdmin($user);
         $filtered = [];
         foreach ($event['widgets'] as $widget) {
-            if (!$this->userPassesAuthorize($user, $widget['authorize'] ?? null, $isSuperAdmin)) {
+            if (!$this->userPassesAuthorize($user, $widget['authorize'] ?? null, $request)) {
                 continue;
             }
             // Strip the authorize field — it's a server-side annotation, not client data

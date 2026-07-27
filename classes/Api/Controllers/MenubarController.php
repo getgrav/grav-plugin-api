@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Grav\Plugin\Api\Controllers;
 
+use Grav\Plugin\Api\Exceptions\ForbiddenException;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Psr\Http\Message\ResponseInterface;
@@ -61,11 +62,9 @@ class MenubarController extends AbstractApiController
         $user = $this->getUser($request);
         $event = new Event(['items' => [], 'user' => $user]);
         $this->grav->fireEvent('onApiMenubarItems', $event);
-
-        $isSuperAdmin = $this->isSuperAdmin($user);
         $filtered = [];
         foreach ($event['items'] as $item) {
-            if (!$this->userPassesAuthorize($user, $item['authorize'] ?? null, $isSuperAdmin)) {
+            if (!$this->userPassesAuthorize($user, $item['authorize'] ?? null, $request)) {
                 continue;
             }
             // Strip the authorize field — it's a server-side annotation, not client data
@@ -77,7 +76,9 @@ class MenubarController extends AbstractApiController
     }
 
     /**
-     * POST /menubar/actions/{plugin}/{action} — Execute a plugin action.
+     * POST /menubar/actions/{plugin}/{action} — Execute a plugin action, after
+     * confirming the caller satisfies the `authorize` the owning plugin declared
+     * on the matching menubar item.
      */
     public function executeAction(ServerRequestInterface $request): ResponseInterface
     {
@@ -85,6 +86,9 @@ class MenubarController extends AbstractApiController
 
         $plugin = $this->getRouteParam($request, 'plugin');
         $action = $this->getRouteParam($request, 'action');
+
+        $this->assertActionAuthorized($request, $plugin, $action);
+
         $body = $this->getRequestBody($request);
 
         $sentinel = "__no_handler_{$plugin}_{$action}__";
@@ -112,5 +116,40 @@ class MenubarController extends AbstractApiController
         }
 
         return ApiResponse::create($result, 200);
+    }
+
+    /**
+     * Enforce the `authorize` declared on the menubar item that owns this action.
+     *
+     * items() filtering an item out of the listing only hides the button. Without
+     * this check a caller who was never shown it could still run the action by
+     * POSTing straight to the route, which on a site running Git Sync, Rsync or
+     * Cloudflare means a deploy or a full CDN purge from an account holding
+     * nothing but `api.access` (GHSA-8mjx-xjfv-9c88).
+     *
+     * An action with no matching registered item declares no requirement, so it
+     * keeps the baseline `api.access` gate. Several first-party plugins register
+     * their handler unconditionally but their item conditionally (rsync only in
+     * server mode, seo-magic behind a quicktray toggle), and their admin-next
+     * field widgets call this route directly. Failing closed there would break
+     * them; those plugins are expected to gate inside their own handler.
+     */
+    private function assertActionAuthorized(ServerRequestInterface $request, string $plugin, string $action): void
+    {
+        $user = $this->getUser($request);
+        $event = new Event(['items' => [], 'user' => $user]);
+        $this->grav->fireEvent('onApiMenubarItems', $event);
+
+        foreach ($event['items'] as $item) {
+            if (($item['plugin'] ?? null) !== $plugin || ($item['action'] ?? null) !== $action) {
+                continue;
+            }
+            if (!$this->userPassesAuthorize($user, $item['authorize'] ?? null, $request)) {
+                throw new ForbiddenException(
+                    "Missing required permission to execute '{$plugin}/{$action}'."
+                );
+            }
+            break;
+        }
     }
 }

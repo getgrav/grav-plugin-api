@@ -60,7 +60,7 @@ class BlueprintFilesController extends AbstractApiController
             ], 422);
         }
 
-        $abs = $resolver->resolve($folder, $scope, $this->getUser($request));
+        $abs = $resolver->resolve($folder, $scope, $this->getUser($request), $this->mayWriteUsersScope($request));
 
         $logicalFolder = $resolver->logicalParent($folder, $scope);
 
