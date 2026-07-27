@@ -12,6 +12,7 @@ use Grav\Plugin\Api\Tests\Unit\TestHelper;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use Psr\Http\Message\ServerRequestInterface;
 use ReflectionMethod;
 use RocketTheme\Toolbox\Event\Event;
 
@@ -67,7 +68,22 @@ class UsersControllerColumnsTest extends TestCase
     {
         $m = new ReflectionMethod($c, 'assembleColumns');
         $m->setAccessible(true);
-        return $m->invoke($c, new Event(['columns' => $contributed]), $user);
+        return $m->invoke($c, new Event(['columns' => $contributed]), $user, $this->unscopedRequest($user));
+    }
+
+    /**
+     * A credential with no API-key scopes attached, i.e. a session or JWT login.
+     * The `authorize` filter runs the scope cap now (GHSA-p57v-xhv3-mf2w), and an
+     * absent scope list means unscoped, so these cases exercise the ACL alone.
+     */
+    private function unscopedRequest(UserInterface $user): ServerRequestInterface
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getAttribute')->willReturnCallback(
+            static fn($name, $default = null) => $name === 'api_user' ? $user : $default,
+        );
+
+        return $request;
     }
 
     /**

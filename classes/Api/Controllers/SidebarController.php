@@ -53,11 +53,9 @@ class SidebarController extends AbstractApiController
         $user = $this->getUser($request);
         $event = new Event(['items' => [], 'user' => $user]);
         $this->grav->fireEvent('onApiSidebarItems', $event);
-
-        $isSuperAdmin = $this->isSuperAdmin($user);
         $filtered = [];
         foreach ($event['items'] as $item) {
-            if (!$this->userPassesAuthorize($user, $item['authorize'] ?? null, $isSuperAdmin)) {
+            if (!$this->userPassesAuthorize($user, $item['authorize'] ?? null, $request)) {
                 continue;
             }
             // Strip the authorize field — it's a server-side annotation, not client data
