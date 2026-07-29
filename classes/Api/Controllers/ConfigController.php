@@ -252,7 +252,7 @@ class ConfigController extends AbstractApiController
     {
         $differ = new ConfigDiffer($this->grav);
         $parent = $differ->parent($scope, $targetEnv);
-        $delta = $differ->diff($this->effectiveConfig($scope, $targetEnv), $parent);
+        $delta = $differ->diff($this->effectiveConfig($scope, $targetEnv), $parent, $scope);
 
         $overrides = ConfigDiffer::flattenLeaves($delta);
         $fallback = [];
@@ -438,7 +438,7 @@ class ConfigController extends AbstractApiController
         $current = $this->effectiveConfig($scope, $targetEnv);
 
         $differ = new ConfigDiffer($this->grav);
-        $delta = $differ->diff($current, $differ->parent($scope, $targetEnv));
+        $delta = $differ->diff($current, $differ->parent($scope, $targetEnv), $scope);
 
         return ConfigDiffer::canonicalize($delta);
     }
@@ -491,13 +491,7 @@ class ConfigController extends AbstractApiController
     private function loadBlueprint(string $scope): ?\Grav\Common\Data\Blueprint
     {
         try {
-            $blueprintKey = match (true) {
-                in_array($scope, ConfigScopes::CORE) => 'config/' . $scope,
-                str_starts_with($scope, 'plugins/') => 'plugins/' . substr($scope, 8),
-                str_starts_with($scope, 'themes/') => 'themes/' . substr($scope, 7),
-                ConfigScopes::isCustom($this->grav, $scope) => 'config/' . $scope,
-                default => null,
-            };
+            $blueprintKey = ConfigScopes::blueprintKey($this->grav, $scope);
 
             if ($blueprintKey === null) {
                 return null;
@@ -594,7 +588,7 @@ class ConfigController extends AbstractApiController
         // they're re-applied at runtime and writing them would leak secrets to disk.
         $full = $differ->stripEnvironmentOverrides($full, $scope);
         $parent = $differ->parent($scope, $targetEnv);
-        $delta = $differ->diff($full, $parent);
+        $delta = $differ->diff($full, $parent, $scope);
 
         // No overrides and no pre-existing file → don't create an empty placeholder.
         if ($delta === [] && !is_file($filePath)) {

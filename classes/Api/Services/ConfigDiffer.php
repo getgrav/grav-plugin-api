@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Grav\Plugin\Api\Services;
 
+use Grav\Common\Data\Blueprint;
+use Grav\Common\Data\Blueprints;
 use Grav\Common\Grav;
 use Grav\Common\Yaml;
 use Grav\Plugin\Api\Services\EnvironmentService;
@@ -36,6 +38,9 @@ class ConfigDiffer
 {
     private const CORE_SCOPES = ['system', 'site', 'media', 'security', 'scheduler', 'backups'];
 
+    /** @var array<string, Blueprint|null> */
+    private array $blueprints = [];
+
     public function __construct(private Grav $grav)
     {
     }
@@ -48,12 +53,25 @@ class ConfigDiffer
      * the classic admin-classic trap where shortening a list silently merged
      * removed entries back in.
      *
+     * Pass $scope whenever the arrays are a config scope: Grav does not
+     * deep-merge a map that a blueprint declares as a single field, it REPLACES
+     * it (BlueprintSchema::mergeArrays), so a key-by-key delta of such a field
+     * silently drops every key that happened to match the default. Writing a
+     * partial `system.assets.collections` this way cost sites the built-in
+     * jQuery entry and broke their front end (getgrav/grav-admin-next#15).
+     * Blueprint-declared fields are therefore diffed whole.
+     *
      * @param array<mixed> $current
      * @param array<mixed> $parent
      * @return array<mixed>
      */
-    public function diff(array $current, array $parent): array
+    public function diff(array $current, array $parent, ?string $scope = null): array
     {
+        $blueprint = $scope !== null ? $this->blueprintFor($scope) : null;
+        if ($blueprint !== null) {
+            return $this->diffFields($current, $parent, $blueprint);
+        }
+
         $out = [];
         foreach ($current as $key => $value) {
             if (!array_key_exists($key, $parent)) {
@@ -83,6 +101,120 @@ class ConfigDiffer
     }
 
     /**
+     * Delta of $current against $parent at the granularity Grav itself merges:
+     * the blueprint's leaf fields. Grav flattens data against the same rules it
+     * merges with, so anything flattenData() reports as one value is a value
+     * Grav replaces wholesale — scalars, lists, and map fields like
+     * `assets.collections` alike. Diffing those whole is what keeps the
+     * persisted file a faithful override.
+     *
+     * @param array<mixed> $current
+     * @param array<mixed> $parent
+     * @return array<mixed>
+     */
+    private function diffFields(array $current, array $parent, Blueprint $blueprint): array
+    {
+        try {
+            $currentFields = $blueprint->flattenData($current);
+            $parentFields = $blueprint->flattenData($parent);
+        } catch (\Throwable) {
+            return $this->diff($current, $parent);
+        }
+
+        $out = [];
+        foreach ($currentFields as $path => $value) {
+            if (array_key_exists($path, $parentFields) && self::valuesEqual($value, $parentFields[$path])) {
+                continue;
+            }
+            $out = self::setDotPath($out, (string) $path, $value);
+        }
+
+        return $out;
+    }
+
+    /**
+     * Merge one config layer onto another the way Grav's own config loader does
+     * (Data::join → Blueprint::mergeData): maps the blueprint declares as a
+     * single field are REPLACED, only containers recurse. Reading a layer back
+     * any other way would show the admin a merged value the site never serves —
+     * and a save would then persist that invented value.
+     *
+     * Falls back to the plain recursive merge when the scope has no blueprint.
+     *
+     * @param array<mixed> $base
+     * @param array<mixed> $override
+     * @return array<mixed>
+     */
+    private function mergeLayer(array $base, array $override, string $scope): array
+    {
+        $blueprint = $this->blueprintFor($scope);
+        if ($blueprint !== null) {
+            try {
+                return $blueprint->mergeData($base, $override);
+            } catch (\Throwable) {
+                // Fall through to the structural merge.
+            }
+        }
+
+        return $this->deepMergeAssoc($base, $override);
+    }
+
+    /**
+     * The blueprint describing $scope, or null when it has none (or fails to
+     * load). Cached per instance — every read/save resolves several layers.
+     */
+    public function blueprintFor(string $scope): ?Blueprint
+    {
+        if (array_key_exists($scope, $this->blueprints)) {
+            return $this->blueprints[$scope];
+        }
+
+        $blueprint = null;
+        try {
+            // Plugins and themes describe their config in their own
+            // blueprints.yaml, which the `blueprints://` stream does not carry —
+            // asking Blueprints for `plugins/<name>` yields an empty schema, and
+            // an empty schema would make every top-level key look like an
+            // undefined (therefore atomic) value. Load those files directly.
+            $file = $this->extensionBlueprintFile($scope);
+            if ($file !== null) {
+                $blueprint = new Blueprint($file);
+                $blueprint->load();
+            } else {
+                $key = ConfigScopes::blueprintKey($this->grav, $scope);
+                if ($key !== null) {
+                    $blueprint = (new Blueprints())->get($key);
+                }
+            }
+        } catch (\Throwable) {
+            $blueprint = null;
+        }
+
+        return $this->blueprints[$scope] = $blueprint;
+    }
+
+    /**
+     * Path to the blueprints.yaml of the plugin or theme $scope names, or null
+     * when the scope is not an extension (or ships no blueprint).
+     */
+    private function extensionBlueprintFile(string $scope): ?string
+    {
+        $path = match (true) {
+            str_starts_with($scope, 'plugins/') => $this->grav['locator']->findResource('plugin://' . substr($scope, 8)),
+            str_starts_with($scope, 'themes/') => $this->grav['locator']->findResource('themes://' . substr($scope, 7)),
+            default => null,
+        };
+
+        if (!is_string($path) || $path === '') {
+            return null;
+        }
+
+        $file = $path . '/blueprints.yaml';
+
+        return is_file($file) ? $file : null;
+    }
+
+    /**
      * Parent config for a scope + optional env target.
      * See class docblock for parent resolution rules.
      *
@@ -98,7 +230,7 @@ class ConfigDiffer
         $base = $this->loadYamlAtPath($this->baseFilePath($scope)) ?? [];
         if ($base === []) return $defaults;
 
-        return $this->deepMergeAssoc($defaults, $base);
+        return $this->mergeLayer($defaults, $base, $scope);
     }
 
     /**
@@ -123,13 +255,13 @@ class ConfigDiffer
 
         $base = $this->loadYamlAtPath($this->baseFilePath($scope)) ?? [];
         if ($base !== []) {
-            $merged = $this->deepMergeAssoc($merged, $base);
+            $merged = $this->mergeLayer($merged, $base, $scope);
         }
 
         if ($targetEnv !== null && $targetEnv !== '') {
             $overlay = $this->loadYamlAtPath($this->envFilePath($scope, $targetEnv)) ?? [];
             if ($overlay !== []) {
-                $merged = $this->deepMergeAssoc($merged, $overlay);
+                $merged = $this->mergeLayer($merged, $overlay, $scope);
             }
         }
 

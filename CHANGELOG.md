@@ -8,6 +8,8 @@
     * [security] The user list no longer returns every account to a key that was not scoped to read users, and admin-only fields on your own account are held to the key's scopes as well.
     * [security] Sign-in return addresses containing a backslash, tab or line break are now rejected, since browsers read those as a slash and would have followed them off the site ([GHSA-x72c-4jc4-8rh6](https://github.com/getgrav/grav/security/advisories/GHSA-x72c-4jc4-8rh6)).
     * Custom fields added to the account form by extending the account blueprint now keep showing their saved value, instead of coming back empty right after you save ([getgrav/grav-plugin-admin2#138](https://github.com/getgrav/grav-plugin-admin2/issues/138)).
+    * Adding your own entry to a key-and-value setting such as the asset Collections now keeps the entries Grav ships with it, instead of silently dropping them and leaving the site without jQuery ([getgrav/grav-admin-next#15](https://github.com/getgrav/grav-admin-next/issues/15)).
+    * Configuration screens now show a key-and-value setting exactly as Grav resolves it, rather than blending in default entries the site had already replaced.
     * The two-factor authentication panel no longer disappears from an account until the next page load after saving it.
     * Super-admin access granted through a group is now recognised, so an account that gets `api.super` from its group is treated as a super admin instead of being cut back to the handful of areas its other permissions allow.
 
