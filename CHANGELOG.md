@@ -1,3 +1,18 @@
+# v1.0.14
+## 07/30/2026
+
+1. [](#bugfix)
+    * [security] Plugin toolbar actions now check the permission the plugin declared on the button, so someone who cannot see a button can no longer run it by calling the API directly ([GHSA-8mjx-xjfv-9c88](https://github.com/getgrav/grav/security/advisories/GHSA-8mjx-xjfv-9c88)).
+    * [security] A scoped API key is now held to its scopes when a blueprint upload or file listing targets another account's folder, closing a way a media-only key on a super-admin account could reach into user accounts ([GHSA-435x-66r2-jwv2](https://github.com/getgrav/grav/security/advisories/GHSA-435x-66r2-jwv2)).
+    * [security] Sidebar entries, toolbar buttons, editor buttons and user-list columns are now filtered against the API key's own scopes rather than the account's permissions, so a limited key no longer sees or runs entries it was not granted ([GHSA-p57v-xhv3-mf2w](https://github.com/getgrav/grav/security/advisories/GHSA-p57v-xhv3-mf2w)).
+    * [security] The user list no longer returns every account to a key that was not scoped to read users, and admin-only fields on your own account are held to the key's scopes as well.
+    * [security] Sign-in return addresses containing a backslash, tab or line break are now rejected, since browsers read those as a slash and would have followed them off the site ([GHSA-x72c-4jc4-8rh6](https://github.com/getgrav/grav/security/advisories/GHSA-x72c-4jc4-8rh6)).
+    * Custom fields added to the account form by extending the account blueprint now keep showing their saved value, instead of coming back empty right after you save ([getgrav/grav-plugin-admin2#138](https://github.com/getgrav/grav-plugin-admin2/issues/138)).
+    * Adding your own entry to a key-and-value setting such as the asset Collections now keeps the entries Grav ships with it, instead of silently dropping them and leaving the site without jQuery ([getgrav/grav-admin-next#15](https://github.com/getgrav/grav-admin-next/issues/15)).
+    * Configuration screens now show a key-and-value setting exactly as Grav resolves it, rather than blending in default entries the site had already replaced.
+    * The two-factor authentication panel no longer disappears from an account until the next page load after saving it.
+    * Super-admin access granted through a group is now recognised, so an account that gets `api.super` from its group is treated as a super admin instead of being cut back to the handful of areas its other permissions allow.
+
 # v1.0.13
 ## 07/25/2026
 

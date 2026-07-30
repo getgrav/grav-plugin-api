@@ -9,7 +9,6 @@ use Grav\Common\Page\Interfaces\PageInterface;
 use Grav\Common\User\Interfaces\UserInterface;
 use Grav\Plugin\Api\Exceptions\ForbiddenException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
-use Grav\Plugin\Api\PermissionResolver;
 
 /**
  * Resolves blueprint-field path inputs (destination / folder) to an absolute
@@ -80,9 +79,18 @@ class BlueprintPathResolver
      * gated to stay under `user/`.
      *
      * @param UserInterface|null $caller Required to resolve `users/<username>` scope.
+     * @param bool $callerMayWriteUsers Whether the caller may act on ANOTHER user's
+     *   scope, already reduced by the API-key scope cap. Computed by the calling
+     *   controller: this service never sees the request, so it must not re-derive
+     *   authority from the account ACL (GHSA-435x-66r2-jwv2). Defaults to false so
+     *   any future caller is closed by default.
      */
-    public function resolve(string $input, string $scope, ?UserInterface $caller = null): string
-    {
+    public function resolve(
+        string $input,
+        string $scope,
+        ?UserInterface $caller = null,
+        bool $callerMayWriteUsers = false
+    ): string {
         $locator = $this->locator();
 
         // `self@:subpath` / `@self:subpath` — relative to the blueprint owner.
@@ -91,7 +99,7 @@ class BlueprintPathResolver
             if (str_contains($sub, '..')) {
                 throw new ValidationException('Traversal not allowed in self@: subpath.');
             }
-            $base = $this->resolveScopeRoot($scope, $caller);
+            $base = $this->resolveScopeRoot($scope, $caller, $callerMayWriteUsers);
             if ($base === null) {
                 throw new ValidationException(
                     "Cannot resolve 'self@:' path: scope '{$scope}' is not a supported owner."
@@ -124,7 +132,7 @@ class BlueprintPathResolver
      * Map a scope (plugins/<slug>, themes/<slug>, pages/<route>, users/<username>)
      * to its filesystem root. Returns null for unsupported scope types.
      */
-    public function resolveScopeRoot(string $scope, ?UserInterface $caller = null): ?string
+    public function resolveScopeRoot(string $scope, ?UserInterface $caller = null, bool $callerMayWriteUsers = false): ?string
     {
         if ($scope === '') return null;
 
@@ -138,7 +146,7 @@ class BlueprintPathResolver
             'plugins' => $this->resolveStreamOrNull($locator, 'plugins://', $name),
             'themes' => $this->resolveStreamOrNull($locator, 'themes://', $name),
             'pages' => $this->resolvePageScope($name),
-            'users' => $name !== '' ? $this->resolveUserScope($name, $caller) : null,
+            'users' => $name !== '' ? $this->resolveUserScope($name, $caller, $callerMayWriteUsers) : null,
             default => null,
         };
     }
@@ -291,10 +299,18 @@ class BlueprintPathResolver
      * Resolve `users/<username>` scope to the accounts directory.
      *
      * Tight gating: the caller must be editing their own account OR hold
-     * `api.users.write`. Without this, any holder of `api.media.write` could
-     * target other users' avatar slots — see GHSA-6xx2-m8wv-756h.
+     * `api.users.write` as capped by the presented credential's scopes. Without
+     * this, any holder of `api.media.write` could target other users' avatar
+     * slots — see GHSA-6xx2-m8wv-756h.
+     *
+     * The authority decision is made by the controller and handed in. Reading
+     * `access.api.super` and `api.users.write` off the account here ignored the
+     * API-key scope cap entirely, so a key scoped to `api.media.write` on a super
+     * account cleared this gate (GHSA-435x-66r2-jwv2). The raw super read also
+     * missed a group-granted `api.super`, the gap fixed for `isSuperAdmin()` in
+     * 1.0.14 — routing through the controller picks that up for free.
      */
-    private function resolveUserScope(string $name, ?UserInterface $caller): ?string
+    private function resolveUserScope(string $name, ?UserInterface $caller, bool $callerMayWriteUsers = false): ?string
     {
         if (!preg_match('/^[A-Za-z0-9_.-]+$/', $name)) {
             throw new ValidationException("Invalid users scope: '{$name}'.");
@@ -305,11 +321,8 @@ class BlueprintPathResolver
         }
 
         $isSelf = strcasecmp($caller->username, $name) === 0;
-        $resolver = new PermissionResolver($this->grav['permissions']);
-        $isSuper = (bool) $caller->get('access.api.super');
-        $hasUsersWrite = (bool) $resolver->resolve($caller, 'api.users.write');
 
-        if (!$isSelf && !$isSuper && !$hasUsersWrite) {
+        if (!$isSelf && !$callerMayWriteUsers) {
             throw new ForbiddenException(
                 "The 'users/{$name}' scope requires editing your own account or holding the 'api.users.write' permission."
             );

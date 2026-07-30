@@ -282,6 +282,17 @@ class SsoController extends AbstractApiController
         if ($returnTo === '' || !str_starts_with($returnTo, '/') || str_starts_with($returnTo, '//')) {
             return '';
         }
+
+        // A leading single slash is not sufficient on its own. For http(s) URLs
+        // the WHATWG parser every browser implements treats a backslash exactly
+        // like a slash, and strips tab, LF and CR before parsing at all. So
+        // `/\evil.com` and "/\t/evil.com" both resolve to `//evil.com` and leave
+        // the site (GHSA-x72c-4jc4-8rh6). Reject the whole control range plus
+        // backslash rather than trying to enumerate the variants.
+        if (preg_match('/[\x00-\x1F\x7F\\\\]/', $returnTo)) {
+            return '';
+        }
+
         return $returnTo;
     }
 }

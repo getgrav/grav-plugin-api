@@ -175,6 +175,6 @@ class ReportsTwigContentTest extends TestCase
 
     private function super(): UserInterface
     {
-        return TestHelper::createMockUser('root', ['access.api.super' => true]);
+        return TestHelper::createMockUser('root', ['access' => ['api' => ['super' => true]]]);
     }
 }

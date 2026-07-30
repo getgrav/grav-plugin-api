@@ -168,16 +168,26 @@ abstract class AbstractApiController
     }
 
     /**
-     * Check if user is an API super user via direct access array lookup.
+     * Check if user is an API super user.
      *
      * API authority is strictly scoped to access.api.super — admin.super
      * (admin-classic's legacy global super) is intentionally NOT honored
      * here. Grav 2.0 separates admin-classic and API/Admin-Next authority
      * so operators can grant one without implicitly granting the other.
+     *
+     * Resolved through the PermissionResolver so a grant from one of the user's
+     * groups counts, exactly like every other api.* permission (admin2#57). A
+     * direct `$user->get('access.api.super')` read only ever saw the account's
+     * own access map, so a group-based super admin — the normal setup for
+     * directory-backed logins such as login-ldap, whose access model is entirely
+     * group-driven — was silently demoted to their granular permissions.
+     *
+     * `resolveExact()` rather than `resolve()`: super must be granted
+     * deliberately and must not be inherited from a blanket parent `api` key.
      */
     protected function isSuperAdmin(UserInterface $user): bool
     {
-        return (bool) $user->get('access.api.super');
+        return $this->getPermissionResolver()->resolveExact($user, 'api.super') === true;
     }
 
     /**
@@ -244,22 +254,27 @@ abstract class AbstractApiController
      *   - string → user must have that permission.
      *   - array  → user must have at least ONE of the listed permissions.
      *
-     * Super-admins pass regardless of the requirement.
+     * Super-admins pass regardless of the requirement, but the API-key scope cap
+     * applies to BOTH exits: the super short-circuit and the ACL lookup are
+     * independent routes to a "yes", so each has to clear the cap or a scoped key
+     * inherits the whole account ACL through the back door (GHSA-p57v-xhv3-mf2w).
+     * The request is required for that reason — deriving authority from the
+     * account alone is what skipped the cap.
      */
-    protected function userPassesAuthorize(UserInterface $user, mixed $authorize, bool $isSuperAdmin): bool
+    protected function userPassesAuthorize(UserInterface $user, mixed $authorize, ServerRequestInterface $request): bool
     {
         if ($authorize === null) {
             return true;
         }
-        if ($isSuperAdmin) {
+        if ($this->isSuperWithinScope($request)) {
             return true;
         }
         if (is_string($authorize)) {
-            return $this->hasPermission($user, $authorize);
+            return $this->hasPermission($user, $authorize) && $this->scopeAllows($request, $authorize);
         }
         if (is_array($authorize)) {
             foreach ($authorize as $perm) {
-                if (is_string($perm) && $this->hasPermission($user, $perm)) {
+                if (is_string($perm) && $this->hasPermission($user, $perm) && $this->scopeAllows($request, $perm)) {
                     return true;
                 }
             }
@@ -267,6 +282,34 @@ abstract class AbstractApiController
         }
         // Unknown shape — fail closed.
         return false;
+    }
+
+    /**
+     * Whether the caller holds $permission AND the API-key scope cap permits it.
+     *
+     * The non-throwing twin of requirePermission(), for gates that live outside a
+     * controller and so cannot see the request themselves. A plain service can be
+     * handed the result instead of re-deriving authority from the account ACL,
+     * which skips the cap entirely (GHSA-435x-66r2-jwv2).
+     */
+    protected function hasPermissionWithinScope(ServerRequestInterface $request, string $permission): bool
+    {
+        return $this->hasPermission($this->getUser($request), $permission)
+            && $this->scopeAllows($request, $permission);
+    }
+
+    /**
+     * Whether this request may act on a `users/<someone-else>` blueprint scope.
+     *
+     * Handed to BlueprintPathResolver, which cannot see the request and so cannot
+     * apply the scope cap itself. Both routes to a "yes" run through the cap, so a
+     * key scoped to `api.media.write` no longer inherits users-management authority
+     * from its owning account (GHSA-435x-66r2-jwv2).
+     */
+    protected function mayWriteUsersScope(ServerRequestInterface $request): bool
+    {
+        return $this->isSuperWithinScope($request)
+            || $this->hasPermissionWithinScope($request, 'api.users.write');
     }
 
     private ?PermissionResolver $permissionResolver = null;

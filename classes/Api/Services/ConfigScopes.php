@@ -80,4 +80,21 @@ final class ConfigScopes
         // and returns false when nothing provides it.
         return $locator->findResource('blueprints://config/' . $scope . '.yaml', true) !== false;
     }
+
+    /**
+     * The Blueprints key that describes $scope, or null when the scope has no
+     * blueprint to load. Shared by every caller that needs the scope's field
+     * definitions — form filtering, validation, and the blueprint-aware
+     * merge/diff in {@see ConfigDiffer}.
+     */
+    public static function blueprintKey(Grav $grav, string $scope): ?string
+    {
+        return match (true) {
+            in_array($scope, self::CORE, true) => 'config/' . $scope,
+            str_starts_with($scope, 'plugins/') => 'plugins/' . substr($scope, 8),
+            str_starts_with($scope, 'themes/') => 'themes/' . substr($scope, 7),
+            self::isCustom($grav, $scope) => 'config/' . $scope,
+            default => null,
+        };
+    }
 }

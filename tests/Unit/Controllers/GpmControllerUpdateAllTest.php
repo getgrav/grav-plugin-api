@@ -6,6 +6,7 @@ namespace Grav\Plugin\Api\Tests\Unit\Controllers;
 
 use Grav\Common\Config\Config;
 use Grav\Common\GPM\GPM;
+use Grav\Framework\Acl\Permissions;
 use Grav\Plugin\Api\Controllers\GpmController;
 use Grav\Plugin\Api\Tests\Unit\TestHelper;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -57,7 +58,7 @@ class GpmControllerUpdateAllTest extends TestCase
     private function makeRequest(): ServerRequestInterface
     {
         $superAdmin = TestHelper::createMockUser('admin', [
-            'access.api.super' => true,
+            'access' => ['api' => ['super' => true]],
         ]);
 
         return TestHelper::createMockRequest(
@@ -108,7 +109,7 @@ class GpmControllerUpdateAllTest extends TestCase
         $grav = TestHelper::createMockGrav([
             'config' => $config,
             'locator' => $locator,
-            'permissions' => new \stdClass(), // unused: super-admin shortcut bypasses resolver
+            'permissions' => new Permissions(), // the super-admin check resolves through PermissionResolver
         ]);
 
         return new class ($grav, $config, $gpmFactory, $installer, $updater) extends GpmController {

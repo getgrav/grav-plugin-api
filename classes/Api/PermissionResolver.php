@@ -25,7 +25,13 @@ class PermissionResolver
     /** @var UserInterface|null The user whose access was flattened — used to invalidate cache. */
     private ?UserInterface $flatAccessUser = null;
 
-    public function __construct(private readonly Permissions $permissions) {}
+    /**
+     * @param Permissions|null $permissions Registry of declared actions. Only
+     *   {@see resolvedMap()} enumerates it; single-permission resolution reads
+     *   the user's access map alone, so a container without the service (core
+     *   registers it in AccountsServiceProvider) still resolves permissions.
+     */
+    public function __construct(private readonly ?Permissions $permissions = null) {}
 
     /**
      * Resolve a single permission for a user with parent-key inheritance.
@@ -40,19 +46,51 @@ class PermissionResolver
         $key = $permission;
         while ($key !== '') {
             if (array_key_exists($key, $flat)) {
-                $value = $flat[$key];
-                if (is_bool($value)) {
-                    return $value;
-                }
-                if ($value === 1 || $value === '1' || $value === 'true') {
-                    return true;
-                }
-                if ($value === 0 || $value === '0' || $value === 'false' || $value === null) {
-                    return false;
+                $resolved = $this->coerce($flat[$key]);
+                if ($resolved !== null) {
+                    return $resolved;
                 }
             }
             $pos = strrpos($key, '.');
             $key = $pos !== false ? substr($key, 0, $pos) : '';
+        }
+
+        return null;
+    }
+
+    /**
+     * Resolve a permission WITHOUT parent-key inheritance: only an explicit
+     * value for this exact key counts, whether it comes from the user's own
+     * access map or from one of their groups'.
+     *
+     * This is what `api.super` needs. Going through {@see resolve()} would walk
+     * `api.super` up to `api`, so a blanket `access: {api: true}` would silently
+     * promote an ordinary API user to super — and super is the flag that decides
+     * who may hand super to somebody else. Super has to be granted deliberately,
+     * not fall out of a parent key.
+     */
+    public function resolveExact(UserInterface $user, string $permission): ?bool
+    {
+        $flat = $this->getFlatAccess($user);
+
+        return array_key_exists($permission, $flat) ? $this->coerce($flat[$permission]) : null;
+    }
+
+    /**
+     * Normalize a raw access-map value to a bool, or null when it carries no
+     * usable true/false — an array of child keys, say — in which case callers
+     * keep looking.
+     */
+    private function coerce(mixed $value): ?bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+        if ($value === 1 || $value === '1' || $value === 'true') {
+            return true;
+        }
+        if ($value === 0 || $value === '0' || $value === 'false' || $value === null) {
+            return false;
         }
 
         return null;
@@ -66,7 +104,7 @@ class PermissionResolver
      */
     public function resolvedMap(UserInterface $user, bool $isSuperAdmin): array
     {
-        $allInstances = $this->permissions->getInstances();
+        $allInstances = $this->permissions?->getInstances() ?? [];
 
         $result = [];
         foreach ($allInstances as $name => $action) {

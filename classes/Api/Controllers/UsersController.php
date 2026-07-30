@@ -80,14 +80,30 @@ class UsersController extends AbstractApiController
 
     private ?UserSerializer $serializer = null;
 
+    /**
+     * Custom account field names, resolved once per request. Every account
+     * shares the same blueprint, so the list is worked out on the first
+     * serialize and reused for the rest of a listing.
+     *
+     * @var string[]|null
+     */
+    private ?array $customAccountFields = null;
+
     public function index(ServerRequestInterface $request): ResponseInterface
     {
         // Without api.users.read a caller can still see *their own* row —
         // we auto-filter the listing to self rather than 403 the request.
         // Anything beyond that requires api.users.read.
+        //
+        // Because this branches rather than rejecting, requirePermission() never
+        // runs and the API-key scope cap has to be applied by hand. Reading the
+        // account ACL alone let a key scoped to something unrelated (say
+        // api.pages.read) minted on an account holding api.users.read return the
+        // full account listing — usernames, emails, groups, state and 2FA flags
+        // (GHSA-p57v-xhv3-mf2w class). Both routes to "yes" are capped.
         $currentUser = $this->getUser($request);
-        $canSeeAll = $this->isSuperAdmin($currentUser)
-            || $this->hasPermission($currentUser, 'api.users.read');
+        $canSeeAll = $this->isSuperWithinScope($request)
+            || $this->hasPermissionWithinScope($request, 'api.users.read');
 
         if (!$canSeeAll) {
             return $this->indexSelfOnly($request, $currentUser);
@@ -147,7 +163,7 @@ class UsersController extends AbstractApiController
             'user' => $user,
         ]);
 
-        return ApiResponse::create($this->assembleFilterTabs($event, $user));
+        return ApiResponse::create($this->assembleFilterTabs($event, $user, $request));
     }
 
     /**
@@ -191,7 +207,7 @@ class UsersController extends AbstractApiController
             'user' => $user,
         ]);
 
-        return ApiResponse::create(['columns' => $this->assembleColumns($event, $user)]);
+        return ApiResponse::create(['columns' => $this->assembleColumns($event, $user, $request)]);
     }
 
     /**
@@ -204,9 +220,8 @@ class UsersController extends AbstractApiController
      * @param Event $event The onApiUserListColumns event after plugins ran
      * @return array<int, array<string, mixed>>
      */
-    private function assembleColumns(Event $event, UserInterface $user): array
+    private function assembleColumns(Event $event, UserInterface $user, ServerRequestInterface $request): array
     {
-        $isSuperAdmin = $this->isSuperAdmin($user);
 
         $columns = [];
         $seen = [];
@@ -217,7 +232,7 @@ class UsersController extends AbstractApiController
             if (isset($seen[$column['id']])) {
                 continue; // first declaration of an id wins
             }
-            if (!$this->userPassesAuthorize($user, $column['authorize'] ?? null, $isSuperAdmin)) {
+            if (!$this->userPassesAuthorize($user, $column['authorize'] ?? null, $request)) {
                 continue;
             }
 
@@ -300,7 +315,7 @@ class UsersController extends AbstractApiController
             'user' => $user,
         ]);
 
-        return ApiResponse::create(['actions' => $this->assembleRowActions($event, $user)]);
+        return ApiResponse::create(['actions' => $this->assembleRowActions($event, $user, $request)]);
     }
 
     /**
@@ -313,9 +328,8 @@ class UsersController extends AbstractApiController
      * @param Event $event The onApiUserListRowActions event after plugins ran
      * @return array<int, array<string, mixed>>
      */
-    private function assembleRowActions(Event $event, UserInterface $user): array
+    private function assembleRowActions(Event $event, UserInterface $user, ServerRequestInterface $request): array
     {
-        $isSuperAdmin = $this->isSuperAdmin($user);
 
         $actions = [];
         $seen = [];
@@ -329,7 +343,7 @@ class UsersController extends AbstractApiController
             if (isset($seen[$action['id']])) {
                 continue; // first declaration of an id wins
             }
-            if (!$this->userPassesAuthorize($user, $action['authorize'] ?? null, $isSuperAdmin)) {
+            if (!$this->userPassesAuthorize($user, $action['authorize'] ?? null, $request)) {
                 continue;
             }
 
@@ -408,7 +422,7 @@ class UsersController extends AbstractApiController
             'user' => $currentUser,
         ]);
         $declared = null;
-        foreach ($this->assembleRowActions($event, $currentUser) as $candidate) {
+        foreach ($this->assembleRowActions($event, $currentUser, $request) as $candidate) {
             if (($candidate['id'] ?? null) === $id) {
                 $declared = $candidate;
                 break;
@@ -620,9 +634,8 @@ class UsersController extends AbstractApiController
      * @param Event $event The onApiUserListFilters event after plugins ran
      * @return array{tabs: array<int, array<string, mixed>>, defaultFilter: string, showAll: bool}
      */
-    private function assembleFilterTabs(Event $event, UserInterface $user): array
+    private function assembleFilterTabs(Event $event, UserInterface $user, ServerRequestInterface $request): array
     {
-        $isSuperAdmin = $this->isSuperAdmin($user);
 
         $tabs = [];
         foreach ((array) ($event['filters'] ?? []) as $tab) {
@@ -632,7 +645,7 @@ class UsersController extends AbstractApiController
             if ($tab['id'] === 'all') {
                 continue; // reserved for the built-in tab
             }
-            if (!$this->userPassesAuthorize($user, $tab['authorize'] ?? null, $isSuperAdmin)) {
+            if (!$this->userPassesAuthorize($user, $tab['authorize'] ?? null, $request)) {
                 continue;
             }
             // Strip the authorize field — it's a server-side annotation, not client data.
@@ -859,14 +872,7 @@ class UsersController extends AbstractApiController
         // global setting between fetch and save.
         $etag = $this->generateEtag($data);
 
-        // Offer 2FA enrollment whenever the capability is present (Login plugin
-        // installed). Previously this keyed off `plugins.login.twofa_enabled`,
-        // which defaults to false, so the enroll panel was hidden on a stock
-        // 2.0 install and 2FA could not be configured from admin2 at all
-        // (getgrav/grav#4145).
-        $data['twofa_global_enabled'] = class_exists(\Grav\Plugin\Login\TwoFactorAuth\TwoFactorAuth::class);
-
-        return ApiResponse::create($data, 200, ['ETag' => '"' . $etag . '"']);
+        return ApiResponse::create($this->withTwofaCapability($data), 200, ['ETag' => '"' . $etag . '"']);
     }
 
     public function create(ServerRequestInterface $request): ResponseInterface
@@ -959,9 +965,16 @@ class UsersController extends AbstractApiController
         $user = $this->loadUserOrFail($username);
 
         // Users can update themselves with just api.access, otherwise need api.users.write
+        //
+        // Capped, like $isSuper below. On the self-edit branch the only
+        // requirePermission() that runs is for api.access, so nothing else applies
+        // the scope cap to api.users.write — reading it off the account ACL let a
+        // key scoped to api.access alone, minted on an account that holds
+        // api.users.write, edit the admin-only fields on its own record
+        // (GHSA-p57v-xhv3-mf2w class).
         $isSelf = $currentUser->username === $username;
-        $canManageUsers = $this->isSuperAdmin($currentUser)
-            || $this->hasPermission($currentUser, 'api.users.write');
+        $canManageUsers = $this->isSuperWithinScope($request)
+            || $this->hasPermissionWithinScope($request, 'api.users.write');
         if (!$isSelf) {
             $this->requirePermission($request, 'api.users.write');
         } else {
@@ -1083,11 +1096,36 @@ class UsersController extends AbstractApiController
         $this->fireAdminEvent('onAdminAfterSave', ['object' => $user]);
         $this->fireEvent('onApiUserUpdated', ['user' => $user]);
 
+        $data = $this->serializeUser($user);
+
         return $this->respondWithEtag(
-            $this->serializeUser($user),
+            // The 2FA panel keys off this flag, and the client repopulates from
+            // the save response — leave it out and the panel disappears until
+            // the next page load. Kept out of the ETag for the reason show()
+            // explains.
+            $this->withTwofaCapability($data),
             200,
             ['users:update:' . $username, 'users:list'],
+            $this->generateEtag($data),
         );
+    }
+
+    /**
+     * Tag a serialized user with the 2FA capability flag.
+     *
+     * Offer 2FA enrollment whenever the capability is present (Login plugin
+     * installed). This used to key off `plugins.login.twofa_enabled`, which
+     * defaults to false, so the enroll panel was hidden on a stock 2.0 install
+     * and 2FA could not be configured from admin2 at all (getgrav/grav#4145).
+     *
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    private function withTwofaCapability(array $data): array
+    {
+        $data['twofa_global_enabled'] = class_exists(\Grav\Plugin\Login\TwoFactorAuth\TwoFactorAuth::class);
+
+        return $data;
     }
 
     public function delete(ServerRequestInterface $request): ResponseInterface
@@ -1572,7 +1610,92 @@ class UsersController extends AbstractApiController
 
     private function serializeUser(UserInterface $user): array
     {
-        return $this->getSerializer()->serialize($user);
+        // Built-in keys win: the sweep never yields a reserved name, but the
+        // union order keeps that guaranteed rather than incidental.
+        return $this->getSerializer()->serialize($user) + $this->customAccountFieldValues($user);
+    }
+
+    /**
+     * Read back the site's custom account fields.
+     *
+     * The serializer emits a fixed set of built-in fields. A site that extends
+     * the account blueprint (user/blueprints/user/account.yaml) gets its own
+     * fields saved by applyCustomAccountFields(), but they never came back out
+     * again, so the admin form redrew them empty right after a successful save
+     * (admin2#138). Return the stored value for every field the sweep is
+     * allowed to write, so a custom field round-trips.
+     *
+     * Fields the user has never been given a value for are left out entirely,
+     * so the client still falls back to the blueprint default.
+     *
+     * @return array<string, mixed>
+     */
+    private function customAccountFieldValues(UserInterface $user): array
+    {
+        $values = [];
+        foreach ($this->customAccountFieldNames($user) as $field) {
+            $value = $user->get($field);
+            if ($value !== null) {
+                $values[$field] = $value;
+            }
+        }
+
+        return $values;
+    }
+
+    /**
+     * Field names the custom-field sweep is allowed to read and write.
+     *
+     * Walks the (extended) account blueprint and keeps every editable input
+     * that isn't explicitly handled elsewhere: reserved fields, display and
+     * container types, and anything a `security@` gate marks off-limits for
+     * the current caller are all skipped, matching applyCustomAccountFields()
+     * so a field can't be readable but unwritable (or the reverse).
+     *
+     * @return string[]
+     */
+    private function customAccountFieldNames(UserInterface $user): array
+    {
+        if ($this->customAccountFields !== null) {
+            return $this->customAccountFields;
+        }
+
+        $this->customAccountFields = [];
+
+        $blueprint = $this->accountBlueprint($user);
+        if ($blueprint === null) {
+            return $this->customAccountFields;
+        }
+
+        $items = $blueprint->schema()->getState()['items'] ?? [];
+        if (!is_array($items)) {
+            return $this->customAccountFields;
+        }
+
+        foreach ($items as $field => $property) {
+            // The schema is flat and dotted; '' is the synthetic root and a
+            // dotted name is a child of a list/collection field, neither of
+            // which is a plain account value.
+            if (!is_string($field) || $field === '' || str_contains($field, '.')) {
+                continue;
+            }
+            if (in_array($field, self::RESERVED_ACCOUNT_FIELDS, true)) {
+                continue;
+            }
+            if (!is_array($property) || !isset($property['type'])) {
+                continue;
+            }
+            if (in_array($property['type'], self::NON_DATA_FIELD_TYPES, true)) {
+                continue;
+            }
+            if (!empty($property['validate']['ignore'])) {
+                continue;
+            }
+
+            $this->customAccountFields[] = $field;
+        }
+
+        return $this->customAccountFields;
     }
 
     /**
@@ -1603,42 +1726,21 @@ class UsersController extends AbstractApiController
      * create()/update() so their privilege gates stay in force. A site can
      * also extend the account blueprint (user/blueprints/user/account.yaml)
      * with its own fields; those were previously dropped on save (admin2#138).
-     * We walk the submitted body and set any key the (extended) account
-     * blueprint declares as an editable input, skipping reserved/privileged
-     * fields, display/container types, and anything a `security@` gate has
-     * marked off-limits for the current caller. Keys the blueprint doesn't
-     * define are ignored, so this can't mass-assign internal account state.
+     * We set every field customAccountFieldNames() allows that the body
+     * actually carries, so a site's own account fields persist while reserved
+     * and `security@`-gated fields stay out of reach. Keys the blueprint
+     * doesn't define never make the list, so this can't mass-assign internal
+     * account state.
      */
     private function applyCustomAccountFields(UserInterface $user, array $body): void
     {
-        $blueprint = $this->accountBlueprint($user);
-        if ($blueprint === null) {
-            return;
-        }
-        $schema = $blueprint->schema();
-
-        foreach ($body as $field => $value) {
-            if (!is_string($field) || in_array($field, self::RESERVED_ACCOUNT_FIELDS, true)) {
-                continue;
+        foreach ($this->customAccountFieldNames($user) as $field) {
+            // Only touch what the request actually sent, so a PATCH stays a
+            // partial update. Keys the blueprint doesn't list never appear
+            // here, so an invented key can't reach $user->set().
+            if (array_key_exists($field, $body)) {
+                $user->set($field, $body[$field]);
             }
-
-            $property = $schema->getProperty($field);
-            if (!is_array($property) || !isset($property['type'])) {
-                // Not a field the account blueprint declares — ignore it so an
-                // invented key can't reach $user->set().
-                continue;
-            }
-            if (in_array($property['type'], self::NON_DATA_FIELD_TYPES, true)) {
-                continue;
-            }
-            // A `security@` gate the current caller fails resolves to
-            // validate.ignore=true; respect it so a self-editor can't write an
-            // admin-only custom field.
-            if (!empty($property['validate']['ignore'])) {
-                continue;
-            }
-
-            $user->set($field, $value);
         }
     }
 

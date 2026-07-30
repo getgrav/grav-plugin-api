@@ -70,9 +70,7 @@ class GroupsControllerScopeCapTest extends TestCase
 
     private function super(): UserInterface
     {
-        // createMockUser does flat-key lookup, and isSuperAdmin() reads the dotted
-        // 'access.api.super' path, so seed that literal key.
-        return TestHelper::createMockUser('root', ['access.api.super' => true]);
+        return TestHelper::createMockUser('root', ['access' => ['api' => ['super' => true]]]);
     }
 
     /**

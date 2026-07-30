@@ -103,4 +103,61 @@ class PermissionResolverTest extends TestCase
 
         $this->assertNull($resolver->resolve($user, 'api.pages'));
     }
+
+    #[Test]
+    public function resolve_exact_honors_group_granted_super(): void
+    {
+        $resolver = $this->resolver([
+            'ldap_users' => ['access' => ['api' => ['access' => true, 'super' => true]]],
+        ]);
+        $user = TestHelper::createMockUser('directory-admin', [
+            'access' => ['site' => ['login' => true]],
+            'groups' => ['ldap_users'],
+        ]);
+
+        $this->assertTrue($resolver->resolveExact($user, 'api.super'));
+    }
+
+    #[Test]
+    public function resolve_exact_does_not_inherit_from_parent_key(): void
+    {
+        $resolver = $this->resolver();
+        $user = TestHelper::createMockUser('blanket', [
+            'access' => ['api' => true],
+            'groups' => [],
+        ]);
+
+        // resolve() walks api.super → api and says yes; resolveExact() must not,
+        // or a blanket `api: true` would quietly promote the account to super.
+        $this->assertTrue($resolver->resolve($user, 'api.super'));
+        $this->assertNull($resolver->resolveExact($user, 'api.super'));
+    }
+
+    #[Test]
+    public function resolve_exact_lets_user_access_revoke_group_granted_super(): void
+    {
+        $resolver = $this->resolver([
+            'ldap_users' => ['access' => ['api' => ['super' => true]]],
+        ]);
+        $user = TestHelper::createMockUser('demoted', [
+            'access' => ['api' => ['super' => false]],
+            'groups' => ['ldap_users'],
+        ]);
+
+        $this->assertFalse($resolver->resolveExact($user, 'api.super'));
+    }
+
+    #[Test]
+    public function resolve_exact_is_null_when_nothing_grants_it(): void
+    {
+        $resolver = $this->resolver([
+            'editors' => ['access' => ['api' => ['pages' => true]]],
+        ]);
+        $user = TestHelper::createMockUser('editor', [
+            'access' => [],
+            'groups' => ['editors'],
+        ]);
+
+        $this->assertNull($resolver->resolveExact($user, 'api.super'));
+    }
 }
