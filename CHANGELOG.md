@@ -1,5 +1,5 @@
 # v1.0.14
-## 07/27/2026
+## 07/30/2026
 
 1. [](#bugfix)
     * [security] Plugin toolbar actions now check the permission the plugin declared on the button, so someone who cannot see a button can no longer run it by calling the API directly ([GHSA-8mjx-xjfv-9c88](https://github.com/getgrav/grav/security/advisories/GHSA-8mjx-xjfv-9c88)).
