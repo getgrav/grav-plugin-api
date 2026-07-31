@@ -1,3 +1,9 @@
+# v1.0.15
+## 07/31/2026
+
+1. [](#bugfix)
+    * A plugin, theme or configuration screen whose fields are generated in code now shows them, instead of rendering an empty box ([getgrav/grav-plugin-api#21](https://github.com/getgrav/grav-plugin-api/issues/21)).
+
 # v1.0.14
 ## 07/30/2026
 

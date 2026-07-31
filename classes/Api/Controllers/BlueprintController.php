@@ -23,7 +23,7 @@ class BlueprintController extends AbstractApiController
     /**
      * GET /data/resolve?callable=\Grav\Common\Page\Pages::pageTypes
      *
-     * Generic endpoint for resolving data-options@ directives used in blueprints.
+     * Generic endpoint for resolving `data-*@` directives used in blueprints.
      * Returns the array result of calling one of core's approved dynamic-data
      * providers ({@see Blueprint::isSafeDynamicCall()}).
      * Client should cache responses — these are effectively static data.
@@ -224,8 +224,7 @@ class BlueprintController extends AbstractApiController
             throw new NotFoundException("Blueprint for plugin '{$pluginName}' not found.");
         }
 
-        $blueprint = new Blueprint($pluginPath . '/blueprints.yaml');
-        $blueprint->load();
+        $blueprint = $this->loadConfigBlueprint($pluginPath . '/blueprints.yaml');
 
         $data = $this->serializeBlueprint($blueprint, $pluginName);
 
@@ -258,8 +257,7 @@ class BlueprintController extends AbstractApiController
             throw new NotFoundException("Blueprint for theme '{$themeName}' not found.");
         }
 
-        $blueprint = new Blueprint($themePath . '/blueprints.yaml');
-        $blueprint->load();
+        $blueprint = $this->loadConfigBlueprint($themePath . '/blueprints.yaml');
 
         $data = $this->serializeBlueprint($blueprint, $themeName);
 
@@ -299,8 +297,7 @@ class BlueprintController extends AbstractApiController
             throw new NotFoundException('User account blueprint not found.');
         }
 
-        $blueprint = new Blueprint($blueprintPath);
-        $blueprint->load();
+        $blueprint = $this->loadConfigBlueprint($blueprintPath);
 
         $data = $this->serializeBlueprint($blueprint, 'account');
 
@@ -350,8 +347,7 @@ class BlueprintController extends AbstractApiController
             throw new NotFoundException("Group blueprint '{$name}' not found.");
         }
 
-        $blueprint = new Blueprint($path);
-        $blueprint->load();
+        $blueprint = $this->loadConfigBlueprint($path);
 
         $data = $this->serializeBlueprint($blueprint, $name);
 
@@ -494,8 +490,7 @@ class BlueprintController extends AbstractApiController
             throw new NotFoundException("Page blueprint '{$pageId}' not found for plugin '{$plugin}'.");
         }
 
-        $blueprint = new Blueprint($blueprintFile);
-        $blueprint->load();
+        $blueprint = $this->loadConfigBlueprint($blueprintFile);
 
         $data = $this->serializeBlueprint($blueprint, $pageId);
 
@@ -546,8 +541,7 @@ class BlueprintController extends AbstractApiController
             throw new NotFoundException("Config blueprint for '{$scope}' not found.");
         }
 
-        $blueprint = new Blueprint($realPath);
-        $blueprint->load();
+        $blueprint = $this->loadConfigBlueprint($realPath);
 
         return ApiResponse::create($this->serializeBlueprint($blueprint, $scope));
     }
@@ -599,6 +593,100 @@ class BlueprintController extends AbstractApiController
         $this->injectSecurityTab($blueprint, $user);
 
         return $blueprint;
+    }
+
+    /**
+     * Load a non-page blueprint (plugin, theme, account, group, config scope)
+     * with its dynamic directives resolved.
+     *
+     * `Blueprint::load()` only parses and merges the YAML. It is `init()` that
+     * walks the `data-*@` / `config-*@` / `security@` directives collected during
+     * the parse and actually applies them — the same step core's own
+     * {@see \Grav\Common\Data\Blueprints::loadFile()} performs, and admin-classic
+     * therefore gets for free. Loading without it left every one of those
+     * unresolved, so a fieldset built by `data-fields@` reached admin-next with
+     * no children at all, and a `config-pattern@` validation rule never made it
+     * into the form. The failure was silent, since an unresolved directive just
+     * looks like an empty field (grav-plugin-api#21).
+     *
+     * @param string $file Absolute path to the blueprint file.
+     */
+    private function loadConfigBlueprint(string $file): Blueprint
+    {
+        $blueprint = new Blueprint($file);
+        $blueprint->load();
+
+        try {
+            $blueprint->init();
+        } catch (Throwable $e) {
+            // A third-party provider that throws must not take the whole form
+            // down — serve what did resolve, but log it, because the original
+            // bug here was one nothing recorded anywhere.
+            $this->grav['log']->warning(sprintf(
+                'API: blueprint "%s" failed to resolve its dynamic directives: %s',
+                $file,
+                $e->getMessage()
+            ));
+        }
+
+        $this->clearGatedIgnores($blueprint);
+
+        return $blueprint;
+    }
+
+    /**
+     * Drop the `validate: ignore` that a failed `security@` gate stamps on a
+     * field and its children.
+     *
+     * Core resolves `security@` against `$grav['user']`, which during a
+     * token-authenticated API request is the guest — so every gate fails and the
+     * gated subtree (the account form's Access Levels section, a group's
+     * permission map) comes back flagged for everyone, super-admins included.
+     * The flag exists for core's own form processing, which the API never runs:
+     * each API write authorizes the caller itself. Rather than ship a flag that
+     * is both wrong and unread, clear it from the subtrees a gate produced it on.
+     * A `validate: ignore` an author wrote by hand sits outside any `security@`
+     * field and is left alone.
+     */
+    private function clearGatedIgnores(Blueprint $blueprint): void
+    {
+        $fields = $blueprint->get('form/fields');
+        if (!is_array($fields)) {
+            return;
+        }
+
+        if ($this->stripGatedIgnores($fields)) {
+            $blueprint->set('form/fields', $fields);
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $fields
+     * @return bool Whether anything was cleared.
+     */
+    private function stripGatedIgnores(array &$fields): bool
+    {
+        $changed = false;
+
+        foreach ($fields as &$field) {
+            if (!is_array($field)) {
+                continue;
+            }
+
+            if (isset($field['security@'])) {
+                // The gate stamps the whole subtree, so clear the whole subtree.
+                $this->clearValidateIgnore($field);
+                $changed = true;
+                continue;
+            }
+
+            if (isset($field['fields']) && is_array($field['fields'])) {
+                $changed = $this->stripGatedIgnores($field['fields']) || $changed;
+            }
+        }
+        unset($field);
+
+        return $changed;
     }
 
     /**
@@ -1280,6 +1368,19 @@ class BlueprintController extends AbstractApiController
             // Validation rules
             if (isset($field['validate']) && is_array($field['validate'])) {
                 $serialized['validate'] = $field['validate'];
+            }
+
+            // `data-fields@` — a container whose children come from a PHP callable.
+            // Core materializes these in Blueprint::init(); this is the safety net
+            // for a blueprint that reaches the serializer without that step, so a
+            // fieldset never renders empty purely because of how it was loaded.
+            // Only fills an empty container, so it can't duplicate what init()
+            // already resolved, and it goes through the same allowlist gate.
+            if (empty($field['fields']) && isset($field['data-fields@'])) {
+                $dynamicFields = $this->resolveDataDirective($field['data-fields@']);
+                if (!empty($dynamicFields)) {
+                    $field['fields'] = $dynamicFields;
+                }
             }
 
             // Handle nested fields (structural containers)
