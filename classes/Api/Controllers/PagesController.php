@@ -1066,6 +1066,14 @@ class PagesController extends AbstractApiController
             is_array($header) ? $header : [],
         );
 
+        // Same Twig-content scope/permission cap create()/update() enforce: an
+        // api.pages.write key scoped below admin.pages_twig must not enable
+        // process.twig on the page it authors here. translate() previously wrote
+        // a caller-supplied header/content without this gate, letting a scoped key
+        // turn on Twig-in-content (SSTI) that create()/update() would reject.
+        // (GHSA-w94c-jmg4-w4c9, follow-up to GHSA-96xv-p87j-58mx)
+        $this->guardTwigContent($request, null, is_array($body['header'] ?? null) ? $body['header'] : []);
+
         $this->fireEvent('onApiBeforePageTranslate', [
             'page' => $page,
             'lang' => $lang,
@@ -1082,6 +1090,9 @@ class PagesController extends AbstractApiController
         $translatedPage->filePath($filePath);
         $translatedPage->header((object) $header);
         $translatedPage->rawMarkdown($content);
+
+        // Editor XSS backstop, as run by create()/update(). (GHSA-w94c-jmg4-w4c9)
+        $this->validatePageChanges($translatedPage, ['header' => $header, 'content' => $content]);
 
         // Allow plugins to modify the page before save
         $this->fireAdminEvent('onAdminSave', ['object' => &$translatedPage, 'page' => &$translatedPage]);
@@ -1333,9 +1344,18 @@ class PagesController extends AbstractApiController
                 'content' => &$sourceContent,
             ]);
 
+            // Parity with translate()/create()/update(): enforce the Twig-content
+            // cap and the editor XSS backstop on this write too. sync() copies from
+            // an already-vetted on-disk source rather than the request body, so it
+            // is not a standalone injection path, but every page-write entry point
+            // should apply the same guards. (GHSA-w94c-jmg4-w4c9)
+            $this->guardTwigContent($request, $targetPage, $sourceHeader);
+
             // Overwrite the target with source data
             $targetPage->header((object) $sourceHeader);
             $targetPage->rawMarkdown($sourceContent);
+
+            $this->validatePageChanges($targetPage, ['header' => $sourceHeader, 'content' => $sourceContent]);
 
             $this->fireAdminEvent('onAdminSave', ['object' => &$targetPage, 'page' => &$targetPage]);
             $targetPage->save();
