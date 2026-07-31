@@ -864,12 +864,7 @@ class PagesController extends AbstractApiController
         // unvalidated slug like '01.home/../../../tmp/evil' would relocate the
         // page directory outside user/pages (GHSA-qjq4-jp55-4mx2).
         $rawSlug = $body['slug'] ?? $page->slug();
-        if (!is_string($rawSlug)
-            || preg_match('#[/\\\\]#', $rawSlug)
-            || strpos($rawSlug, '..') !== false
-            || strpbrk($rawSlug, "\0") !== false) {
-            throw new ValidationException('Invalid slug: must be a single path segment.');
-        }
+        $this->assertSinglePathSegment($rawSlug, 'slug');
         $newSlug = ltrim($rawSlug, '.');
         if ($newSlug === '') {
             throw new ValidationException('Invalid slug: must not be empty.');
@@ -1071,6 +1066,14 @@ class PagesController extends AbstractApiController
             is_array($header) ? $header : [],
         );
 
+        // Same Twig-content scope/permission cap create()/update() enforce: an
+        // api.pages.write key scoped below admin.pages_twig must not enable
+        // process.twig on the page it authors here. translate() previously wrote
+        // a caller-supplied header/content without this gate, letting a scoped key
+        // turn on Twig-in-content (SSTI) that create()/update() would reject.
+        // (GHSA-w94c-jmg4-w4c9, follow-up to GHSA-96xv-p87j-58mx)
+        $this->guardTwigContent($request, null, is_array($body['header'] ?? null) ? $body['header'] : []);
+
         $this->fireEvent('onApiBeforePageTranslate', [
             'page' => $page,
             'lang' => $lang,
@@ -1087,6 +1090,9 @@ class PagesController extends AbstractApiController
         $translatedPage->filePath($filePath);
         $translatedPage->header((object) $header);
         $translatedPage->rawMarkdown($content);
+
+        // Editor XSS backstop, as run by create()/update(). (GHSA-w94c-jmg4-w4c9)
+        $this->validatePageChanges($translatedPage, ['header' => $header, 'content' => $content]);
 
         // Allow plugins to modify the page before save
         $this->fireAdminEvent('onAdminSave', ['object' => &$translatedPage, 'page' => &$translatedPage]);
@@ -1338,9 +1344,18 @@ class PagesController extends AbstractApiController
                 'content' => &$sourceContent,
             ]);
 
+            // Parity with translate()/create()/update(): enforce the Twig-content
+            // cap and the editor XSS backstop on this write too. sync() copies from
+            // an already-vetted on-disk source rather than the request body, so it
+            // is not a standalone injection path, but every page-write entry point
+            // should apply the same guards. (GHSA-w94c-jmg4-w4c9)
+            $this->guardTwigContent($request, $targetPage, $sourceHeader);
+
             // Overwrite the target with source data
             $targetPage->header((object) $sourceHeader);
             $targetPage->rawMarkdown($sourceContent);
+
+            $this->validatePageChanges($targetPage, ['header' => $sourceHeader, 'content' => $sourceContent]);
 
             $this->fireAdminEvent('onAdminSave', ['object' => &$targetPage, 'page' => &$targetPage]);
             $targetPage->save();
@@ -2246,10 +2261,38 @@ class PagesController extends AbstractApiController
     /**
      * Batch helper: copy a page.
      */
+    /**
+     * Reject any value that is not a single path segment. A slug/suffix becomes a
+     * page-folder name, never a path: a separator, parent-traversal or null byte
+     * lets it escape user/pages once concatenated into a filesystem path (e.g.
+     * Folder::copy()'s recursive mkdir resolves `..`). Shared by move() and
+     * batchCopy(). (GHSA-qjq4-jp55-4mx2, GHSA-g6j3-8jv9-ch5f)
+     *
+     * @param mixed $value
+     * @param string $field
+     * @return string
+     */
+    private function assertSinglePathSegment(mixed $value, string $field): string
+    {
+        if (!is_string($value)
+            || $value === ''
+            || preg_match('#[/\\\\]#', $value)
+            || str_contains($value, '..')
+            || str_contains($value, "\0")) {
+            throw new ValidationException("Invalid {$field}: must be a single path segment.");
+        }
+
+        return $value;
+    }
+
     private function batchCopy(PageInterface $page, array $options): void
     {
         $destParent = $options['destination'] ?? self::structuralParentRoute($page);
         $suffix = $options['suffix'] ?? '-copy';
+        // The suffix becomes part of the destination folder name; reject any
+        // separator or traversal before it reaches Folder::copy() (whose
+        // recursive mkdir resolves `..`). (GHSA-g6j3-8jv9-ch5f)
+        $this->assertSinglePathSegment($suffix, 'suffix');
         $destSlug = $page->slug() . $suffix;
 
         if ($destParent === '/') {
