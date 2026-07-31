@@ -864,12 +864,7 @@ class PagesController extends AbstractApiController
         // unvalidated slug like '01.home/../../../tmp/evil' would relocate the
         // page directory outside user/pages (GHSA-qjq4-jp55-4mx2).
         $rawSlug = $body['slug'] ?? $page->slug();
-        if (!is_string($rawSlug)
-            || preg_match('#[/\\\\]#', $rawSlug)
-            || strpos($rawSlug, '..') !== false
-            || strpbrk($rawSlug, "\0") !== false) {
-            throw new ValidationException('Invalid slug: must be a single path segment.');
-        }
+        $this->assertSinglePathSegment($rawSlug, 'slug');
         $newSlug = ltrim($rawSlug, '.');
         if ($newSlug === '') {
             throw new ValidationException('Invalid slug: must not be empty.');
@@ -2246,10 +2241,38 @@ class PagesController extends AbstractApiController
     /**
      * Batch helper: copy a page.
      */
+    /**
+     * Reject any value that is not a single path segment. A slug/suffix becomes a
+     * page-folder name, never a path: a separator, parent-traversal or null byte
+     * lets it escape user/pages once concatenated into a filesystem path (e.g.
+     * Folder::copy()'s recursive mkdir resolves `..`). Shared by move() and
+     * batchCopy(). (GHSA-qjq4-jp55-4mx2, GHSA-g6j3-8jv9-ch5f)
+     *
+     * @param mixed $value
+     * @param string $field
+     * @return string
+     */
+    private function assertSinglePathSegment(mixed $value, string $field): string
+    {
+        if (!is_string($value)
+            || $value === ''
+            || preg_match('#[/\\\\]#', $value)
+            || str_contains($value, '..')
+            || str_contains($value, "\0")) {
+            throw new ValidationException("Invalid {$field}: must be a single path segment.");
+        }
+
+        return $value;
+    }
+
     private function batchCopy(PageInterface $page, array $options): void
     {
         $destParent = $options['destination'] ?? self::structuralParentRoute($page);
         $suffix = $options['suffix'] ?? '-copy';
+        // The suffix becomes part of the destination folder name; reject any
+        // separator or traversal before it reaches Folder::copy() (whose
+        // recursive mkdir resolves `..`). (GHSA-g6j3-8jv9-ch5f)
+        $this->assertSinglePathSegment($suffix, 'suffix');
         $destSlug = $page->slug() . $suffix;
 
         if ($destParent === '/') {
