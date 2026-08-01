@@ -1,8 +1,9 @@
 # v1.0.15
-## 07/31/2026
+## 08/01/2026
 
 1. [](#bugfix)
     * A plugin, theme or configuration screen whose fields are generated in code now shows them, instead of rendering an empty box ([getgrav/grav-plugin-api#21](https://github.com/getgrav/grav-plugin-api/issues/21)).
+    * Fixed responses failing outright when the data contained invalid UTF-8. `json_encode()` returns `false` on malformed bytes, which then hit the PSR-7 stream's string type hint and raised an unhandled `TypeError` instead of returning a response. Most visibly this broke the system log viewer, since `grav.log` collects whatever third-party content gets logged, bad byte sequences included. Invalid bytes are now substituted rather than fataling.
 
 # v1.0.14
 ## 07/30/2026
