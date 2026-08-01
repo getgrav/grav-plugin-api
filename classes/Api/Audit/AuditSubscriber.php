@@ -53,6 +53,10 @@ class AuditSubscriber
         // Config
         'onApiConfigUpdated'    => ['config.update', 'notice', 'config'],
 
+        // Clearing a log destroys evidence, so the audit row (kept in its own
+        // store) is the only surviving record of it.
+        'onApiLogCleared'       => ['system.log.clear', 'warning', 'config'],
+
         'onApiDemoBaselineCaptured' => ['demo.baseline.capture', 'notice',  'config'],
         'onApiDemoReset'            => ['demo.reset',            'warning', 'config'],
         // Packages / system
@@ -249,6 +253,9 @@ class AuditSubscriber
         if ($eventName === 'onApiConfigUpdated') {
             return ['config', $data['scope'] ?? null];
         }
+        if ($eventName === 'onApiLogCleared') {
+            return ['log', $data['file'] ?? null];
+        }
         if (str_starts_with($eventName, 'onApiPackage')) {
             return ['package', $data['package'] ?? $data['slug'] ?? $data['name'] ?? null];
         }
@@ -272,7 +279,7 @@ class AuditSubscriber
         $context = [];
 
         // Carry a few well-known scalar hints without dumping whole objects.
-        foreach (['method', 'reason', 'old_route', 'new_route', 'lang', 'version'] as $key) {
+        foreach (['method', 'reason', 'old_route', 'new_route', 'lang', 'version', 'bytes'] as $key) {
             if (isset($data[$key]) && is_scalar($data[$key])) {
                 $context[$key] = $data[$key];
             }

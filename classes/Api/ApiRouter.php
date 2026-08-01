@@ -769,6 +769,7 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('DELETE', '/cache', [SystemController::class, 'clearCache']);
         $r->addRoute('GET', '/system/logs/files', [SystemController::class, 'logFiles']);
         $r->addRoute('GET', '/system/logs', [SystemController::class, 'logs']);
+        $r->addRoute('DELETE', '/system/logs', [SystemController::class, 'clearLog']);
         $r->addRoute('POST', '/system/backup', [SystemController::class, 'backup']);
         $r->addRoute('GET', '/system/backups', [SystemController::class, 'backups']);
         $r->addRoute('DELETE', '/system/backups/{filename}', [SystemController::class, 'deleteBackup']);

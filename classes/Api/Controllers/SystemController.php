@@ -348,6 +348,113 @@ class SystemController extends AbstractApiController
     }
 
     /**
+     * DELETE /system/logs?file=grav.log — empty out a log file.
+     *
+     * Super-admin only. Clearing a log destroys the forensic record of
+     * everything that happened before it — including the trail of an attack an
+     * operator may be in the middle of reviewing — so this sits above the
+     * api.system.read/write tiers that the rest of the log viewer uses, and
+     * above what a scoped API key minted on a super account can reach.
+     *
+     * The file is truncated rather than deleted, so the inode, ownership and
+     * mode survive and any handler holding it open keeps writing to the same
+     * place. A single marker entry is left behind recording who cleared it, in
+     * the same format the viewer parses — a wiped log that says nothing about
+     * being wiped is worse than one that does.
+     *
+     * The target accepts `file` from the JSON body or the query string, and is
+     * validated against the same whitelist GET /system/logs uses.
+     */
+    public function clearLog(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requireSuper($request);
+        $this->denyIfDemo($request, 'Clearing logs is disabled in demo mode.');
+
+        $body = $this->getRequestBody($request);
+        $query = $request->getQueryParams();
+        $requested = (string) ($body['file'] ?? $query['file'] ?? 'grav.log');
+
+        $registered = $this->getRegisteredLogFiles();
+        $allowed = array_column($registered, 'file');
+        if (!in_array($requested, $allowed, true)) {
+            throw new ValidationException('Unknown log file: ' . $requested, [
+                ['field' => 'file', 'message' => 'Must be one of: ' . implode(', ', $allowed)],
+            ]);
+        }
+
+        $logFile = $this->grav['locator']->findResource('log://' . $requested);
+        if (!$logFile || !file_exists($logFile)) {
+            // A curated core log is listed before its first write; nothing to
+            // clear is a success, not an error.
+            return ApiResponse::create([
+                'file' => $requested,
+                'cleared_bytes' => 0,
+                'message' => "Log is already empty: {$requested}",
+            ]);
+        }
+
+        if (!is_writable($logFile)) {
+            throw new ValidationException('Log file is not writable: ' . $requested, [
+                ['field' => 'file', 'message' => 'Check filesystem permissions on logs/' . $requested],
+            ]);
+        }
+
+        $size = (int) (@filesize($logFile) ?: 0);
+        $user = $this->getUser($request);
+        $username = (string) ($user->get('username') ?: 'unknown');
+        $marker = $this->buildClearedMarker($logFile, $username);
+
+        if (@file_put_contents($logFile, $marker, LOCK_EX) === false) {
+            throw new \RuntimeException('Failed to clear log file: ' . $requested);
+        }
+
+        // Audited separately from the log itself (the audit trail lives in its
+        // own store), so wiping a log cannot erase the record of the wipe.
+        $this->fireEvent('onApiLogCleared', [
+            'file' => $requested,
+            'bytes' => $size,
+            'user' => $user,
+        ]);
+
+        return ApiResponse::create([
+            'file' => $requested,
+            'cleared_bytes' => $size,
+            'message' => "Log cleared: {$requested}",
+        ]);
+    }
+
+    /**
+     * The one line left in a freshly cleared log. Mirrors Monolog's line format
+     * (`[datetime] channel.LEVEL: message [] []`) so the viewer's parser reads
+     * it like any other entry. The channel is taken from the log's own first
+     * line — grav.log is `grav`, security.log is `grav-security`, a plugin log
+     * is whatever that plugin uses — read with fgets rather than slurping the
+     * file, which can be very large.
+     */
+    private function buildClearedMarker(string $logFile, string $username): string
+    {
+        $channel = 'grav';
+        $handle = @fopen($logFile, 'rb');
+        if ($handle) {
+            $first = fgets($handle, 512);
+            fclose($handle);
+            if (is_string($first) && preg_match('/^\[[^\]]+\]\s+([^.\s]+)\./', $first, $m)) {
+                $channel = $m[1];
+            }
+        }
+
+        // The marker is only worth writing if it can be trusted, so the one
+        // caller-influenced part of it is reduced to characters that cannot
+        // forge a log line — no newlines, brackets or colons. Grav validates
+        // usernames anyway, so in practice this only ever trims.
+        $safeUser = substr((string) preg_replace('/[^\w.@\-]+/u', '', $username), 0, 64);
+
+        $date = (new \DateTimeImmutable('now'))->format('Y-m-d\TH:i:s.uP');
+
+        return sprintf('[%s] %s.NOTICE: Log cleared by %s [] []%s', $date, $channel, $safeUser ?: 'unknown', PHP_EOL);
+    }
+
+    /**
      * Human-friendly labels for the log files Grav core writes itself. Any
      * discovered log not listed here falls back to a humanized filename.
      */

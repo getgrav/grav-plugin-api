@@ -395,6 +395,7 @@ A scope qualifies as custom when it is a flat slug (`^[a-z0-9][a-z0-9_-]*$` — 
 | `GET` | `/system/info` | System information |
 | `DELETE` | `/cache` | Clear cache |
 | `GET` | `/system/logs` | Read logs |
+| `DELETE` | `/system/logs` | Clear a log file (super-admin only) |
 | `POST` | `/system/backup` | Create a backup |
 | `GET` | `/system/backups` | List backups |
 
