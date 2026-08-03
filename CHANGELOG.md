@@ -1,5 +1,5 @@
 # v1.0.15
-## 08/01/2026
+## 08/03/2026
 
 1. [](#new)
     * Added a `DELETE /system/logs` endpoint so a log file can be emptied out from the admin, restricted to super admins.
