@@ -137,6 +137,36 @@ class HandlesMediaUploadsTest extends TestCase
     }
 
     #[Test]
+    public function svg_detection_reads_the_file_not_the_extension(): void
+    {
+        // The sanitizer gate used to be the literal extension "svg", so the
+        // same markup under any other name a browser still renders inline —
+        // `.svgz` above all — went to disk untouched (GHSA-66xf-ggf4-6hmc).
+        $svg = '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>';
+
+        $cases = [
+            'logo.svg' => [$svg, true],
+            'logo.svgz' => [(string)gzencode($svg), true],
+            // Markup parked under a name that looks like a raster image.
+            'logo.webp' => [$svg, true],
+            // ...and the same trick with the bytes compressed.
+            'logo.png' => [(string)gzencode($svg), true],
+            'photo.png' => ['\x89PNG not-really-but-not-svg-either', false],
+        ];
+
+        foreach ($cases as $name => [$bytes, $expected]) {
+            $path = $this->tempDir . '/' . $name;
+            file_put_contents($path, $bytes);
+
+            self::assertSame(
+                $expected,
+                $this->invoke('isSvgUpload', $path, $name),
+                "isSvgUpload() misjudged {$name}"
+            );
+        }
+    }
+
+    #[Test]
     public function extensionless_file_is_rejected(): void
     {
         $file = new TraitTestUploadedFile('README', 'no extension');
