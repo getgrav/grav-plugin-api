@@ -2764,6 +2764,62 @@
           }
         },
         {
+          "name": "Clear Log",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Reports the cleared file', () => pm.expect(res.data.file).to.eql('email.log'));",
+                  "pm.test('Reports how much was cleared', () => pm.expect(res.data.cleared_bytes).to.be.a('number'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/system/logs",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "system",
+                "logs"
+              ]
+            },
+            "description": "Empty out a log file. Super-admin only. The file is truncated and a single entry naming whoever cleared it is left behind. Targets `email.log` here so a collection run does not wipe the system log; any file listed by `GET /system/logs/files` is valid.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"file\": \"email.log\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "API Key authentication"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              }
+            ]
+          }
+        },
+        {
           "name": "Create Backup",
           "event": [
             {

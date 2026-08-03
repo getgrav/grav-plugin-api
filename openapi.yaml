@@ -2404,6 +2404,68 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+    delete:
+      operationId: clearSystemLog
+      tags: [System]
+      summary: Clear a log file
+      description: |
+        Empty out one of the log files listed by `GET /system/logs/files`.
+
+        Requires super-admin (`admin.super`); the read endpoints only require
+        `api.system.read`. The file is truncated rather than deleted, and a
+        single entry recording who cleared it is left in its place. The target
+        may be given in the body or as a `?file=` query parameter, and defaults
+        to `grav.log`.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  description: Log file to clear. Must be one of the registered files.
+                  default: grav.log
+                  example: grav.log
+      parameters:
+        - name: file
+          in: query
+          required: false
+          description: Log file to clear, when not supplied in the body.
+          schema:
+            type: string
+            default: grav.log
+          example: security.log
+      responses:
+        "200":
+          description: Log cleared (or already empty).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      file:
+                        type: string
+                        example: grav.log
+                      cleared_bytes:
+                        type: integer
+                        description: Size of the log before it was cleared.
+                        example: 450507
+                      message:
+                        type: string
+                        example: "Log cleared: grav.log"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
 
   /system/backup:
     post:

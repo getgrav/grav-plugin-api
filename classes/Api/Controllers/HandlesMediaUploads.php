@@ -154,11 +154,49 @@ trait HandlesMediaUploads
         // place with core's canonical routine (honors security.sanitize_svg;
         // quarantines and throws if it can't be cleaned). This matches how the
         // admin and Form plugin upload paths already protect SVG uploads.
-        if (strtolower(pathinfo($filename, PATHINFO_EXTENSION)) === 'svg') {
+        //
+        // Decide by what the file IS, not by what it is called: keying the gate
+        // on the literal extension "svg" let the same markup through under any
+        // other name a browser still renders as SVG, `.svgz` above all
+        // (GHSA-66xf-ggf4-6hmc).
+        if ($this->isSvgUpload($targetPath, $filename)) {
             Security::sanitizeSVG($targetPath);
         }
 
         return $filename;
+    }
+
+    /**
+     * Whether a stored upload is SVG markup and therefore has to go through
+     * the sanitizer, regardless of the name it arrived under.
+     *
+     * Both the name and the bytes are consulted: the name catches the ordinary
+     * `.svg`/`.svgz` upload, and the content sniff catches markup parked under
+     * some other extension that a browser will still render inline. A gzipped
+     * SVG (`.svgz`) is deliberately reported here even though the sanitizer
+     * cannot read compressed markup — it fails closed, quarantining the file
+     * and rejecting the upload, which is the right answer for a format we have
+     * no reason to accept (GHSA-66xf-ggf4-6hmc).
+     */
+    protected function isSvgUpload(string $path, string $filename): bool
+    {
+        if (in_array(strtolower(pathinfo($filename, PATHINFO_EXTENSION)), ['svg', 'svgz'], true)) {
+            return true;
+        }
+
+        $head = @file_get_contents($path, false, null, 0, 1024);
+        if ($head === false || $head === '') {
+            return false;
+        }
+
+        // Gzip magic — an SVG under any name, compressed. Sniff the inflated
+        // head so a renamed .svgz is caught the same way.
+        if (str_starts_with($head, "\x1f\x8b")) {
+            $inflated = @gzdecode((string)@file_get_contents($path));
+            $head = $inflated === false ? $head : substr($inflated, 0, 1024);
+        }
+
+        return stripos($head, '<svg') !== false;
     }
 
     /**

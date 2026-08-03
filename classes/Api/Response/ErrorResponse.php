@@ -15,6 +15,39 @@ use Psr\Http\Message\ResponseInterface;
 class ErrorResponse
 {
     /**
+     * Encode a problem+json body without ever handing a `false` to the body.
+     *
+     * Same failure as ApiResponse::json(): json_encode() returns false on
+     * malformed UTF-8 and the PSR-7 stream type-hints a string, so the false
+     * came back out as a TypeError. It matters more here, because this is the
+     * path that renders exceptions: an exception message carrying a bad byte
+     * (a filename, a chunk of file content) would take out the error handler
+     * itself, replacing a clean 4xx with an unhandled fatal.
+     *
+     * The original status is preserved rather than downgraded to 500 -- the
+     * status is the part a client actually acts on and it is already known
+     * good, so only the body degrades.
+     *
+     * @param array<string,mixed> $headers
+     * @param array<string,mixed> $body
+     */
+    private static function json(int $status, array $headers, array $body): ResponseInterface
+    {
+        $json = json_encode($body, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+
+        if ($json === false) {
+            $json = json_encode([
+                'status' => $status,
+                'title' => $body['title'] ?? 'Error',
+                'detail' => 'The error detail could not be encoded as JSON: ' . json_last_error_msg(),
+            ], JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)
+                ?: '{"status":' . $status . ',"title":"Error","detail":"The error could not be encoded as JSON."}';
+        }
+
+        return new Response($status, $headers, $json);
+    }
+
+    /**
      * @param array<string,mixed>      $headers
      * @param array<string,mixed>|null $toast  Optional toast hint honored by Admin
      *   Next: { message?, type?, duration?, dismissible? }. `duration` is in ms;
@@ -36,7 +69,7 @@ class ErrorResponse
             'Cache-Control' => 'no-store, max-age=0',
         ]);
 
-        return new Response($status, $headers, json_encode($body, JSON_UNESCAPED_SLASHES));
+        return self::json($status, $headers, $body);
     }
 
     public static function fromException(ApiException $e): ResponseInterface
@@ -60,6 +93,6 @@ class ErrorResponse
             'Cache-Control' => 'no-store, max-age=0',
         ]);
 
-        return new Response($e->getStatusCode(), $headers, json_encode($body, JSON_UNESCAPED_SLASHES));
+        return self::json($e->getStatusCode(), $headers, $body);
     }
 }
