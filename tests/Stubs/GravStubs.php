@@ -217,6 +217,11 @@ namespace Grav\Common\Page\Interfaces {
             public function visible(): bool;
             public function routable(): bool;
             public function template(): string;
+            // Needed by the per-page ACL resolver, which reads a page's own
+            // frontmatter and walks up its parents.
+            public function header($var = null);
+            public function parent(?PageInterface $var = null): ?PageInterface;
+            public function language($var = null);
         }
     }
 }

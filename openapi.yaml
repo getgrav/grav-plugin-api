@@ -5560,6 +5560,35 @@ components:
           items:
             type: string
           example: [de, es]
+        permissions:
+          type: object
+          description: |
+            What the authenticated caller may do to THIS page: the account's
+            `api.pages.*` permissions with the page's own `header.permissions`
+            rules applied on top (a page rule can both grant and deny). Present
+            on every page record the API returns, including listing rows.
+          properties:
+            create:
+              type: boolean
+              description: May add child pages under this page.
+            read:
+              type: boolean
+            update:
+              type: boolean
+            delete:
+              type: boolean
+            publish:
+              type: boolean
+              description: Falls back to `update` when the page states no publish rule.
+            list:
+              type: boolean
+          example:
+            create: false
+            read: true
+            update: true
+            delete: true
+            publish: true
+            list: true
       required:
         - route
         - slug

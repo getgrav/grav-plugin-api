@@ -157,7 +157,7 @@ class PagesController extends AbstractApiController
             'include_translations' => $includeTranslations,
         ];
 
-        $data = $this->serializer->serializeCollection($slice, $listOptions);
+        $data = $this->attachPageCapabilities($request, $slice, $this->serializer->serializeCollection($slice, $listOptions));
 
         return ApiResponse::paginated(
             data: $data,
@@ -212,7 +212,7 @@ class PagesController extends AbstractApiController
             'include_translations' => $includeTranslations,
         ];
 
-        $data = $this->serializer->serializeCollection($slice, $listOptions);
+        $data = $this->attachPageCapabilities($request, $slice, $this->serializer->serializeCollection($slice, $listOptions));
 
         return ApiResponse::paginated(
             data: $data,
@@ -229,14 +229,14 @@ class PagesController extends AbstractApiController
      */
     public function show(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, self::PERMISSION_READ);
         $previousLang = $this->applyLanguage($request);
 
         try {
             $this->enablePages();
 
             $route = $this->getRouteParam($request, 'route');
-            $page = $this->findPageOrFail('/' . $route);
+            $page = $this->findPageOrFail('/' . $route, $request, self::PERMISSION_READ);
+            $this->authorizePageAction($request, $page, 'read', self::PERMISSION_READ);
 
             // If the page already has process.twig:true, the same gate that
             // governs writes also governs reading the full record. Returning
@@ -259,7 +259,13 @@ class PagesController extends AbstractApiController
 
             $data = $this->serializer->serialize($page, $options);
 
-            return $this->respondWithEtag($data);
+            // The ETag is the page's own state — take it BEFORE attaching the
+            // caller's capabilities, which vary per user and would otherwise
+            // make every If-Match on a later PATCH mismatch.
+            $etag = $this->generateEtag($data);
+            $data['permissions'] = $this->pageCapabilities($request, $page);
+
+            return $this->respondWithEtag($data, etag: $etag);
         } finally {
             $this->restoreLanguage($previousLang);
         }
@@ -281,8 +287,6 @@ class PagesController extends AbstractApiController
      */
     public function previewToken(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, self::PERMISSION_READ);
-
         if (!$this->config->get('plugins.api.allow_draft_preview', true)) {
             throw new ForbiddenException('Draft preview is disabled for this site.');
         }
@@ -293,7 +297,8 @@ class PagesController extends AbstractApiController
             $this->enablePages();
 
             $route = $this->getRouteParam($request, 'route');
-            $page = $this->findPageOrFail('/' . $route);
+            $page = $this->findPageOrFail('/' . $route, $request, self::PERMISSION_READ);
+            $this->authorizePageAction($request, $page, 'read', self::PERMISSION_READ);
 
             // Pin the token to the page's canonical public route — the same value
             // the admin builds the preview URL from — so it can only ever unlock
@@ -380,8 +385,9 @@ class PagesController extends AbstractApiController
      */
     public function create(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, self::PERMISSION_WRITE);
-
+        // Authorized further down, against the PARENT page: a `create` rule in
+        // frontmatter governs what may be added beneath that page. Until the
+        // parent is known, only the shape of the request is validated.
         $body = $this->getRequestBody($request);
         $this->requireFields($body, ['route', 'title']);
 
@@ -424,12 +430,21 @@ class PagesController extends AbstractApiController
             if ($parentRoute !== '/') {
                 $parent = $this->grav['pages']->find($parentRoute);
                 if (!$parent) {
+                    // Don't confirm which parents exist to a caller who can't
+                    // create pages anywhere.
+                    $this->requirePermission($request, self::PERMISSION_WRITE);
                     throw new ValidationException("Parent page not found at route: {$parentRoute}");
                 }
                 $parentPath = $parent->path();
             } else {
+                // Top level: the pages root can still carry rules of its own.
+                $parent = method_exists($this->grav['pages'], 'root')
+                    ? $this->grav['pages']->root()
+                    : null;
                 $parentPath = $this->grav['locator']->findResource('page://', true);
             }
+
+            $this->authorizePageAction($request, $parent, 'create', self::PERMISSION_WRITE);
 
             // Resolve `order: "auto"` against existing siblings: if any sibling
             // carries a numeric prefix, assign the next number; otherwise leave
@@ -525,6 +540,9 @@ class PagesController extends AbstractApiController
             $data = $resolved !== null
                 ? $this->serializer->serialize($resolved)
                 : ['route' => $route, 'kind' => $kind];
+            if ($resolved !== null) {
+                $data['permissions'] = $this->pageCapabilities($request, $resolved);
+            }
             $location = $this->getApiBaseUrl() . '/pages' . $route;
 
             return ApiResponse::created(
@@ -639,14 +657,14 @@ class PagesController extends AbstractApiController
      */
     public function update(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, self::PERMISSION_WRITE);
         $previousLang = $this->applyLanguage($request);
 
         try {
             $this->enablePages();
 
             $route = $this->getRouteParam($request, 'route');
-            $page = $this->findPageOrFail('/' . $route);
+            $page = $this->findPageOrFail('/' . $route, $request, self::PERMISSION_WRITE);
+            $this->authorizePageAction($request, $page, 'update', self::PERMISSION_WRITE);
 
             // Guard against writing to a non-existent translation file. When
             // ?lang=X is specified but no X translation exists, Grav's fallback
@@ -778,8 +796,12 @@ class PagesController extends AbstractApiController
             $this->fireEvent('onApiPageUpdated', ['page' => $page]);
 
             $data = $this->serializer->serialize($page);
+            // ETag from the page state alone — see show() for why the caller's
+            // capabilities must stay out of it.
+            $etag = $this->generateEtag($data);
+            $data['permissions'] = $this->pageCapabilities($request, $page);
 
-            return $this->respondWithEtag($data, 200, ['pages:update:/' . $route, 'pages:list']);
+            return $this->respondWithEtag($data, 200, ['pages:update:/' . $route, 'pages:list'], $etag);
         } finally {
             $this->restoreLanguage($previousLang);
         }
@@ -790,14 +812,14 @@ class PagesController extends AbstractApiController
      */
     public function delete(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, self::PERMISSION_WRITE);
         $previousLang = $this->applyLanguage($request);
 
         try {
             $this->enablePages();
 
             $route = $this->getRouteParam($request, 'route');
-            $page = $this->findPageOrFail('/' . $route);
+            $page = $this->findPageOrFail('/' . $route, $request, self::PERMISSION_WRITE);
+            $this->authorizePageAction($request, $page, 'delete', self::PERMISSION_WRITE);
 
             $query = $request->getQueryParams();
             $lang = $query['lang'] ?? null;
@@ -847,11 +869,14 @@ class PagesController extends AbstractApiController
      */
     public function move(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, self::PERMISSION_WRITE);
         $this->enablePages();
 
         $route = $this->getRouteParam($request, 'route');
-        $page = $this->findPageOrFail('/' . $route);
+        $page = $this->findPageOrFail('/' . $route, $request, self::PERMISSION_WRITE);
+        // Moving a page rewrites it in place, so it takes `update` on the page —
+        // the same action core's Flex listing gates move/copy on — plus
+        // `create` on wherever it lands (checked once the destination is known).
+        $this->authorizePageAction($request, $page, 'update', self::PERMISSION_WRITE);
 
         $body = $this->getRequestBody($request);
         $this->requireFields($body, ['parent']);
@@ -886,6 +911,9 @@ class PagesController extends AbstractApiController
 
         // Resolve new parent path
         if ($newParentRoute === '/') {
+            $newParent = method_exists($this->grav['pages'], 'root')
+                ? $this->grav['pages']->root()
+                : null;
             $newParentPath = $this->grav['locator']->findResource('page://', true);
         } else {
             $newParent = $this->grav['pages']->find($newParentRoute);
@@ -894,6 +922,8 @@ class PagesController extends AbstractApiController
             }
             $newParentPath = $newParent->path();
         }
+
+        $this->authorizePageAction($request, $newParent, 'create', self::PERMISSION_WRITE);
 
         // Build new directory name
         $dirName = $newOrder !== null
@@ -939,8 +969,10 @@ class PagesController extends AbstractApiController
         }
 
         $data = $this->serializer->serialize($movedPage);
+        $etag = $this->generateEtag($data);
+        $data['permissions'] = $this->pageCapabilities($request, $movedPage);
 
-        return $this->respondWithEtag($data, 200, $moveTags);
+        return $this->respondWithEtag($data, 200, $moveTags, $etag);
     }
 
     /**
@@ -948,11 +980,12 @@ class PagesController extends AbstractApiController
      */
     public function copy(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, self::PERMISSION_WRITE);
         $this->enablePages();
 
         $route = $this->getRouteParam($request, 'route');
-        $page = $this->findPageOrFail('/' . $route);
+        $page = $this->findPageOrFail('/' . $route, $request, self::PERMISSION_WRITE);
+        // Copying reads the source and creates at the destination.
+        $this->authorizePageAction($request, $page, 'read', self::PERMISSION_WRITE);
 
         $body = $this->getRequestBody($request);
         $this->requireFields($body, ['route']);
@@ -963,6 +996,9 @@ class PagesController extends AbstractApiController
 
         // Resolve destination parent path
         if ($destParentRoute === '/') {
+            $destParent = method_exists($this->grav['pages'], 'root')
+                ? $this->grav['pages']->root()
+                : null;
             $destParentPath = $this->grav['locator']->findResource('page://', true);
         } else {
             $destParent = $this->grav['pages']->find($destParentRoute);
@@ -971,6 +1007,8 @@ class PagesController extends AbstractApiController
             }
             $destParentPath = $destParent->path();
         }
+
+        $this->authorizePageAction($request, $destParent, 'create', self::PERMISSION_WRITE);
 
         $destPath = $destParentPath . '/' . $destSlug;
 
@@ -997,6 +1035,7 @@ class PagesController extends AbstractApiController
         }
 
         $data = $this->serializer->serialize($copiedPage);
+        $data['permissions'] = $this->pageCapabilities($request, $copiedPage);
         $location = $this->getApiBaseUrl() . '/pages' . $destRoute;
 
         return ApiResponse::created($data, $location, $this->invalidationHeaders($copyTags));
@@ -1007,11 +1046,11 @@ class PagesController extends AbstractApiController
      */
     public function languages(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, self::PERMISSION_READ);
         $this->enablePages();
 
         $route = $this->getRouteParam($request, 'route');
-        $page = $this->findPageOrFail('/' . $route);
+        $page = $this->findPageOrFail('/' . $route, $request, self::PERMISSION_READ);
+        $this->authorizePageAction($request, $page, 'read', self::PERMISSION_READ);
 
         $translated = $page->translatedLanguages();
         $untranslated = $page->untranslatedLanguages();
@@ -1034,11 +1073,11 @@ class PagesController extends AbstractApiController
      */
     public function translate(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, self::PERMISSION_WRITE);
         $this->enablePages();
 
         $route = $this->getRouteParam($request, 'route');
-        $page = $this->findPageOrFail('/' . $route);
+        $page = $this->findPageOrFail('/' . $route, $request, self::PERMISSION_WRITE);
+        $this->authorizePageAction($request, $page, 'update', self::PERMISSION_WRITE);
 
         $body = $this->getRequestBody($request);
         $this->requireFields($body, ['lang']);
@@ -1119,6 +1158,7 @@ class PagesController extends AbstractApiController
             ]);
 
             $data = $this->serializer->serialize($newPage ?? $translatedPage);
+            $data['permissions'] = $this->pageCapabilities($request, $newPage ?? $translatedPage);
             $location = $this->getApiBaseUrl() . '/pages/' . $route;
 
             return ApiResponse::created(
@@ -1146,11 +1186,11 @@ class PagesController extends AbstractApiController
      */
     public function adoptLanguage(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, self::PERMISSION_WRITE);
         $this->enablePages();
 
         $route = $this->getRouteParam($request, 'route');
-        $page = $this->findPageOrFail('/' . $route);
+        $page = $this->findPageOrFail('/' . $route, $request, self::PERMISSION_WRITE);
+        $this->authorizePageAction($request, $page, 'update', self::PERMISSION_WRITE);
 
         $body = $this->getRequestBody($request);
         $this->requireFields($body, ['lang']);
@@ -1226,6 +1266,7 @@ class PagesController extends AbstractApiController
             ]);
 
             $data = $this->serializer->serialize($newPage ?? $page);
+            $data['permissions'] = $this->pageCapabilities($request, $newPage ?? $page);
 
             return ApiResponse::create(
                 $data,
@@ -1286,8 +1327,7 @@ class PagesController extends AbstractApiController
      */
     public function sync(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, self::PERMISSION_WRITE);
-
+        // Authorized against the page itself, once the source language is loaded.
         $body = $this->getRequestBody($request);
         $this->requireFields($body, ['source_lang', 'target_lang']);
 
@@ -1313,8 +1353,11 @@ class PagesController extends AbstractApiController
             $sourcePage = $this->grav['pages']->find('/' . $route);
 
             if (!$sourcePage) {
+                $this->requirePermission($request, self::PERMISSION_WRITE);
                 throw new NotFoundException("Page not found at route '/{$route}' for source language '{$sourceLang}'.");
             }
+
+            $this->authorizePageAction($request, $sourcePage, 'update', self::PERMISSION_WRITE);
 
             $sourceContent = $sourcePage->rawMarkdown();
             $sourceHeader = $this->headerToArray($sourcePage->header());
@@ -1374,6 +1417,7 @@ class PagesController extends AbstractApiController
             ]);
 
             $data = $this->serializer->serialize($updatedPage ?? $targetPage);
+            $data['permissions'] = $this->pageCapabilities($request, $updatedPage ?? $targetPage);
             return ApiResponse::create(
                 $data,
                 200,
@@ -1389,6 +1433,10 @@ class PagesController extends AbstractApiController
      */
     public function compare(ServerRequestInterface $request): ResponseInterface
     {
+        // Account-wide gate up front (this endpoint reads a page that may not
+        // resolve at all); a page-level deny is applied below, once the source
+        // page is loaded. Both language variants share the same frontmatter
+        // rules, so checking the source covers the pair.
         $this->requirePermission($request, self::PERMISSION_READ);
 
         $params = $request->getQueryParams();
@@ -1416,6 +1464,7 @@ class PagesController extends AbstractApiController
 
             $sourceData = null;
             if ($sourcePage) {
+                $this->assertPageNotDenied($request, $sourcePage, 'read');
                 $translated = $sourcePage->translatedLanguages();
                 $sourceData = [
                     'lang' => $sourceLang,
@@ -1462,11 +1511,13 @@ class PagesController extends AbstractApiController
      */
     public function reorder(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, self::PERMISSION_WRITE);
         $this->enablePages();
 
         $route = $this->getRouteParam($request, 'route');
-        $parent = $this->findPageOrFail('/' . $route);
+        $parent = $this->findPageOrFail('/' . $route, $request, self::PERMISSION_WRITE);
+        // Reordering rewrites the children's folder prefixes, which is an
+        // update of the container they live in.
+        $this->authorizePageAction($request, $parent, 'update', self::PERMISSION_WRITE);
 
         $body = $this->getRequestBody($request);
         $this->requireFields($body, ['order']);
@@ -1605,10 +1656,21 @@ class PagesController extends AbstractApiController
             $pages[$normalizedRoute] = $page;
         }
 
+        // Which page-level action each operation exercises, so a page that
+        // denies it is skipped rather than silently swept up in a bulk call.
+        // Only denials are honored here: the caller already cleared the
+        // account-wide write gate above, so there is no grant to fall back on.
+        $pageActions = match ($operation) {
+            'publish', 'unpublish' => ['publish', 'update'],
+            'delete' => ['delete'],
+            'copy' => ['read'],
+        };
+
         $results = [];
 
         foreach ($pages as $route => $page) {
             try {
+                $this->assertPageNotDenied($request, $page, ...$pageActions);
                 match ($operation) {
                     'publish' => $this->batchPublish($page, true),
                     'unpublish' => $this->batchPublish($page, false),
@@ -1695,6 +1757,10 @@ class PagesController extends AbstractApiController
                 throw new ValidationException("Page not found at route: {$route}");
             }
 
+            // Reorganize is all-or-nothing, so a page that denies being moved
+            // fails the whole request rather than being quietly skipped.
+            $this->assertPageNotDenied($request, $page, 'update');
+
             $currentParentRoute = self::structuralParentRoute($page);
             $affectedParentRoutes[$currentParentRoute] = true;
 
@@ -1710,6 +1776,7 @@ class PagesController extends AbstractApiController
                     if (!$newParent) {
                         throw new ValidationException("Destination parent not found at route: {$newParentRoute} (operation index {$index}).");
                     }
+                    $this->assertPageNotDenied($request, $newParent, 'create');
                     $newParentPath = $newParent->path();
                 }
                 $affectedParentRoutes[$newParentRoute] = true;
@@ -1953,13 +2020,53 @@ class PagesController extends AbstractApiController
     }
 
     /**
-     * Find a page by route or throw NotFoundException.
+     * Stamp each serialized listing row with what this caller may do to that
+     * page, so a client can hide the edit/delete affordances a page's own
+     * frontmatter denies (getgrav/grav-plugin-admin2#150).
+     *
+     * Only the paginated slice is annotated, and rows are never dropped — a
+     * page whose rules deny reading still appears in the listing without
+     * actions, exactly as core's Flex page index behaves.
+     *
+     * @param list<PageInterface> $pages Pages in the same order they were serialized.
+     * @param list<array<string, mixed>> $data
+     * @return list<array<string, mixed>>
      */
-    private function findPageOrFail(string $route): PageInterface
+    private function attachPageCapabilities(ServerRequestInterface $request, array $pages, array $data): array
     {
+        $pages = array_values($pages);
+
+        foreach ($data as $index => $item) {
+            $page = $pages[$index] ?? null;
+            if ($page instanceof PageInterface) {
+                $item['permissions'] = $this->pageCapabilities($request, $page);
+                $data[$index] = $item;
+            }
+        }
+
+        return $data;
+    }
+
+    /**
+     * Find a page by route or throw NotFoundException.
+     *
+     * Page-level permissions can only be evaluated once the page is in hand, so
+     * the endpoints that honor them authorize AFTER this lookup. Pass the
+     * request and the endpoint's account-wide permission and a miss is gated
+     * too — otherwise a caller with no page permission at all could probe which
+     * routes exist by reading 404 vs 403.
+     */
+    private function findPageOrFail(
+        string $route,
+        ?ServerRequestInterface $request = null,
+        ?string $permission = null,
+    ): PageInterface {
         $page = $this->resolvePageByRoute($route);
 
         if (!$page) {
+            if ($request !== null && $permission !== null) {
+                $this->requirePermission($request, $permission);
+            }
             throw new NotFoundException("Page not found at route: {$route}");
         }
 
@@ -2166,13 +2273,13 @@ class PagesController extends AbstractApiController
             FILTER_VALIDATE_BOOLEAN
         );
 
-        $data = $this->serializer->serializeCollection($slice, [
+        $data = $this->attachPageCapabilities($request, $slice, $this->serializer->serializeCollection($slice, [
             'include_content' => false,
             'render_content' => false,
             'include_children' => false,
             'include_media' => false,
             'include_translations' => $includeTranslations,
-        ]);
+        ]));
 
         return ApiResponse::paginated(
             data: $data,

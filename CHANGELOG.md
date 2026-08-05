@@ -1,3 +1,11 @@
+# v1.0.16
+## 08/05/2026
+
+1. [](#new)
+    * Page permissions set in a page's Security tab or frontmatter are now enforced, so a group can be granted or denied editing on individual pages regardless of its site-wide page permissions ([getgrav/grav-plugin-admin2#150](https://github.com/getgrav/grav-plugin-admin2/issues/150)).
+    * Those permissions are inherited by child pages, and also cover page media, batch actions and reorganising.
+    * Each page returned by the API now reports what the current user may do to it, so the admin can hide the actions they are not allowed.
+
 # v1.0.15
 ## 08/03/2026
 
