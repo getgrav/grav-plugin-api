@@ -263,13 +263,31 @@ class SsoController extends AbstractApiController
         return $root . $route;
     }
 
+    /**
+     * Make sure a real, writable PHP session is running for this request.
+     *
+     * `Session::init()` alone was not enough: it only starts a session while
+     * `autoStart` is still armed, and Grav disarms it as soon as the boot
+     * processor starts the session — so by the time a controller calls it the
+     * method is inert. On the SSO endpoints that left every write below going
+     * into an unstarted (or already committed) session, which is never
+     * persisted, so the provider's CSRF state was gone by callback time and
+     * every admin SSO login failed with `sso_state_mismatch` (#22).
+     *
+     * Re-arm `autoStart` rather than calling `start()` directly so the session
+     * still honours `system.session.read_and_close` (a read-only start plus a
+     * transparent re-open on first write).
+     */
     private function startSession(): void
     {
         /** @var Session $session */
         $session = $this->grav['session'];
-        if (!$session->isStarted()) {
-            $session->init();
+        if ($session->isStarted()) {
+            return;
         }
+
+        $session->setAutoStart(true);
+        $session->init();
     }
 
     /**
