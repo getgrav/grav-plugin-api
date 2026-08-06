@@ -1024,6 +1024,18 @@ class PagesController extends AbstractApiController
         $this->enablePages(true);
         $copiedPage = $this->grav['pages']->find($destRoute);
 
+        // A copy produces a new page, so it announces itself exactly like
+        // create() does. This endpoint fired nothing at all before (#23).
+        if ($copiedPage) {
+            $this->fireAdminEvent('onAdminAfterSave', ['object' => $copiedPage, 'page' => $copiedPage]);
+        }
+        $this->fireEvent('onApiPageCreated', [
+            'page' => $copiedPage,
+            'route' => $destRoute,
+            'source_route' => '/' . $route,
+            'method' => 'copy',
+        ]);
+
         $copyTags = ['pages:create:' . $destRoute, 'pages:list'];
 
         if (!$copiedPage) {
@@ -1667,15 +1679,16 @@ class PagesController extends AbstractApiController
         };
 
         $results = [];
+        $copied = [];
 
         foreach ($pages as $route => $page) {
             try {
                 $this->assertPageNotDenied($request, $page, ...$pageActions);
                 match ($operation) {
-                    'publish' => $this->batchPublish($page, true),
-                    'unpublish' => $this->batchPublish($page, false),
-                    'delete' => $this->batchDelete($page),
-                    'copy' => $this->batchCopy($page, $options),
+                    'publish' => $this->batchPublish($page, $route, true),
+                    'unpublish' => $this->batchPublish($page, $route, false),
+                    'delete' => $this->batchDelete($page, $route),
+                    'copy' => $copied[$route] = $this->batchCopy($page, $options),
                 };
                 $results[] = ['route' => $route, 'status' => 'success'];
             } catch (\Throwable $e) {
@@ -1685,13 +1698,36 @@ class PagesController extends AbstractApiController
 
         $this->clearPagesCache();
 
+        // Copies announce themselves once the index knows about them, so
+        // listeners get a real page object rather than a bare route. One
+        // rebuild covers the whole batch (#23).
+        if ($copied !== []) {
+            $this->enablePages(true);
+
+            foreach ($copied as $sourceRoute => $destRoute) {
+                $newPage = $this->grav['pages']->find($destRoute);
+                if ($newPage) {
+                    $this->fireAdminEvent('onAdminAfterSave', ['object' => $newPage, 'page' => $newPage]);
+                }
+                $this->fireEvent('onApiPageCreated', [
+                    'page' => $newPage,
+                    'route' => $destRoute,
+                    'source_route' => $sourceRoute,
+                    'method' => 'batch',
+                ]);
+            }
+        }
+
         // Build per-route invalidations so listeners on specific pages react too.
+        // A copy creates a page at the DESTINATION, so that is the route whose
+        // cache entry is new — tagging the untouched source instead told
+        // clients to refetch the wrong page.
         $tags = ['pages:list'];
         foreach ($results as $r) {
             if ($r['status'] !== 'success') continue;
             $tags[] = match ($operation) {
                 'delete' => 'pages:delete:' . $r['route'],
-                'copy' => 'pages:create:' . $r['route'],
+                'copy' => 'pages:create:' . ($copied[$r['route']] ?? $r['route']),
                 default => 'pages:update:' . $r['route'],
             };
         }
@@ -1933,6 +1969,26 @@ class PagesController extends AbstractApiController
         $this->enablePages(true);
 
         $this->fireEvent('onApiPagesReorganized', ['operations' => $resolved]);
+
+        // Plus one per-page move, so a listener written against the single-page
+        // /move endpoint picks up reorganize moves too instead of quietly
+        // missing them (#23). Ops that didn't actually rename anything on disk
+        // (siblings renumbered to the position they already held) are skipped.
+        foreach ($resolved as $op) {
+            if (empty($op['actuallyMoves'])) {
+                continue;
+            }
+
+            $parentRoute = (string) $op['newParentRoute'];
+            $newRoute = ($parentRoute === '/' ? '' : rtrim($parentRoute, '/')) . '/' . $op['slug'];
+
+            $this->fireEvent('onApiPageMoved', [
+                'page' => $this->grav['pages']->find($newRoute),
+                'old_route' => $op['route'],
+                'new_route' => $newRoute,
+                'method' => 'reorganize',
+            ]);
+        }
 
         // --- Phase 4: Build response with all affected pages ---
         $affectedData = [];
@@ -2348,21 +2404,46 @@ class PagesController extends AbstractApiController
 
     /**
      * Batch helper: set published state on a page.
+     *
+     * Fires the same before/after pair as PATCH /pages/{route}. Bulk actions
+     * used to run silently, so anything tracking per-page state — a search
+     * index, a redirect map, and the plugin's own audit trail and webhook
+     * dispatcher, which both subscribe to these events — simply missed them
+     * (#23). The `method` hint lets a listener tell a bulk edit from a
+     * single-page one without changing the payload shape.
      */
-    private function batchPublish(PageInterface $page, bool $published): void
+    private function batchPublish(PageInterface $page, string $route, bool $published): void
     {
         $header = $this->headerToArray($page->header());
         $header['published'] = $published;
-        $page->header((object) $header);
+
+        $data = ['header' => $header];
+        $this->fireEvent('onApiBeforePageUpdate', ['page' => $page, 'data' => &$data, 'method' => 'batch']);
+
+        $page->header((object) ($data['header'] ?? $header));
+
+        $this->fireAdminEvent('onAdminSave', ['object' => &$page, 'page' => &$page]);
         $page->save();
+
+        $this->fireAdminEvent('onAdminAfterSave', ['object' => $page, 'page' => $page]);
+        $this->fireEvent('onApiPageUpdated', ['page' => $page, 'route' => $route, 'method' => 'batch']);
     }
 
     /**
      * Batch helper: delete a page.
+     *
+     * Event parity with DELETE /pages/{route} (#23). This is the one that hurt
+     * most: the page was gone and no delete hook had ever run, so listeners
+     * never got to clean up after it and nothing was written to the audit log.
      */
-    private function batchDelete(PageInterface $page): void
+    private function batchDelete(PageInterface $page, string $route): void
     {
+        $this->fireEvent('onApiBeforePageDelete', ['page' => $page, 'method' => 'batch']);
+
         Folder::delete($page->path());
+
+        $this->fireAdminEvent('onAdminAfterDelete', ['object' => $page, 'page' => $page]);
+        $this->fireEvent('onApiPageDeleted', ['route' => $route, 'method' => 'batch']);
     }
 
     /**
@@ -2392,7 +2473,13 @@ class PagesController extends AbstractApiController
         return $value;
     }
 
-    private function batchCopy(PageInterface $page, array $options): void
+    /**
+     * Batch helper: copy a page. Returns the destination route so batch() can
+     * fire one created-event per copy after a single index rebuild — resolving
+     * each new page inside this loop would mean a full filesystem walk per
+     * item (#23).
+     */
+    private function batchCopy(PageInterface $page, array $options): string
     {
         $destParent = $options['destination'] ?? self::structuralParentRoute($page);
         $suffix = $options['suffix'] ?? '-copy';
@@ -2418,6 +2505,8 @@ class PagesController extends AbstractApiController
         }
 
         Folder::copy($page->path(), $destPath);
+
+        return ($destParent === '/' ? '' : rtrim($destParent, '/')) . '/' . $destSlug;
     }
 
     /**
