@@ -384,9 +384,12 @@ class UsersController extends AbstractApiController
      *   2. We re-run the declaration event and re-check the action's own
      *      `authorize` against the current user server-side, so a client can't
      *      invoke a button it was never authorized to see.
-     *   3. The plugin handler receives the target username and MUST re-check
-     *      permission against that specific target — this endpoint can't know a
-     *      plugin's per-target rules. The two checks are independent.
+     *   3. The controller-wide floor applies here exactly as it does to every
+     *      other per-user endpoint: a non-super caller may not act on a
+     *      super-admin target, whatever the handler intends to do with it.
+     *   4. On top of that floor the plugin handler MUST re-check its own
+     *      per-target rules — this endpoint can't know them. The checks are
+     *      independent.
      *
      * The handler returns a result via `$event['result']`; we sanitize it to a
      * fixed { status, message, url } shape. Any `url` is validated as a
@@ -405,6 +408,13 @@ class UsersController extends AbstractApiController
         // list itself serves. A non-existent target is a 404, never handed to a
         // plugin handler.
         $target = $this->loadUserOrFail($username);
+
+        // The same target guard every other per-user endpoint carries. This
+        // endpoint was added after the GHSA-p97c-g455-q447 sweep and missed it,
+        // which let an api.users.write manager drive a plugin action against the
+        // instance owner: the Login plugin's unlock action clears every rate limit
+        // standing against an account. (GHSA-985r-mpj8-5rqw)
+        $this->requireNotSuperTarget($currentUser, $target);
 
         $body = $this->getRequestBody($request);
         $id = isset($body['id']) && is_string($body['id']) ? trim($body['id']) : '';
@@ -1175,6 +1185,9 @@ class UsersController extends AbstractApiController
         if ($currentUser->username !== $username) {
             $this->requirePermission($request, 'api.users.write');
         }
+        // Sibling gap found alongside GHSA-985r-mpj8-5rqw: overwriting a
+        // super-admin's avatar re-saves their account from a lesser caller.
+        $this->requireNotSuperTarget($currentUser, $user);
 
         $uploadedFiles = $request->getUploadedFiles();
         $file = $uploadedFiles['avatar'] ?? $uploadedFiles['file'] ?? null;
@@ -1257,6 +1270,8 @@ class UsersController extends AbstractApiController
         if ($currentUser->username !== $username) {
             $this->requirePermission($request, 'api.users.write');
         }
+        // Sibling gap found alongside GHSA-985r-mpj8-5rqw.
+        $this->requireNotSuperTarget($currentUser, $user);
 
         // Delete avatar file(s)
         $avatar = $user->get('avatar');
