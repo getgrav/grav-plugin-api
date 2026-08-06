@@ -1144,10 +1144,12 @@ class PagesController extends AbstractApiController
         /** @var Language $language */
         $language = $this->grav['language'];
         $previousLang = $language->getActive() ?? false;
-        $language->setActive($lang);
 
         try {
-            $this->enablePages(true);
+            // The file was written explicitly above, so this switch only affects
+            // what gets echoed back — but without it the response (and the
+            // events below) carried the source-language page (#24).
+            $this->switchLanguage($lang);
             $newPage = $this->grav['pages']->find('/' . $route);
 
             $this->fireAdminEvent('onAdminAfterSave', ['object' => $newPage ?? $translatedPage, 'page' => $newPage ?? $translatedPage]);
@@ -1253,10 +1255,9 @@ class PagesController extends AbstractApiController
         /** @var Language $language */
         $language = $this->grav['language'];
         $previousLang = $language->getActive() ?? false;
-        $language->setActive($lang);
 
         try {
-            $this->enablePages(true);
+            $this->switchLanguage($lang);
             $newPage = $this->grav['pages']->find('/' . $route);
 
             $this->fireEvent('onApiPageLanguageAdopted', [
@@ -1348,8 +1349,7 @@ class PagesController extends AbstractApiController
 
         try {
             // Load the source page
-            $language->setActive($sourceLang);
-            $this->enablePages(true);
+            $this->switchLanguage($sourceLang);
             $sourcePage = $this->grav['pages']->find('/' . $route);
 
             if (!$sourcePage) {
@@ -1362,9 +1362,9 @@ class PagesController extends AbstractApiController
             $sourceContent = $sourcePage->rawMarkdown();
             $sourceHeader = $this->headerToArray($sourcePage->header());
 
-            // Load the target page
-            $language->setActive($targetLang);
-            $this->enablePages(true);
+            // Load the target page. The rebuild here is what makes the write
+            // land on the target translation rather than the source file (#24).
+            $this->switchLanguage($targetLang);
             $targetPage = $this->grav['pages']->find('/' . $route);
 
             if (!$targetPage) {
@@ -1458,8 +1458,7 @@ class PagesController extends AbstractApiController
 
         try {
             // Load source page
-            $language->setActive($sourceLang);
-            $this->enablePages(true);
+            $this->switchLanguage($sourceLang);
             $sourcePage = $this->grav['pages']->find('/' . $route);
 
             $sourceData = null;
@@ -1476,9 +1475,10 @@ class PagesController extends AbstractApiController
                 ];
             }
 
-            // Load target page
-            $language->setActive($targetLang);
-            $this->enablePages(true);
+            // Load target page. Without the extension-memo reset inside
+            // switchLanguage() this resolved back to the source file, so the
+            // two sides of the comparison were always identical (#24).
+            $this->switchLanguage($targetLang);
             $targetPage = $this->grav['pages']->find('/' . $route);
 
             $targetData = null;
@@ -2501,6 +2501,41 @@ class PagesController extends AbstractApiController
     }
 
     /**
+     * Make a language active for page lookups, and optionally rebuild the pages
+     * index against it.
+     *
+     * Every language switch must go through here. `setActive()` on its own is
+     * not enough: Grav memoizes the language→file-extension priority list the
+     * first time `Pages::recurse()` asks for it, under a key that does not
+     * include the language ("<ext>-default-0" in
+     * `Language::getFallbackPageExtensions()`). So a request that activates a
+     * second language gets a fresh filesystem walk resolved with the FIRST
+     * language's priorities, and every page binds to the wrong translation
+     * file — the target of a sync resolves to the source's file, so the write
+     * lands there and the translation is never touched (#24), and a compare
+     * returns the source content on both sides. Core spells out the required
+     * sequence in `Language::resetFallbackPageExtensions()`'s own docblock:
+     * setActive → reset → rebuild.
+     *
+     * This also matters beyond the request: the index built with the stale
+     * priorities is cached under the legitimate per-language cache id, so a
+     * poisoned build can leak into ordinary front-end requests for that
+     * language until the pages hash changes.
+     */
+    private function switchLanguage(string $lang, bool $rebuild = true): void
+    {
+        /** @var Language $language */
+        $language = $this->grav['language'];
+
+        $language->setActive($lang);
+        $language->resetFallbackPageExtensions();
+
+        if ($rebuild) {
+            $this->enablePages(true);
+        }
+    }
+
+    /**
      * Apply language from ?lang= query parameter or an explicit language code.
      * Returns the previous active language so it can be restored.
      */
@@ -2516,7 +2551,6 @@ class PagesController extends AbstractApiController
             $this->validateLanguageCode($lang);
 
             $changed = $language->getActive() !== $lang;
-            $language->setActive($lang);
 
             // Grav builds (and caches) the pages index for whichever language
             // is active at init time; enablePages()/init() are then no-ops. If
@@ -2526,11 +2560,7 @@ class PagesController extends AbstractApiController
             // language and a GET returns the wrong content. Force a rebuild
             // against the now-active language so route lookups target the
             // requested translation. See getgrav/grav-plugin-api#6.
-            if ($changed) {
-                $pages = $this->grav['pages'];
-                $pages->enablePages();
-                $pages->reset();
-            }
+            $this->switchLanguage($lang, $changed);
         }
 
         return $previousLang;
@@ -2538,6 +2568,11 @@ class PagesController extends AbstractApiController
 
     /**
      * Restore the previously active language.
+     *
+     * The pages index is deliberately left as the endpoint built it (rebuilding
+     * it again would cost a full filesystem walk for nothing), but the
+     * extension-priority memo is dropped so anything later in the request
+     * resolves page files against the language that is actually active again.
      */
     private function restoreLanguage(string|false $previousLang): void
     {
@@ -2546,9 +2581,7 @@ class PagesController extends AbstractApiController
             return;
         }
 
-        /** @var Language $language */
-        $language = $this->grav['language'];
-        $language->setActive($previousLang);
+        $this->switchLanguage($previousLang, false);
     }
 
     /**

@@ -7,6 +7,8 @@
     * Each page returned by the API now reports what the current user may do to it, so the admin can hide the actions they are not allowed.
 1. [](#bugfix)
     * Signing in to the admin with an external provider now works, instead of always coming back to the login screen with a state mismatch ([getgrav/grav-plugin-api#22](https://github.com/getgrav/grav-plugin-api/issues/22)).
+    * Syncing one language of a page onto another now writes to the translation being synced, rather than silently rewriting the language it was copied from ([getgrav/grav-plugin-api#24](https://github.com/getgrav/grav-plugin-api/issues/24)).
+    * Comparing two languages of a page now shows each language's own content, instead of showing the source language on both sides.
 
 # v1.0.15
 ## 08/03/2026
