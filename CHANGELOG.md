@@ -8,6 +8,7 @@
     * Bulk publish, unpublish, delete and copy, and copying a single page, now announce themselves to plugins exactly as the single-page endpoints do ([getgrav/grav-plugin-api#23](https://github.com/getgrav/grav-plugin-api/issues/23)).
     * Reorganising pages now reports each individual page move as well as the reorganise itself.
 1. [](#bugfix)
+    * [security] An account that can manage users but is not a super admin can no longer run a plugin's row action against a super admin, nor change that account's avatar ([GHSA-985r-mpj8-5rqw](https://github.com/getgrav/grav/security/advisories/GHSA-985r-mpj8-5rqw)).
     * Signing in to the admin with an external provider now works, instead of always coming back to the login screen with a state mismatch ([getgrav/grav-plugin-api#22](https://github.com/getgrav/grav-plugin-api/issues/22)).
     * Syncing one language of a page onto another now writes to the translation being synced, rather than silently rewriting the language it was copied from ([getgrav/grav-plugin-api#24](https://github.com/getgrav/grav-plugin-api/issues/24)).
     * Comparing two languages of a page now shows each language's own content, instead of showing the source language on both sides.
