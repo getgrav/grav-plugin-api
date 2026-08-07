@@ -2,6 +2,8 @@
 ## 08/07/2026
 
 1. [](#new)
+    * The list of page templates offered when adding a page can again be renamed and filtered by plugins, through the same two events the classic admin provided, so existing customisations keep working ([getgrav/grav-plugin-admin2#152](https://github.com/getgrav/grav-plugin-admin2/issues/152)).
+    * Templates can also still be hidden through the `hide_page_types` and `hide_modular_page_types` settings, as in the classic admin.
     * Page permissions set in a page's Security tab or frontmatter are now enforced, so a group can be granted or denied editing on individual pages regardless of its site-wide page permissions ([getgrav/grav-plugin-admin2#150](https://github.com/getgrav/grav-plugin-admin2/issues/150)).
     * Those permissions are inherited by child pages, and also cover page media, batch actions and reorganising.
     * Each page returned by the API now reports what the current user may do to it, so the admin can hide the actions they are not allowed.

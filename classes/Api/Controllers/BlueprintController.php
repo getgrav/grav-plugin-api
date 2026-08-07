@@ -95,7 +95,10 @@ class BlueprintController extends AbstractApiController
                 // default when it's absent, so a modular page doesn't get the
                 // standard list and an empty template selector (admin2#41).
                 $type = $query['type'] ?? ($method === 'pagesModularTypes' ? 'modular' : 'standard');
-                return ApiResponse::create($this->normalizeOptions(Pages::pageTypes($type)));
+
+                return ApiResponse::create($this->normalizeOptions(
+                    $this->filterPageTypes(Pages::pageTypes($type), $type === 'modular')
+                ));
             }
 
             throw new NotFoundException("Callable '{$callable}' not found.");
@@ -113,7 +116,123 @@ class BlueprintController extends AbstractApiController
             return ApiResponse::create([]);
         }
 
+        // Core's Pages::pageTypes() is a plain lookup, so the customisation
+        // hooks have to be applied here. Classic admin's own pagesTypes() and
+        // pagesModularTypes() already fire them, so those are left alone rather
+        // than being filtered twice.
+        if ($method === 'pageTypes') {
+            $result = $this->filterPageTypes($result, ($query['type'] ?? 'standard') === 'modular');
+        }
+
         return ApiResponse::create($this->normalizeOptions($result));
+    }
+
+    /**
+     * Apply the admin's template-hiding configuration, then let plugins rename
+     * or remove entries before the list is returned.
+     *
+     * Classic admin exposed the template list through Admin::pagesTypes() and
+     * Admin::pagesModularTypes(), and plugins have customised it for years by
+     * subscribing to `onAdminPageTypes` / `onAdminModularPageTypes` and editing
+     * `$event['types']`. The new admin builds the list here instead, so it
+     * fires the same two events with the same payload and honours the same two
+     * configuration keys, and an existing handler keeps working unchanged.
+     *
+     * @param array<string|int, mixed> $types
+     * @return array<string|int, mixed>
+     */
+    private function filterPageTypes(array $types, bool $modular): array
+    {
+        $key = $modular ? 'plugins.admin.hide_modular_page_types' : 'plugins.admin.hide_page_types';
+
+        // Exact key first, otherwise treat the entry as a pattern — the same
+        // order and semantics as classic admin, so existing configuration
+        // continues to behave identically.
+        foreach ((array) $this->grav['config']->get($key) as $hide) {
+            $hide = (string) $hide;
+            if (isset($types[$hide])) {
+                unset($types[$hide]);
+                continue;
+            }
+            foreach (array_keys($types) as $type) {
+                if (preg_match('#' . $hide . '#i', (string) $type)) {
+                    unset($types[$type]);
+                }
+            }
+        }
+
+        $name = $modular ? 'onAdminModularPageTypes' : 'onAdminPageTypes';
+        $event = new Event(['types' => &$types]);
+
+        $this->grav->fireEvent($name, $event);
+        $this->notifyUnsubscribedPageTypeHandlers($name, $event);
+
+        // Classic passes `types` by reference, and handlers commonly assign a
+        // rebuilt array back to `$event['types']` rather than mutating in
+        // place. Read it back so both styles are honoured.
+        $updated = $event['types'] ?? $types;
+
+        return is_array($updated) ? $updated : $types;
+    }
+
+    /**
+     * Call page-type handlers belonging to plugins that never got the chance to
+     * subscribe.
+     *
+     * Plugins written for classic admin register these two handlers inside an
+     * `isAdmin()` check in onPluginsInitialized. `isAdmin()` is simply
+     * `isset($grav['admin'])`, and during an API request the admin proxy is not
+     * registered until routing, which happens after every plugin has already
+     * initialised. Those plugins therefore never subscribed, and firing the
+     * event alone would reach nobody — the customisation would silently stop
+     * working the moment a site moved to the new admin.
+     *
+     * Rather than register the admin proxy earlier, which would put every API
+     * request into admin scope before it has been authenticated, this bridges
+     * only these two events: any enabled plugin exposing a matching method that
+     * is not already listening gets called directly. Plugins that did subscribe
+     * are skipped, so nothing runs twice.
+     */
+    private function notifyUnsubscribedPageTypeHandlers(string $name, Event $event): void
+    {
+        $plugins = $this->grav['plugins'] ?? null;
+        if (!$plugins) {
+            return;
+        }
+
+        $subscribed = [];
+        foreach ($this->grav['events']->getListeners($name) as $listener) {
+            if (is_array($listener) && isset($listener[0]) && is_object($listener[0])) {
+                $subscribed[spl_object_id($listener[0])] = true;
+            }
+        }
+
+        foreach ($plugins as $plugin) {
+            if (!is_object($plugin)
+                || isset($subscribed[spl_object_id($plugin)])
+                || !method_exists($plugin, $name)) {
+                continue;
+            }
+
+            // Disabled plugins are still instantiated in the collection, and
+            // Plugins::init() skips them when subscribing. Do the same here.
+            $slug = $plugin->name ?? null;
+            if (!$slug || !$this->grav['config']->get("plugins.{$slug}.enabled", false)) {
+                continue;
+            }
+
+            try {
+                $plugin->{$name}($event);
+            } catch (Throwable $e) {
+                // One misbehaving plugin must not take the template list down.
+                $this->grav['log']->warning(sprintf(
+                    '[api] %s handler in %s failed: %s',
+                    $name,
+                    get_class($plugin),
+                    $e->getMessage()
+                ));
+            }
+        }
     }
 
     /**
@@ -153,7 +272,10 @@ class BlueprintController extends AbstractApiController
         $modular = isset($params['modular'])
             && in_array(strtolower((string) $params['modular']), ['1', 'true', 'yes'], true);
 
-        $types = $modular ? Pages::modularTypes() : Pages::types();
+        $types = $this->filterPageTypes(
+            $modular ? Pages::modularTypes() : Pages::types(),
+            $modular
+        );
         $result = [];
 
         foreach ($types as $type => $label) {
