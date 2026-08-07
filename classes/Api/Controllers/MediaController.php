@@ -68,7 +68,7 @@ class MediaController extends AbstractApiController
     {
         $this->requirePermission($request, 'api.media.read');
 
-        $page = $this->findPageOrFail($request);
+        $page = $this->findPageOrFail($request, 'read');
         $pagePath = $page->path();
 
         // Create fresh Media object to avoid stale page cache
@@ -89,7 +89,7 @@ class MediaController extends AbstractApiController
     {
         $this->requirePermission($request, 'api.media.write');
 
-        $page = $this->findPageOrFail($request);
+        $page = $this->findPageOrFail($request, 'update');
         $pagePath = $page->path();
 
         if (!$pagePath || !is_dir($pagePath)) {
@@ -150,7 +150,7 @@ class MediaController extends AbstractApiController
     {
         $this->requirePermission($request, 'api.media.write');
 
-        $page = $this->findPageOrFail($request);
+        $page = $this->findPageOrFail($request, 'update');
         $filename = $this->getSafeFilename($request);
         $pagePath = $page->path();
 
@@ -204,7 +204,7 @@ class MediaController extends AbstractApiController
     {
         $this->requirePermission($request, 'api.media.read');
 
-        $page = $this->findPageOrFail($request);
+        $page = $this->findPageOrFail($request, 'read');
         $filename = $this->getSafeFilename($request);
         $filePath = $this->requirePageMediaFile($page->path(), $filename);
 
@@ -220,7 +220,7 @@ class MediaController extends AbstractApiController
     {
         $this->requirePermission($request, 'api.media.write');
 
-        $page = $this->findPageOrFail($request);
+        $page = $this->findPageOrFail($request, 'update');
         $filename = $this->getSafeFilename($request);
         $filePath = $this->requirePageMediaFile($page->path(), $filename);
 
@@ -248,7 +248,7 @@ class MediaController extends AbstractApiController
     {
         $this->requirePermission($request, 'api.media.write');
 
-        $page = $this->findPageOrFail($request);
+        $page = $this->findPageOrFail($request, 'update');
         $filename = $this->getSafeFilename($request);
         $filePath = $this->requirePageMediaFile($page->path(), $filename);
 
@@ -1056,7 +1056,7 @@ class MediaController extends AbstractApiController
     /**
      * Resolve a page from the route parameter or throw a 404.
      */
-    private function findPageOrFail(ServerRequestInterface $request): PageInterface
+    private function findPageOrFail(ServerRequestInterface $request, ?string $pageAction = null): PageInterface
     {
         $route = $this->getRouteParam($request, 'route');
 
@@ -1068,6 +1068,15 @@ class MediaController extends AbstractApiController
 
         if (!$page) {
             throw new NotFoundException("Page '/{$route}' not found.");
+        }
+
+        // A page's media lives inside the page, so rules in its frontmatter
+        // apply here too: a page nobody may edit is a page whose attachments
+        // nobody may replace (getgrav/grav-plugin-admin2#150). This only takes
+        // authority away — permission to touch media still comes from
+        // `api.media.*`, never from a page-level grant.
+        if ($pageAction !== null) {
+            $this->assertPageNotDenied($request, $page, $pageAction);
         }
 
         return $page;

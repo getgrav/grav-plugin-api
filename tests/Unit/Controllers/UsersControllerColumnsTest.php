@@ -67,7 +67,6 @@ class UsersControllerColumnsTest extends TestCase
     private function assembleColumns(UsersController $c, array $contributed, UserInterface $user): array
     {
         $m = new ReflectionMethod($c, 'assembleColumns');
-        $m->setAccessible(true);
         return $m->invoke($c, new Event(['columns' => $contributed]), $user, $this->unscopedRequest($user));
     }
 
@@ -93,7 +92,6 @@ class UsersControllerColumnsTest extends TestCase
     private function sanitize(UsersController $c, array $extra): array
     {
         $m = new ReflectionMethod($c, 'sanitizeColumnValues');
-        $m->setAccessible(true);
         return $m->invoke($c, $extra);
     }
 
@@ -104,7 +102,6 @@ class UsersControllerColumnsTest extends TestCase
     private function applyColumnData(UsersController $c, array $data, UserInterface $user): array
     {
         $m = new ReflectionMethod($c, 'applyColumnData');
-        $m->setAccessible(true);
         return $m->invoke($c, $data, $user);
     }
 

@@ -71,6 +71,12 @@ class ApiRouter extends ProcessorBase
     /** @var array<int,string>|null Cached public-route exact paths after plugin contributions. */
     protected ?array $publicExact = null;
 
+    /**
+     * Whether this request is one of the few endpoints that legitimately own PHP
+     * session state (the SSO browser hand-off). Set per request in process().
+     */
+    protected bool $statefulSession = false;
+
 
     public function __construct(Grav $container, Config $config)
     {
@@ -108,9 +114,17 @@ class ApiRouter extends ProcessorBase
      * parallel GETs (all sharing one session cookie) don't serialize on PHP's
      * exclusive per-session file lock. Only GET/HEAD — mutations may still queue
      * flash messages or rotate the session — and skippable via config.
+     *
+     * Stateful endpoints are exempt: closing the session here commits it, and a
+     * closed session silently drops every later write (Session::reopen() only
+     * revives a read-only start), which is what left the SSO CSRF state
+     * unpersisted and failed every admin SSO login (#22).
      */
     protected function closeSessionEarly(string $method): void
     {
+        if ($this->statefulSession) {
+            return;
+        }
         if ($method !== 'GET' && $method !== 'HEAD') {
             return;
         }
@@ -216,6 +230,18 @@ class ApiRouter extends ProcessorBase
                 }
             }
 
+            // Route path (base + version prefix stripped), computed once and
+            // shared by the session-statefulness check, the demo gate and
+            // dispatch so they all classify identically.
+            $apiRoutePath = $this->resolveApiRoutePath($request);
+
+            // A handful of endpoints are stateful by nature: the SSO hand-off
+            // parks its CSRF state and return target in the PHP session between
+            // two browser navigations. They must keep the session open for the
+            // whole request AND keep its cookie, so flag them before anything
+            // downstream closes or strips either (#22).
+            $this->statefulSession = $this->isStatefulSessionRoute($apiRoutePath);
+
             // When the caller presents a bearer token (the admin SPA always
             // does), authentication is stateless and never reads the session —
             // so release Grav's exclusive session lock BEFORE the comparatively
@@ -264,10 +290,6 @@ class ApiRouter extends ProcessorBase
             // committing the session now lets those parallel reads run
             // concurrently instead of queuing (admin2#65).
             $this->closeSessionEarly($request->getMethod());
-
-            // Route path (base + version prefix stripped), computed once and
-            // shared by the demo gate and dispatch so they classify identically.
-            $apiRoutePath = $this->resolveApiRoutePath($request);
 
             // Demo mode: block writes from demo accounts (except the writable
             // allowlist and public /auth routes). Runs before rate limiting and
@@ -362,9 +384,17 @@ class ApiRouter extends ProcessorBase
      * visitor, or an admin tab — and Grav is just refreshing it, so leave it
      * untouched (an authenticated request carrying the session cookie does not
      * rotate or clear it).
+     *
+     * Stateful endpoints are exempt: the SSO hand-off deliberately parks state
+     * in the session and needs the browser to come back to the callback holding
+     * the key to it. Stripping the cookie there is what made a first-time SSO
+     * login (no prior front-end session) fail with `sso_state_mismatch` (#22).
      */
     protected function protectSharedSession(): void
     {
+        if ($this->statefulSession) {
+            return;
+        }
         if (!$this->config->get('plugins.api.protect_frontend_session', true)) {
             return;
         }
@@ -461,6 +491,22 @@ class ApiRouter extends ProcessorBase
         }
 
         return $routePath;
+    }
+
+    /**
+     * Whether this route owns PHP session state for the length of a browser
+     * round-trip, rather than being stateless like the rest of the API.
+     *
+     * Only the SSO hand-off qualifies: `start` writes the provider's CSRF state
+     * (and the SPA return target) into the session and 302s to the provider,
+     * and `callback` reads them back when the browser returns. Everything else
+     * under `/auth/sso/` is stateless — `providers` is a plain read and
+     * `exchange` trades a cache-backed one-time code — so they stay on the
+     * default path and keep their session lock released early.
+     */
+    protected function isStatefulSessionRoute(string $routePath): bool
+    {
+        return (bool) preg_match('#^/auth/sso/[^/]+/(start|callback)$#', $routePath);
     }
 
     protected function dispatch(ServerRequestInterface $request, string $routePath): ResponseInterface

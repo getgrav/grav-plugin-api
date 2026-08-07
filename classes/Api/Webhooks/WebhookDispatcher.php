@@ -9,6 +9,23 @@ use Grav\Common\HTTP\Response;
 class WebhookDispatcher
 {
     /**
+     * Ranges that PHP's FILTER_FLAG_NO_PRIV_RANGE / NO_RES_RANGE accept as
+     * public but that are not globally routable, and commonly carry internal
+     * infrastructure. Checked on top of those flags, never instead of them.
+     */
+    private const NON_ROUTABLE_RANGES = [
+        '100.64.0.0/10',    // Carrier-grade NAT (RFC 6598); also Tailscale
+        '192.0.0.0/24',     // IETF protocol assignments (RFC 6890)
+        '198.18.0.0/15',    // Benchmarking (RFC 2544)
+        '192.0.2.0/24',     // TEST-NET-1 documentation (RFC 5737)
+        '198.51.100.0/24',  // TEST-NET-2 documentation (RFC 5737)
+        '203.0.113.0/24',   // TEST-NET-3 documentation (RFC 5737)
+        '64:ff9b::/96',     // NAT64 well-known prefix (RFC 6052)
+        '64:ff9b:1::/48',   // NAT64 local-use prefix (RFC 8215)
+        '2001:db8::/32',    // IPv6 documentation (RFC 3849)
+    ];
+
+    /**
      * Map of internal event names to webhook event names.
      */
     private const EVENT_MAP = [
@@ -167,9 +184,44 @@ class WebhookDispatcher
         // Re-validate at dispatch time (SSRF guard, GHSA-58q8): a host that
         // passed create/update validation could rebind to an internal address
         // before delivery. Fail closed on anything non-public.
-        $host = (string) parse_url($url, PHP_URL_HOST);
-        if ($host === '' || !self::hostIsPublic($host)) {
+        //
+        // Resolve once and pin the answer onto the handle (GHSA-hq2v): checking
+        // a hostname and then handing cURL the same hostname leaves cURL to run
+        // its own second lookup, so a low-TTL record can answer public for the
+        // check and private for the connection moments later. Pinning replaces
+        // only the address lookup — the Host header, TLS SNI and certificate
+        // verification still use the hostname from the URL, so virtual hosting
+        // and HTTPS behave exactly as before.
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+        if ($host === '') {
             throw new \RuntimeException('Webhook URL targets a private or reserved address.');
+        }
+
+        $resolve = [];
+
+        if (filter_var(trim($host, '[]'), FILTER_VALIDATE_IP)) {
+            // A literal IP means cURL performs no lookup at all, so there is no
+            // window to close and nothing to pin — the check is final.
+            if (!self::hostIsPublic($host)) {
+                throw new \RuntimeException('Webhook URL targets a private or reserved address.');
+            }
+        } else {
+            $ips = self::resolvePublicIps($host);
+            if ($ips === []) {
+                throw new \RuntimeException('Webhook URL targets a private or reserved address.');
+            }
+
+            $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
+            $port = (int) (parse_url($url, PHP_URL_PORT) ?: ($scheme === 'https' ? 443 : 80));
+
+            // "host:port:addr[,addr...]". Every validated address is kept so a
+            // round-robin target can still fail over; IPv6 needs brackets.
+            $addresses = array_map(
+                static fn (string $ip): string => str_contains($ip, ':') ? "[{$ip}]" : $ip,
+                $ips
+            );
+
+            $resolve[] = $host . ':' . $port . ':' . implode(',', $addresses);
         }
 
         $ch = curl_init($url);
@@ -196,6 +248,13 @@ class WebhookDispatcher
             CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
             CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
         ]);
+
+        // Note: the pin covers the original host and port only. It is also
+        // ignored when a proxy is configured, so keep redirects off and add no
+        // proxy here without revisiting this guard.
+        if ($resolve !== []) {
+            curl_setopt($ch, CURLOPT_RESOLVE, $resolve);
+        }
 
         $responseBody = curl_exec($ch);
         $statusCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -233,8 +292,25 @@ class WebhookDispatcher
             return self::ipIsPublic($host);
         }
 
-        // Resolve the hostname (A + AAAA) and reject if any address — or the
-        // lookup itself — fails the public-range test.
+        return self::resolvePublicIps($host) !== [];
+    }
+
+    /**
+     * Resolve a hostname (A + AAAA) and return its addresses only when every one
+     * of them is public and routable. Returns an empty array when the lookup
+     * fails or any address falls in a private or reserved range, so callers fail
+     * closed. The dispatcher pins these addresses onto the cURL handle so the
+     * connection cannot land somewhere the check never saw (GHSA-hq2v).
+     *
+     * @return array<int, string>
+     */
+    private static function resolvePublicIps(string $host): array
+    {
+        $host = trim($host, '[]');
+        if ($host === '') {
+            return [];
+        }
+
         $ips = [];
 
         $a = @gethostbynamel($host);
@@ -251,17 +327,18 @@ class WebhookDispatcher
             }
         }
 
+        $ips = array_values(array_unique($ips));
         if ($ips === []) {
-            return false;
+            return [];
         }
 
         foreach ($ips as $ip) {
             if (!self::ipIsPublic($ip)) {
-                return false;
+                return [];
             }
         }
 
-        return true;
+        return $ips;
     }
 
     /**
@@ -270,11 +347,51 @@ class WebhookDispatcher
      */
     private static function ipIsPublic(string $ip): bool
     {
-        return filter_var(
-            $ip,
-            FILTER_VALIDATE_IP,
-            FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE,
-        ) !== false;
+        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
+            return false;
+        }
+
+        // PHP's reserved-range flags miss several ranges that are not globally
+        // routable and routinely carry internal infrastructure. Reaching these
+        // needs no DNS trickery at all, just an ordinary record pointing at one.
+        foreach (self::NON_ROUTABLE_RANGES as $range) {
+            if (self::ipInCidr($ip, $range)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Whether an IP falls inside a CIDR block. Handles IPv4 and IPv6 by
+     * comparing the leading prefix bits of the packed addresses.
+     */
+    private static function ipInCidr(string $ip, string $cidr): bool
+    {
+        [$subnet, $bits] = explode('/', $cidr, 2);
+
+        $ipBin = @inet_pton($ip);
+        $subnetBin = @inet_pton($subnet);
+        if ($ipBin === false || $subnetBin === false || strlen($ipBin) !== strlen($subnetBin)) {
+            return false;
+        }
+
+        $bits = (int) $bits;
+        $whole = intdiv($bits, 8);
+        $remainder = $bits % 8;
+
+        if ($whole > 0 && strncmp($ipBin, $subnetBin, $whole) !== 0) {
+            return false;
+        }
+
+        if ($remainder === 0) {
+            return true;
+        }
+
+        $mask = ~((1 << (8 - $remainder)) - 1) & 0xFF;
+
+        return (ord($ipBin[$whole]) & $mask) === (ord($subnetBin[$whole]) & $mask);
     }
 
     /**

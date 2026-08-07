@@ -242,12 +242,23 @@ final class TestHelper
     /**
      * Create a Grav container instance with given services.
      *
-     * Returns the Grav singleton (reset between calls).
+     * Returns the Grav singleton (reset between calls). A minimal 'config'
+     * service that answers every get() with the caller's default is always
+     * present unless the test supplies its own, so plugin code may read
+     * config anywhere without the container blowing up mid-test.
      */
     public static function createMockGrav(array $services = []): Grav
     {
         Grav::resetInstance();
         $grav = Grav::instance();
+        if (!array_key_exists('config', $services)) {
+            $services['config'] = new class {
+                public function get(string $key, mixed $default = null): mixed
+                {
+                    return $default;
+                }
+            };
+        }
         foreach ($services as $key => $value) {
             $grav[$key] = $value;
         }

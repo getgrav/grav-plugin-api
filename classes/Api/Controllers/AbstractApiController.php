@@ -16,6 +16,7 @@ use Grav\Plugin\Api\Exceptions\DemoModeException;
 use Grav\Plugin\Api\Exceptions\ForbiddenException;
 use Grav\Plugin\Api\Exceptions\UnauthorizedException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
+use Grav\Plugin\Api\PageAcl;
 use Grav\Plugin\Api\PermissionResolver;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Grav\Plugin\Api\Serializers\UserSerializer;
@@ -317,6 +318,169 @@ abstract class AbstractApiController
     protected function getPermissionResolver(): PermissionResolver
     {
         return $this->permissionResolver ??= new PermissionResolver($this->grav['permissions']);
+    }
+
+    private ?PageAcl $pageAcl = null;
+
+    protected function getPageAcl(): PageAcl
+    {
+        return $this->pageAcl ??= new PageAcl();
+    }
+
+    /**
+     * Authorize an action against a single page, honoring the rules in its own
+     * `header.permissions` frontmatter (getgrav/grav-plugin-admin2#150).
+     *
+     * The page's verdict, when it has one, replaces the account-wide
+     * `api.pages.*` check in BOTH directions — that is the whole point of a
+     * page-level rule:
+     *
+     *   - deny  → refused even for an account that holds `api.pages.write`
+     *   - grant → allowed for an account that does not, so "this group may edit
+     *             these pages and nothing else" works without handing out
+     *             site-wide write access
+     *
+     * What a page-level grant can never do is widen a credential beyond its own
+     * limits: the API-key scope cap, the demo write-lock and the `api.access`
+     * gate still run, exactly as requirePermission() applies them. Super admins
+     * are unaffected by page rules, matching every other gate in this plugin.
+     *
+     * @param object|null $page Page being acted on. Anything that isn't a real
+     *                          PageInterface (a null parent, a test double)
+     *                          carries no frontmatter and falls through to the
+     *                          plain permission check.
+     * @param string $action  crudl action: create, read, update, delete, publish, list
+     * @param string $permission Account-wide permission this action normally needs.
+     */
+    protected function authorizePageAction(
+        ServerRequestInterface $request,
+        ?object $page,
+        string $action,
+        string $permission,
+    ): void {
+        $user = $this->getUser($request);
+
+        // Super short-circuits inside requirePermission(), but only AFTER the
+        // scope cap and demo lock — so route supers through it rather than
+        // returning early here.
+        if (!$page instanceof PageInterface || $this->isSuperAdmin($user)) {
+            $this->requirePermission($request, $permission);
+            return;
+        }
+
+        $verdict = $this->getPageAcl()->authorize($page, $user, $action);
+
+        if ($verdict === false) {
+            throw new ForbiddenException(
+                "Page permissions deny '{$action}' on this page."
+            );
+        }
+
+        if ($verdict !== true) {
+            $this->requirePermission($request, $permission);
+            return;
+        }
+
+        // Page-level grant. It stands in for the account's `api.pages.*`
+        // permission and for nothing else.
+        $scopes = $request->getAttribute('api_key_scopes');
+        if (is_array($scopes) && $scopes !== [] && !$this->scopesPermit($scopes, $permission)) {
+            throw new ForbiddenException("API key is not authorized for: {$permission}");
+        }
+
+        if ($this->isDemoUser($request) && $this->demoWriteBlocked($permission)) {
+            throw new DemoModeException();
+        }
+
+        if (!$this->hasPermission($user, 'api.access')) {
+            throw new ForbiddenException('API access is not enabled for this user.');
+        }
+    }
+
+    /**
+     * Refuse an action that a page's own frontmatter explicitly denies, without
+     * letting a page-level grant stand in for the account permission.
+     *
+     * Used by bulk endpoints and by page-media writes, where the caller has
+     * already cleared the account-wide gate: those paths honor a page deny but
+     * don't try to derive authority from a page grant.
+     *
+     * Several actions may be listed, in order of specificity — the first one the
+     * page has an opinion about decides. `('publish', 'update')` reads as "a
+     * publish rule if there is one, otherwise the update rule", which is how a
+     * page that simply denies editing also stops a bulk publish.
+     */
+    protected function assertPageNotDenied(
+        ServerRequestInterface $request,
+        object $page,
+        string ...$actions,
+    ): void {
+        $user = $this->getUser($request);
+        if (!$page instanceof PageInterface || $this->isSuperAdmin($user)) {
+            return;
+        }
+
+        foreach ($actions as $action) {
+            $verdict = $this->getPageAcl()->authorize($page, $user, $action);
+            if ($verdict === null) {
+                continue;
+            }
+            if ($verdict === false) {
+                throw new ForbiddenException("Page permissions deny '{$action}' on this page.");
+            }
+
+            return;
+        }
+    }
+
+    /**
+     * The caller's effective per-page capabilities, for clients that need to
+     * show or hide edit/delete affordances. Keys are PageAcl::ACTIONS.
+     *
+     * @return array<string, bool>
+     */
+    protected function pageCapabilities(ServerRequestInterface $request, PageInterface $page): array
+    {
+        $user = $this->getUser($request);
+
+        if ($this->isSuperWithinScope($request)) {
+            return array_fill_keys(PageAcl::ACTIONS, true);
+        }
+
+        if (!$this->hasPermission($user, 'api.access')) {
+            return array_fill_keys(PageAcl::ACTIONS, false);
+        }
+
+        $read = $this->hasPermissionWithinScope($request, 'api.pages.read');
+        $write = $this->hasPermissionWithinScope($request, 'api.pages.write')
+            && !($this->isDemoUser($request) && $this->demoWriteBlocked('api.pages.write'));
+
+        $base = [
+            'create' => $write,
+            'read' => $read,
+            'update' => $write,
+            'delete' => $write,
+            'publish' => $write,
+            'list' => $read,
+        ];
+
+        $capabilities = $this->getPageAcl()->capabilities($page, $user, $base);
+
+        // A page grant never escapes the credential's own limits (see
+        // authorizePageAction()), so cap writes the same way here — otherwise
+        // the UI offers a Save button the server would reject.
+        if (!$this->scopeAllows($request, 'api.pages.write')
+            || ($this->isDemoUser($request) && $this->demoWriteBlocked('api.pages.write'))) {
+            foreach (['create', 'update', 'delete', 'publish'] as $action) {
+                $capabilities[$action] = false;
+            }
+        }
+        if (!$this->scopeAllows($request, 'api.pages.read')) {
+            $capabilities['read'] = false;
+            $capabilities['list'] = false;
+        }
+
+        return $capabilities;
     }
 
     /**

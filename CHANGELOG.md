@@ -1,3 +1,25 @@
+# v1.0.16
+## 08/07/2026
+
+1. [](#new)
+    * The list of page templates offered when adding a page can again be renamed and filtered by plugins, through the same two events the classic admin provided, so existing customisations keep working ([getgrav/grav-plugin-admin2#152](https://github.com/getgrav/grav-plugin-admin2/issues/152)).
+    * Templates can also still be hidden through the `hide_page_types` and `hide_modular_page_types` settings, as in the classic admin.
+    * Page permissions set in a page's Security tab or frontmatter are now enforced, so a group can be granted or denied editing on individual pages regardless of its site-wide page permissions ([getgrav/grav-plugin-admin2#150](https://github.com/getgrav/grav-plugin-admin2/issues/150)).
+    * Those permissions are inherited by child pages, and also cover page media, batch actions and reorganising.
+    * Each page returned by the API now reports what the current user may do to it, so the admin can hide the actions they are not allowed.
+    * Bulk publish, unpublish, delete and copy, and copying a single page, now announce themselves to plugins exactly as the single-page endpoints do ([getgrav/grav-plugin-api#23](https://github.com/getgrav/grav-plugin-api/issues/23)).
+    * Reorganising pages now reports each individual page move as well as the reorganise itself.
+1. [](#bugfix)
+    * [security] An account that can manage users but is not a super admin can no longer run a plugin's row action against a super admin, nor change that account's avatar ([GHSA-985r-mpj8-5rqw](https://github.com/getgrav/grav/security/advisories/GHSA-985r-mpj8-5rqw)).
+    * [security] A webhook is now delivered to the exact address that was checked, so a target whose DNS answer changes between the check and the delivery can no longer redirect it at an internal service ([GHSA-hq2v-cgw4-fw2w](https://github.com/getgrav/grav/security/advisories/GHSA-hq2v-cgw4-fw2w)).
+    * [security] Webhook targets in carrier-grade NAT, benchmarking, NAT64 and documentation address ranges are now rejected, as these are not reachable from the public internet but can reach internal services.
+    * Signing in to the admin with an external provider now works, instead of always coming back to the login screen with a state mismatch ([getgrav/grav-plugin-api#22](https://github.com/getgrav/grav-plugin-api/issues/22)).
+    * Syncing one language of a page onto another now writes to the translation being synced, rather than silently rewriting the language it was copied from ([getgrav/grav-plugin-api#24](https://github.com/getgrav/grav-plugin-api/issues/24)).
+    * Comparing two languages of a page now shows each language's own content, instead of showing the source language on both sides.
+    * Bulk actions are now recorded in the audit trail and delivered to webhooks, where before they left no trace at all.
+    * A bulk copy now tells the admin to refresh the newly created page instead of the page it was copied from.
+    * Generating media thumbnails no longer raises deprecation notices on PHP 8.5.
+
 # v1.0.15
 ## 08/03/2026
 

@@ -16,10 +16,13 @@ require_once __DIR__ . '/../vendor/autoload.php';
 $findGravAutoloader = static function (): ?string {
     $gravRoot = getenv('GRAV_ROOT');
 
-    // Explicit override and the in-install relative path come first.
+    // Explicit override and the in-install relative path come first, then a
+    // sibling `grav` core checkout next to the plugin's source repo (the usual
+    // dev layout: ~/Projects/grav/grav-plugin-api beside ~/Projects/grav/grav).
     $direct = [
         $gravRoot ? rtrim($gravRoot, '/') . '/vendor/autoload.php' : null,
         __DIR__ . '/../../../../vendor/autoload.php',
+        __DIR__ . '/../../grav/vendor/autoload.php',
     ];
     foreach ($direct as $candidate) {
         if ($candidate && is_file($candidate)) {

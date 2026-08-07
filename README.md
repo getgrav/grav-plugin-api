@@ -848,6 +848,34 @@ The API uses Grav's built-in ACL system. Available permissions:
 
 Users with `admin.super` bypass all permission checks.
 
+### Page-level permissions
+
+A page can carry its own rules in frontmatter, and they override the account-wide `api.pages.*` permissions for that page and everything below it:
+
+```yaml
+---
+title: Company Handbook
+permissions:
+    inherit: true            # default — fall back to the parent page's rules
+    authors: [jane]          # who counts as an author of this page
+    groups:
+        editors: 'ud'        # or { update: true, delete: false }
+        authors: 'crud'
+        defaults: '-d'       # applies to every signed-in user
+---
+```
+
+Letters map to `create`, `read`, `update`, `delete`, `publish`, `list`; a `-` applies to the letter right after it, so `'-ud'` denies update and still allows delete.
+
+The rules work in both directions:
+
+* a **grant** lets a group act on that page without holding the site-wide permission — `api.pages.read` plus a page granting `ud` is enough to save and delete that page (and its children, unless they set `inherit: false`)
+* a **deny** stops someone who does hold `api.pages.write`, including on page media, batch operations and reorganize
+
+Resolution follows Grav's Flex pages: a matching group that denies wins outright, otherwise a matching group that allows wins, otherwise the page has no opinion and the account permission decides — walking up to the parent unless `inherit: false`. Super admins are not affected by page rules, and a page grant never widens an API key beyond its own scopes or lifts the demo write-lock.
+
+Every page record returned by the API carries a `permissions` object with the caller's effective `create` / `read` / `update` / `delete` / `publish` / `list` for that page, which is what Admin-Next uses to show or hide the Save, Copy and Delete buttons.
+
 ## CLI Commands
 
 Manage API keys from the command line:
