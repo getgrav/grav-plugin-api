@@ -14,6 +14,7 @@
     * Comparing two languages of a page now shows each language's own content, instead of showing the source language on both sides.
     * Bulk actions are now recorded in the audit trail and delivered to webhooks, where before they left no trace at all.
     * A bulk copy now tells the admin to refresh the newly created page instead of the page it was copied from.
+    * Generating media thumbnails no longer raises deprecation notices on PHP 8.5.
 
 # v1.0.15
 ## 08/03/2026

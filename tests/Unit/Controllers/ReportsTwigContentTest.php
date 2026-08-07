@@ -39,7 +39,6 @@ class ReportsTwigContentTest extends TestCase
     private function invoke(ReportsController $c, string $method, array $args): mixed
     {
         $ref = new \ReflectionMethod($c, $method);
-        $ref->setAccessible(true);
         return $ref->invoke($c, ...$args);
     }
 
@@ -145,7 +144,6 @@ class ReportsTwigContentTest extends TestCase
         // ConfigControllerPrivilegedScopeTest.)
         $controller = $this->controller();
         $isSuper = new \ReflectionMethod($controller, 'isSuperAdmin');
-        $isSuper->setAccessible(true);
 
         self::assertFalse($isSuper->invoke($controller, $this->nonSuper()));
         self::assertTrue($isSuper->invoke($controller, $this->super()));

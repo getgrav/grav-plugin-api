@@ -146,7 +146,6 @@ class ThumbnailService
 
         $thumb = imagecreatetruecolor($newWidth, $newHeight);
         if (!$thumb) {
-            imagedestroy($sourceImage);
             return null;
         }
 
@@ -159,7 +158,6 @@ class ThumbnailService
         }
 
         imagecopyresampled($thumb, $sourceImage, 0, 0, 0, 0, $newWidth, $newHeight, $origWidth, $origHeight);
-        imagedestroy($sourceImage);
 
         return $this->saveImage($thumb, $cachePath, $mime, $newWidth, $newHeight);
     }
@@ -191,8 +189,6 @@ class ThumbnailService
             'image/avif' => function_exists('imageavif') ? imageavif($image, $cachePath, $this->quality) : false,
             default => imagejpeg($image, $cachePath, $this->quality),
         };
-
-        imagedestroy($image);
 
         return $result ? $cachePath : null;
     }

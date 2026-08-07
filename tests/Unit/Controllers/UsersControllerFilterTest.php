@@ -47,7 +47,6 @@ class UsersControllerFilterTest extends TestCase
     private function matchesFilters(UsersController $c, UserInterface $user, array $filters): bool
     {
         $m = new ReflectionMethod($c, 'userMatchesFilters');
-        $m->setAccessible(true);
         return $m->invoke($c, $user, $filters);
     }
 
@@ -63,7 +62,6 @@ class UsersControllerFilterTest extends TestCase
     private function assembleTabs(UsersController $c, array $contributed, UserInterface $user): array
     {
         $m = new ReflectionMethod($c, 'assembleFilterTabs');
-        $m->setAccessible(true);
         // assembleFilterTabs takes the fired Event and returns the resolved
         // { tabs, defaultFilter, showAll } structure; these cases assert on the
         // tab row itself.
@@ -202,7 +200,6 @@ class UsersControllerFilterTest extends TestCase
     {
         $c = $this->controller();
         $m = new ReflectionMethod($c, 'getListFilters');
-        $m->setAccessible(true);
 
         $withAccess = TestHelper::createMockRequest(
             method: 'GET',
@@ -306,7 +303,6 @@ class UsersControllerFilterTest extends TestCase
     {
         $c = $this->controller();
         $m = new ReflectionMethod($c, 'getListFilters');
-        $m->setAccessible(true);
 
         $request = TestHelper::createMockRequest(
             method: 'GET',
