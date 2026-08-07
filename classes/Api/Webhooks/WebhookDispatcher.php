@@ -9,6 +9,23 @@ use Grav\Common\HTTP\Response;
 class WebhookDispatcher
 {
     /**
+     * Ranges that PHP's FILTER_FLAG_NO_PRIV_RANGE / NO_RES_RANGE accept as
+     * public but that are not globally routable, and commonly carry internal
+     * infrastructure. Checked on top of those flags, never instead of them.
+     */
+    private const NON_ROUTABLE_RANGES = [
+        '100.64.0.0/10',    // Carrier-grade NAT (RFC 6598); also Tailscale
+        '192.0.0.0/24',     // IETF protocol assignments (RFC 6890)
+        '198.18.0.0/15',    // Benchmarking (RFC 2544)
+        '192.0.2.0/24',     // TEST-NET-1 documentation (RFC 5737)
+        '198.51.100.0/24',  // TEST-NET-2 documentation (RFC 5737)
+        '203.0.113.0/24',   // TEST-NET-3 documentation (RFC 5737)
+        '64:ff9b::/96',     // NAT64 well-known prefix (RFC 6052)
+        '64:ff9b:1::/48',   // NAT64 local-use prefix (RFC 8215)
+        '2001:db8::/32',    // IPv6 documentation (RFC 3849)
+    ];
+
+    /**
      * Map of internal event names to webhook event names.
      */
     private const EVENT_MAP = [
@@ -330,11 +347,51 @@ class WebhookDispatcher
      */
     private static function ipIsPublic(string $ip): bool
     {
-        return filter_var(
-            $ip,
-            FILTER_VALIDATE_IP,
-            FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE,
-        ) !== false;
+        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
+            return false;
+        }
+
+        // PHP's reserved-range flags miss several ranges that are not globally
+        // routable and routinely carry internal infrastructure. Reaching these
+        // needs no DNS trickery at all, just an ordinary record pointing at one.
+        foreach (self::NON_ROUTABLE_RANGES as $range) {
+            if (self::ipInCidr($ip, $range)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Whether an IP falls inside a CIDR block. Handles IPv4 and IPv6 by
+     * comparing the leading prefix bits of the packed addresses.
+     */
+    private static function ipInCidr(string $ip, string $cidr): bool
+    {
+        [$subnet, $bits] = explode('/', $cidr, 2);
+
+        $ipBin = @inet_pton($ip);
+        $subnetBin = @inet_pton($subnet);
+        if ($ipBin === false || $subnetBin === false || strlen($ipBin) !== strlen($subnetBin)) {
+            return false;
+        }
+
+        $bits = (int) $bits;
+        $whole = intdiv($bits, 8);
+        $remainder = $bits % 8;
+
+        if ($whole > 0 && strncmp($ipBin, $subnetBin, $whole) !== 0) {
+            return false;
+        }
+
+        if ($remainder === 0) {
+            return true;
+        }
+
+        $mask = ~((1 << (8 - $remainder)) - 1) & 0xFF;
+
+        return (ord($ipBin[$whole]) & $mask) === (ord($subnetBin[$whole]) & $mask);
     }
 
     /**
