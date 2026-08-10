@@ -1,3 +1,10 @@
+# v1.0.17
+## 08/10/2026
+
+1. [](#bugfix)
+    * Scheduler status is now reported as far as the host allows rather than failing the whole request, so the Scheduler page still loads where cron details cannot be read [getgrav/grav-admin-next#16](https://github.com/getgrav/grav-admin-next/issues/16)
+    * Asking to run the scheduler on a host that cannot start jobs now returns a clear explanation instead of an unexpected error
+
 # v1.0.16
 ## 08/07/2026
 
