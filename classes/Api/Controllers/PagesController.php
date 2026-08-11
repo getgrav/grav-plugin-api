@@ -1027,6 +1027,7 @@ class PagesController extends AbstractApiController
         // A copy produces a new page, so it announces itself exactly like
         // create() does. This endpoint fired nothing at all before (#23).
         if ($copiedPage) {
+            $this->sanitizeCopiedPageRoutes($copiedPage, $destSlug);
             $this->fireAdminEvent('onAdminAfterSave', ['object' => $copiedPage, 'page' => $copiedPage]);
         }
         $this->fireEvent('onApiPageCreated', [
@@ -1051,6 +1052,39 @@ class PagesController extends AbstractApiController
         $location = $this->getApiBaseUrl() . '/pages' . $destRoute;
 
         return ApiResponse::created($data, $location, $this->invalidationHeaders($copyTags));
+    }
+
+    /**
+     * Sanitize a newly copied page's header (frontmatter).
+     * There are a few fields we need to consider to avoid duplicating routes and slugs.
+     * slug is pretty easy to set as we compute a new slug anyways.
+     * Both fields external_url and routes are either not feasible to update correctly
+     * or to complicated to parse, so we unset them.
+     */
+    private function sanitizeCopiedPageRoutes(PageInterface $page, string $destSlug): void
+    {
+        $header = $this->headerToArray($page->header());
+        $headerModified = false;
+
+        if (array_key_exists('slug', $header)) {
+            $header['slug'] = $destSlug;
+            $headerModified = true;
+        }
+
+        if (array_key_exists('external_url', $header)) {
+            $header['external_url'] = '';
+            $headerModified = true;
+        }
+
+        if (array_key_exists('routes', $header)) {
+            unset($header['routes']);
+            $headerModified = true;
+        }
+
+        if ($headerModified) {
+            $page->header((object) $header);
+            $page->save();
+        }
     }
 
     /**
