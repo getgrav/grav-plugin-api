@@ -2,6 +2,8 @@
 ## 08/10/2026
 
 1. [](#bugfix)
+    * Duplicating a page that sets its own slug now gives the copy its own slug, so the two pages no longer claim the same address ([#25](https://github.com/getgrav/grav-plugin-api/issues/25)).
+    * Bulk-copying pages does the same, in every language a page is translated into.
     * Scheduler status is now reported as far as the host allows rather than failing the whole request, so the Scheduler page still loads where cron details cannot be read [getgrav/grav-admin-next#16](https://github.com/getgrav/grav-admin-next/issues/16)
     * Asking to run the scheduler on a host that cannot start jobs now returns a clear explanation instead of an unexpected error
 

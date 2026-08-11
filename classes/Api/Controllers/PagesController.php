@@ -27,6 +27,7 @@ use Grav\Plugin\Api\Serializers\PageSerializer;
 use Grav\Plugin\Api\Services\ThumbnailService;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use RocketTheme\Toolbox\File\MarkdownFile;
 
 class PagesController extends AbstractApiController
 {
@@ -1018,6 +1019,7 @@ class PagesController extends AbstractApiController
 
         $sourcePath = $page->path();
         Folder::copy($sourcePath, $destPath);
+        $this->rewriteCopiedSlug($destPath, $destSlug, $page->extension());
         $this->clearPagesCache();
 
         // Re-init and find the copied page
@@ -2505,8 +2507,69 @@ class PagesController extends AbstractApiController
         }
 
         Folder::copy($page->path(), $destPath);
+        $this->rewriteCopiedSlug($destPath, $destSlug, $page->extension());
 
         return ($destParent === '/' ? '' : rtrim($destParent, '/')) . '/' . $destSlug;
+    }
+
+    /**
+     * Point a freshly copied page's `slug:` at its own folder.
+     *
+     * Folder::copy() reproduces the source byte for byte, so an explicit `slug:`
+     * in the frontmatter travels with it and the copy claims the source's route:
+     * slug() prefers the header value over the folder name, and route() is just
+     * the parent route plus slug(). Grav does not reject that — Pages::buildRoutes()
+     * logs "Route already exists" and lets whichever page is indexed last win, so
+     * the listing shows two pages on one route, admin-next's keyed page tree
+     * aborts on the duplicate, and the title bump the admin sends straight after a
+     * copy can resolve to the ORIGINAL page and overwrite it. Admin-classic has
+     * always rewritten the header slug when duplicating a page
+     * (AdminController::taskCopy()); this gives the API the same behaviour.
+     * (#25, getgrav/grav-plugin-admin2#154)
+     *
+     * Rewritten in place, before the index is rebuilt, so the copy already sits on
+     * its own route by the time we resolve and serialize it. Doing it afterwards
+     * would not be enough: Page::route() is memoized during buildRoutes(), so the
+     * response would still echo the source's route.
+     *
+     * Only a page that already declared a slug gets one written back, so we never
+     * add frontmatter the source did not have. Every language variant in the folder
+     * is rewritten, because each carries its own frontmatter. Child folders are
+     * left alone: their slugs are relative to this page, so they become unique
+     * again as soon as the parent's does.
+     *
+     * @param string $destPath  Filesystem path of the copied page folder.
+     * @param string $destSlug  Slug the copy should answer to.
+     * @param string $extension Page file extension, including the leading dot.
+     */
+    private function rewriteCopiedSlug(string $destPath, string $destSlug, string $extension): void
+    {
+        $extension = '.' . ltrim($extension, '.');
+
+        // scandir rather than glob: a page folder name may legitimately contain
+        // `[` or `*`, which glob would read as a pattern.
+        foreach (scandir($destPath) ?: [] as $filename) {
+            if (!str_ends_with($filename, $extension)) {
+                continue;
+            }
+
+            $file = MarkdownFile::instance($destPath . '/' . $filename);
+
+            try {
+                $header = $file->header();
+                if (!is_array($header) || !array_key_exists('slug', $header)) {
+                    continue;
+                }
+
+                $header['slug'] = $destSlug;
+                $file->header($header);
+                $file->save();
+            } finally {
+                // AbstractFile::instance() keeps a static instance cache, and the
+                // index rebuild that follows must not read a stale one.
+                $file->free();
+            }
+        }
     }
 
     /**
