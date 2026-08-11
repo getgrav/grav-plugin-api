@@ -1741,6 +1741,8 @@ class PagesController extends AbstractApiController
             foreach ($copied as $sourceRoute => $destRoute) {
                 $newPage = $this->grav['pages']->find($destRoute);
                 if ($newPage) {
+                    $destSlug = self::routeBasename($destRoute);
+                    $this->sanitizeCopiedPageRoutes($newPage, $destSlug);
                     $this->fireAdminEvent('onAdminAfterSave', ['object' => $newPage, 'page' => $newPage]);
                 }
                 $this->fireEvent('onApiPageCreated', [
