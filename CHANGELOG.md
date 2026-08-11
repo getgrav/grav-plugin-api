@@ -1,5 +1,5 @@
 # v1.0.17
-## 08/10/2026
+## 08/11/2026
 
 1. [](#bugfix)
     * Duplicating a page that sets its own slug now gives the copy its own slug, so the two pages no longer claim the same address ([#25](https://github.com/getgrav/grav-plugin-api/issues/25)).
