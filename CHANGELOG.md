@@ -1,5 +1,5 @@
 # v1.0.18
-## 08/11/2026
+## 08/12/2026
 
 1. [](#bugfix)
     * An API key limited to a narrower set of permissions can no longer manage other super-admin accounts just because it belongs to a super-admin.
