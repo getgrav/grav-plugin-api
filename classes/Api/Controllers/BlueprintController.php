@@ -871,7 +871,7 @@ class BlueprintController extends AbstractApiController
         // (or api.config) in its scopes at all (GHSA-mcx6-4rvg-7r8v).
         $canManagePermissions = $user !== null
             && ($this->isSuperWithinScope($request)
-                || ($this->hasPermission($user, 'api.config') && $this->scopeAllows($request, 'api.config')));
+                || $this->hasPermissionWithinScope($request, 'api.config'));
 
         if (isset($securityFields['_admin'])) {
             if ($canManagePermissions) {
