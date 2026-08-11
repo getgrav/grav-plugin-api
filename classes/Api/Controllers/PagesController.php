@@ -1072,7 +1072,7 @@ class PagesController extends AbstractApiController
         }
 
         if (array_key_exists('external_url', $header)) {
-            $header['external_url'] = '';
+            unset($header['external_url']);
             $headerModified = true;
         }
 
