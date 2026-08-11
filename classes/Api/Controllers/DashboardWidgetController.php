@@ -30,7 +30,11 @@ class DashboardWidgetController extends AbstractApiController
 
         $user = $this->getUser($request);
         $resolver = $this->getResolver();
-        $isSuperAdmin = $this->isSuperAdmin($user);
+        // isSuperWithinScope(), not a bare isSuperAdmin(): the resolver uses this
+        // flag to SKIP each widget's `authorize` requirement, so reading super-ness
+        // off the account alone handed a scoped key every widget on the dashboard
+        // regardless of what its scopes covered.
+        $isSuperAdmin = $this->isSuperWithinScope($request);
 
         return ApiResponse::create($resolver->resolve($user, $isSuperAdmin));
     }
@@ -51,7 +55,7 @@ class DashboardWidgetController extends AbstractApiController
         $resolver = $this->getResolver();
         $resolver->saveUserLayout($user, $body);
 
-        return ApiResponse::create($resolver->resolve($user, $this->isSuperAdmin($user)));
+        return ApiResponse::create($resolver->resolve($user, $this->isSuperWithinScope($request)));
     }
 
     /**

@@ -84,7 +84,7 @@ class ConfigController extends AbstractApiController
         // exclude paths) is safe to edit through the generic config form, so we
         // surface it in the scope list for supers. Non-supers never see it here
         // and would get a 403 from show()/update() regardless.
-        $isSuper = $this->isSuperAdmin($this->getUser($request));
+        $isSuper = $this->isSuperWithinScope($request);
 
         /** @var \RocketTheme\Toolbox\ResourceLocator\UniformResourceIterator $iterator */
         $iterator = $this->grav['locator']->getIterator('blueprints://config');

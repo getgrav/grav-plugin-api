@@ -327,6 +327,8 @@ class PreferencesController extends AbstractApiController
         $this->requireSuper($request);
     }
 
+    // @scope-cap-exempt: read-only display flag (can_edit_site) on GET responses.
+    // The actual write gate is requireSiteEditor() -> requireSuper(), which caps.
     private function canEditSite(\Grav\Common\User\Interfaces\UserInterface $user): bool
     {
         return $this->isSuperAdmin($user);

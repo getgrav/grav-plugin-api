@@ -1,3 +1,14 @@
+# v1.0.18
+## 08/12/2026
+
+1. [](#bugfix)
+    * An API key limited to a narrower set of permissions can no longer manage other super-admin accounts just because it belongs to a super-admin.
+    * The same limit now applies to deleting a super-admin account.
+    * Page permissions can no longer be edited through an API key that was never granted configuration access.
+    * The Twig option on the page form is now hidden from API keys that would not be allowed to save it.
+    * Dashboard widgets are now limited to what the API key permits, rather than everything its account can see.
+    * The list of configuration areas no longer mentions backups to API keys that cannot read them.
+
 # v1.0.17
 ## 08/11/2026
 
