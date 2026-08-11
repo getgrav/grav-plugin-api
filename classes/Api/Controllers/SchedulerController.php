@@ -67,6 +67,10 @@ class SchedulerController extends AbstractApiController
 
     /**
      * GET /scheduler/status - Get scheduler cron status.
+     *
+     * Every field here is best-effort. A host that cannot report how its scheduler is
+     * triggered must still get a usable Scheduler page, so nothing in this method may
+     * take the response down with it (getgrav/grav-admin-next#16).
      */
     public function status(ServerRequestInterface $request): ResponseInterface
     {
@@ -78,12 +82,48 @@ class SchedulerController extends AbstractApiController
         // Ensure system jobs are registered so health status sees them
         $this->initializeSchedulerJobs($scheduler);
 
-        $crontabStatus = $scheduler->isCrontabSetup();
-        $statusMap = [0 => 'not_installed', 1 => 'installed', 2 => 'error'];
+        $processAvailable = method_exists($scheduler, 'isProcessAvailable')
+            ? $scheduler::isProcessAvailable()
+            : function_exists('proc_open');
+
+        $crontabStatus = 2;
+        $detection = 'unavailable';
+        try {
+            $crontabStatus = $scheduler->isCrontabSetup();
+            $detection = method_exists($scheduler, 'getCronDetectionMethod')
+                ? $scheduler->getCronDetectionMethod()
+                : 'crontab';
+        } catch (\Throwable $e) {
+            $this->grav['log']->warning('Scheduler cron detection unavailable: ' . $e->getMessage());
+        }
+
+        $statusMap = [0 => 'not_installed', 1 => 'installed', 2 => 'unknown'];
 
         // Health status and active triggers
-        $health = method_exists($scheduler, 'getHealthStatus') ? $scheduler->getHealthStatus() : [];
-        $triggers = method_exists($scheduler, 'getActiveTriggers') ? $scheduler->getActiveTriggers() : [];
+        $health = [];
+        $triggers = [];
+        try {
+            $health = method_exists($scheduler, 'getHealthStatus') ? $scheduler->getHealthStatus() : [];
+            $triggers = method_exists($scheduler, 'getActiveTriggers') ? $scheduler->getActiveTriggers() : [];
+        } catch (\Throwable $e) {
+            $this->grav['log']->warning('Scheduler health unavailable: ' . $e->getMessage());
+        }
+
+        try {
+            $whoami = $scheduler->whoami();
+        } catch (\Throwable $e) {
+            $whoami = 'unknown';
+        }
+
+        $lastRun = null;
+        if (method_exists($scheduler, 'getLastRun')) {
+            try {
+                $stamp = $scheduler->getLastRun();
+                $lastRun = $stamp ? date('c', $stamp) : null;
+            } catch (\Throwable $e) {
+                $lastRun = null;
+            }
+        }
 
         // Webhook plugin status
         $webhookInstalled = class_exists('Grav\\Plugin\\SchedulerWebhookPlugin')
@@ -97,9 +137,12 @@ class SchedulerController extends AbstractApiController
 
         $data = [
             'crontab_status' => $statusMap[$crontabStatus] ?? 'unknown',
+            'cron_detection' => $detection,
+            'process_available' => $processAvailable,
+            'last_run' => $lastRun,
             'cron_command' => $redact ? self::DEMO_REDACTED : $scheduler->getCronCommand(),
             'scheduler_command' => $redact ? self::DEMO_REDACTED : $scheduler->getSchedulerCommand(),
-            'whoami' => $redact ? self::DEMO_REDACTED : $scheduler->whoami(),
+            'whoami' => $redact ? self::DEMO_REDACTED : $whoami,
             'health' => $health,
             'triggers' => $triggers,
             'webhook_installed' => $webhookInstalled,
@@ -165,6 +208,19 @@ class SchedulerController extends AbstractApiController
 
         /** @var Scheduler $scheduler */
         $scheduler = $this->grav['scheduler'];
+
+        // Starting a job needs proc_open. Say so plainly rather than letting Symfony's
+        // Process throw an unhandled exception (getgrav/grav-admin-next#16).
+        $processAvailable = method_exists($scheduler, 'isProcessAvailable')
+            ? $scheduler::isProcessAvailable()
+            : function_exists('proc_open');
+        if (!$processAvailable) {
+            throw new ApiException(
+                501,
+                'Not Implemented',
+                "Running scheduler jobs from the admin is not available on this host, because PHP's proc_open function is disabled. Jobs still run whenever your scheduler is triggered by cron or a webhook."
+            );
+        }
 
         $body = $this->getRequestBody($request);
         $force = filter_var($body['force'] ?? false, FILTER_VALIDATE_BOOLEAN);
