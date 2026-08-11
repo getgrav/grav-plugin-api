@@ -298,7 +298,7 @@ class BlueprintController extends AbstractApiController
 
         $template = $this->getRouteParam($request, 'template');
 
-        $blueprint = $this->loadPageBlueprint($template, $this->getUser($request));
+        $blueprint = $this->loadPageBlueprint($request, $template, $this->getUser($request));
 
         if (!$blueprint) {
             throw new NotFoundException("Blueprint for template '{$template}' not found.");
@@ -313,7 +313,7 @@ class BlueprintController extends AbstractApiController
         // admin-classic permissions, so it drops Twig for API/Admin-Next users
         // even when they could save it. We re-add it against the same authority
         // the write guard enforces. See grav-admin-next#5.
-        $this->applyTwigProcessOption($data['fields'], $this->getUser($request));
+        $this->applyTwigProcessOption($request, $data['fields'], $this->getUser($request));
 
         // Fire event to allow plugins to modify the serialized blueprint fields
         // (e.g., editor-pro overrides editor/markdown field types). The
@@ -683,7 +683,7 @@ class BlueprintController extends AbstractApiController
      * and the hand-rolled path silently dropped most BlueprintForm directives
      * (see grav-plugin-admin2#3).
      */
-    private function loadPageBlueprint(string $template, ?UserInterface $user = null): ?Blueprint
+    private function loadPageBlueprint(ServerRequestInterface $request, string $template, ?UserInterface $user = null): ?Blueprint
     {
         $this->ensurePagesEnabled();
 
@@ -712,7 +712,7 @@ class BlueprintController extends AbstractApiController
             }
         }
 
-        $this->injectSecurityTab($blueprint, $user);
+        $this->injectSecurityTab($request, $blueprint, $user);
 
         return $blueprint;
     }
@@ -833,7 +833,7 @@ class BlueprintController extends AbstractApiController
      * (api.super / api.config): authorized users get the section clean and
      * editable, everyone else only sees the ungated Page Access section.
      */
-    private function injectSecurityTab(Blueprint $blueprint, ?UserInterface $user = null): void
+    private function injectSecurityTab(ServerRequestInterface $request, Blueprint $blueprint, ?UserInterface $user = null): void
     {
         // Only page blueprints that wrap their fields in a `tabs` container can
         // host the Security tab. Skip anything with a different layout.
@@ -862,8 +862,16 @@ class BlueprintController extends AbstractApiController
 
         // Gate the Page Permissions section on API authority. `_site` (Page
         // Access) is ungated and always shown.
+        //
+        // Both routes to a "yes" clear the API-key scope cap. The super branch
+        // goes through isSuperWithinScope() and the ACL branch through
+        // scopeAllows(), because either one on its own is an independent path to
+        // unlocking the section: a bare isSuperAdmin() let a scoped key minted on
+        // a super-admin account edit page permissions without carrying admin.super
+        // (or api.config) in its scopes at all (GHSA-mcx6-4rvg-7r8v).
         $canManagePermissions = $user !== null
-            && ($this->isSuperAdmin($user) || $this->hasPermission($user, 'api.config'));
+            && ($this->isSuperWithinScope($request)
+                || ($this->hasPermission($user, 'api.config') && $this->scopeAllows($request, 'api.config')));
 
         if (isset($securityFields['_admin'])) {
             if ($canManagePermissions) {
@@ -929,7 +937,7 @@ class BlueprintController extends AbstractApiController
      *
      * @param array<int, array<string, mixed>> $fields Serialized field tree (by ref).
      */
-    private function applyTwigProcessOption(array &$fields, UserInterface $user): void
+    private function applyTwigProcessOption(ServerRequestInterface $request, array &$fields, UserInterface $user): void
     {
         $config = $this->grav['config'];
 
@@ -943,7 +951,14 @@ class BlueprintController extends AbstractApiController
             return;
         }
 
-        // Same authority the write guard requires to persist process.twig:true.
+        // Same authority the write guard requires to persist process.twig:true,
+        // including the API-key scope cap — PagesController::guardTwigContent()
+        // caps this decision (GHSA-96xv-p87j-58mx) and the two must agree, or a
+        // scoped key is offered a Twig checkbox that the write path will refuse.
+        if (!$this->scopeAllows($request, 'admin.pages_twig')) {
+            return;
+        }
+        // @scope-cap-exempt: capped by the scopeAllows() early-return directly above.
         if (!$this->isSuperAdmin($user) && !$this->hasPermission($user, 'admin.pages_twig')) {
             return;
         }
@@ -1113,6 +1128,9 @@ class BlueprintController extends AbstractApiController
         if (!$accessList && !$groupList) {
             return true;
         }
+        // @scope-cap-exempt: evaluates the privileges of a TARGET account being
+        // inspected, not the authority of the calling credential. The API-key scope
+        // cap governs what the CALLER may do and does not apply to this question.
         if ($this->isSuperAdmin($account) || (bool) $account->get('access.admin.super')) {
             return true;
         }

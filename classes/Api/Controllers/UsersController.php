@@ -414,7 +414,7 @@ class UsersController extends AbstractApiController
         // which let an api.users.write manager drive a plugin action against the
         // instance owner: the Login plugin's unlock action clears every rate limit
         // standing against an account. (GHSA-985r-mpj8-5rqw)
-        $this->requireNotSuperTarget($currentUser, $target);
+        $this->requireNotSuperTarget($request, $target);
 
         $body = $this->getRequestBody($request);
         $id = isset($body['id']) && is_string($body['id']) ? trim($body['id']) : '';
@@ -1153,8 +1153,11 @@ class UsersController extends AbstractApiController
 
         // A non-super manager must not delete a super-admin account — a destructive
         // cross-boundary action (lockout / takeover of the instance owner).
-        // See GHSA-p97c-g455-q447.
-        if (!$this->isSuperAdmin($currentUser) && $this->accessGrantsSuper($user->get('access'))) {
+        // See GHSA-p97c-g455-q447. Capped via isSuperWithinScope() for the same
+        // reason as requireNotSuperTarget(): the super branch grants an exemption,
+        // so a bare isSuperAdmin() let a scoped key on a super account delete other
+        // super-admins without carrying admin.super in its scopes.
+        if (!$this->isSuperWithinScope($request) && $this->accessGrantsSuper($user->get('access'))) {
             throw new ForbiddenException('Only super-admins can delete super-admin accounts.');
         }
 
@@ -1187,7 +1190,7 @@ class UsersController extends AbstractApiController
         }
         // Sibling gap found alongside GHSA-985r-mpj8-5rqw: overwriting a
         // super-admin's avatar re-saves their account from a lesser caller.
-        $this->requireNotSuperTarget($currentUser, $user);
+        $this->requireNotSuperTarget($request, $user);
 
         $uploadedFiles = $request->getUploadedFiles();
         $file = $uploadedFiles['avatar'] ?? $uploadedFiles['file'] ?? null;
@@ -1271,7 +1274,7 @@ class UsersController extends AbstractApiController
             $this->requirePermission($request, 'api.users.write');
         }
         // Sibling gap found alongside GHSA-985r-mpj8-5rqw.
-        $this->requireNotSuperTarget($currentUser, $user);
+        $this->requireNotSuperTarget($request, $user);
 
         // Delete avatar file(s)
         $avatar = $user->get('avatar');
@@ -1310,7 +1313,7 @@ class UsersController extends AbstractApiController
         if ($currentUser->username !== $username) {
             $this->requirePermission($request, 'api.users.write');
         }
-        $this->requireNotSuperTarget($currentUser, $user);
+        $this->requireNotSuperTarget($request, $user);
 
         if (!class_exists(\Grav\Plugin\Login\TwoFactorAuth\TwoFactorAuth::class)) {
             throw new \Grav\Plugin\Api\Exceptions\ApiException(
@@ -1407,13 +1410,15 @@ class UsersController extends AbstractApiController
         // (GHSA-22p9-6fh4-mmf2): a key that does not carry api.users.write in its
         // scopes is not treated as admin here, so it cannot force-remove another
         // user's 2FA even when its owning account holds the permission.
+        // @scope-cap-exempt: the cap is applied by the scopeAllows() conjunct on
+        // this same expression, so the super branch cannot be reached uncapped.
         $isAdmin = $this->scopeAllows($request, 'api.users.write')
             && ($this->isSuperAdmin($currentUser) || $this->hasPermission($currentUser, 'api.users.write'));
 
         if (!$isSelf && !$isAdmin) {
             throw new ForbiddenException('You do not have permission to disable 2FA for this user.');
         }
-        $this->requireNotSuperTarget($currentUser, $user);
+        $this->requireNotSuperTarget($request, $user);
 
         if ($isSelf && !$isAdmin) {
             // Self-disable without admin privilege requires code verification.
@@ -1466,7 +1471,7 @@ class UsersController extends AbstractApiController
         $user = $this->loadUserOrFail($username);
 
         $this->requireApiKeyPermission($request, $username, write: true);
-        $this->requireNotSuperTarget($this->getUser($request), $user);
+        $this->requireNotSuperTarget($request, $user);
 
         $body = $this->getRequestBody($request);
         $name = $body['name'] ?? '';
@@ -1523,7 +1528,7 @@ class UsersController extends AbstractApiController
         $user = $this->loadUserOrFail($username);
 
         $this->requireApiKeyPermission($request, $username, write: true);
-        $this->requireNotSuperTarget($this->getUser($request), $user);
+        $this->requireNotSuperTarget($request, $user);
 
         $keyId = $this->getRouteParam($request, 'keyId');
 
@@ -1568,14 +1573,23 @@ class UsersController extends AbstractApiController
      * Acting on your own account is never an escalation, so self is allowed.
      * Callers must pass the already-loaded target user. See GHSA-p97c-g455-q447
      * and GHSA-8gg4.
+     *
+     * The super exemption runs through isSuperWithinScope() rather than a bare
+     * isSuperAdmin(): this guard GRANTS AN EXEMPTION when the caller is super, so
+     * reading super-ness off the account alone let a scoped key minted on a
+     * super-admin account skip the guard entirely and manage other super-admins
+     * without ever carrying admin.super in its scopes (GHSA-94q7-vrqr-cx5v). The
+     * request is required for exactly that reason.
      */
-    private function requireNotSuperTarget(UserInterface $current, UserInterface $target): void
+    private function requireNotSuperTarget(ServerRequestInterface $request, UserInterface $target): void
     {
+        $current = $this->getUser($request);
+
         if ($current->username === $target->username) {
             return;
         }
 
-        if (!$this->isSuperAdmin($current) && $this->accessGrantsSuper($target->get('access'))) {
+        if (!$this->isSuperWithinScope($request) && $this->accessGrantsSuper($target->get('access'))) {
             throw new ForbiddenException('Only super-admins can manage super-admin accounts.');
         }
     }

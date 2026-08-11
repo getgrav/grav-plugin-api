@@ -2986,6 +2986,8 @@ class PagesController extends AbstractApiController
         // account must also carry admin.pages_twig in its scopes, otherwise the
         // bare isSuperAdmin() branch would re-grant a capability the key was scoped
         // out of and let it enable Twig-in-content (GHSA-96xv-p87j-58mx).
+        // @scope-cap-exempt: the cap is the scopeAllows() conjunct on this same
+        // condition, so the super branch cannot be reached uncapped.
         if ($this->scopeAllows($request, 'admin.pages_twig')
             && ($this->isSuperAdmin($user) || $this->hasPermission($user, 'admin.pages_twig'))) {
             return;
