@@ -1,3 +1,9 @@
+# v1.0.19
+## 08/12/2026
+
+1. [](#new)
+    * Added a report endpoint that returns the effective Twig content sandbox policy, so the admin can show the built-in defaults alongside a site's own additions and restrictions.
+
 # v1.0.18
 ## 08/12/2026
 

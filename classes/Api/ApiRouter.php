@@ -768,6 +768,7 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('DELETE', '/reports/twig-content/events', [ReportsController::class, 'clearTwigEvents']);
         $r->addRoute('GET', '/reports/twig-content/page', [ReportsController::class, 'twigContentPageStatus']);
         $r->addRoute('GET', '/reports/twig-content/scan', [ReportsController::class, 'twigContentScan']);
+        $r->addRoute('GET', '/reports/twig-content/sandbox-policy', [ReportsController::class, 'twigContentSandboxPolicy']);
 
         // Audit trail (super-admin only; off by default)
         $r->addRoute('GET', '/audit/status', [AuditController::class, 'status']);
