@@ -615,6 +615,41 @@ namespace Grav\Common {
                 return $results;
             }
 
+            /**
+             * Inverse of arrayFlattenDotNotation. Exercised by
+             * TranslationOverrideStore, which stores flat keys but writes real
+             * nested language files. Mirrors core's behaviour of skipping a
+             * segment that would have to treat an existing scalar as an array.
+             */
+            public static function arrayUnflattenDotNotation($array, $separator = '.')
+            {
+                $newArray = [];
+                foreach ($array as $key => $value) {
+                    $dots = explode($separator, (string) $key);
+                    if (count($dots) > 1) {
+                        $last = &$newArray[$dots[0]];
+                        foreach ($dots as $k => $dot) {
+                            if ($k === 0) {
+                                continue;
+                            }
+                            if (null !== $last && !is_array($last)) {
+                                continue 2;
+                            }
+                            $last = &$last[$dot];
+                        }
+                        if (null !== $last && !is_array($last)) {
+                            continue;
+                        }
+                        $last = $value;
+                    } else {
+                        $newArray[$key] = $value;
+                    }
+                }
+                unset($last);
+
+                return $newArray;
+            }
+
             public static function isPositive($value): bool
             {
                 return in_array($value, [true, 1, '1', 'yes', 'on', 'true'], true);

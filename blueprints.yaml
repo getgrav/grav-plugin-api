@@ -208,6 +208,18 @@ form:
               validate:
                 type: bool
 
+            translation_overrides:
+              type: toggle
+              label: Translation Overrides
+              help: "Apply the translation overrides stored in user/languages so they also beat the active theme's own strings. Turning this off leaves the files in place but stops them overriding theme wording. Recommended on."
+              highlight: 1
+              default: 1
+              options:
+                1: Enabled
+                0: Disabled
+              validate:
+                type: bool
+
             allow_draft_preview:
               type: toggle
               label: Allow Draft Preview

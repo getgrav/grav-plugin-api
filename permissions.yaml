@@ -58,6 +58,15 @@ actions:
       backup:
         label: Create/Download/Delete Backups
 
+  api.translations:
+    type: access
+    label: Translations API
+    actions:
+      read:
+        label: Browse Translation Strings
+      write:
+        label: Override/Revert Translation Strings
+
   api.gpm:
     type: access
     label: GPM API
