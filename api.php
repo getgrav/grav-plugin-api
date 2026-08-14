@@ -18,6 +18,8 @@ use Grav\Plugin\Api\Audit\AuditSubscriber;
 use Grav\Plugin\Api\Demo\DemoManager;
 use Grav\Plugin\Api\Auth\ApiKeyManager;
 use Grav\Plugin\Api\Popularity\PopularityTracker;
+use Grav\Plugin\Api\Services\TranslationOverrideStore;
+use Grav\Plugin\Api\Services\TranslationSourceIndex;
 use Grav\Plugin\Api\Webhooks\WebhookDispatcher;
 use RocketTheme\Toolbox\Event\Event;
 
@@ -42,6 +44,10 @@ class ApiPlugin extends Plugin
                 ['onRequestHandlerInit', 99000],
             ],
             'onBeforeCacheClear' => ['onBeforeCacheClear', 0],
+            // Re-merge this site's translation overrides. Fires unconditionally
+            // (not gated on isAdmin()) because overrides apply to the front end
+            // as much as the admin. See onThemeInitialized() for the timing.
+            'onThemeInitialized' => ['onThemeInitialized', 0],
             PermissionsRegisterEvent::class => ['onRegisterPermissions', 1000],
             // Fires from Plugins::init(), which runs BEFORE InitializeProcessor
             // starts the session — the only window in which we can still stop the
@@ -154,6 +160,37 @@ class ApiPlugin extends Plugin
 
         if (str_starts_with($currentPath, $this->base)) {
             $this->active = true;
+        }
+    }
+
+    /**
+     * Raise this site's translation overrides above the active theme's strings.
+     *
+     * `user/languages/<lang>.yaml` is already merged at config-compile time, and
+     * that is enough to beat Grav core and every plugin. It is not enough to
+     * beat a theme: theme language files are absent from the compile-time scan
+     * in `ConfigServiceProvider::languages()` and are merged into the finished
+     * object later, by `Themes::loadLanguages()`. So an override of a theme
+     * string — the most common thing a site owner wants to change — would
+     * silently lose.
+     *
+     * `onThemeInitialized` is the first event after that merge, so re-applying
+     * the same file here is what actually makes an override an override. The
+     * store reads only the languages this request can render, so the cost is one
+     * small YAML file, and none at all on a site with no overrides.
+     */
+    public function onThemeInitialized(): void
+    {
+        if (!$this->config->get('plugins.api.translation_overrides', true)) {
+            return;
+        }
+
+        try {
+            $sources = new TranslationSourceIndex($this->grav);
+            (new TranslationOverrideStore($this->grav, $sources))->applyRuntime();
+        } catch (\Throwable $e) {
+            // A malformed override file must never take the site down.
+            $this->grav['log']->warning('[api] translation overrides skipped: ' . $e->getMessage());
         }
     }
 

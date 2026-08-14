@@ -78,6 +78,12 @@ demo:
   # the baseline itself is wrong. Oldest snapshots beyond this count are purged.
   keep_safety_snapshots: 5
 
+# Apply this site's translation overrides (user/languages/<lang>.yaml) late enough
+# to beat the active theme's own strings. Grav already merges that folder above
+# core and plugins at compile time, but themes merge afterwards, so without this
+# a reworded theme string would silently lose.
+translation_overrides: true
+
 # Let the new admin's page editor preview an unpublished (published: false) page
 # on the front end. The preview is authorized by a short-lived, route-scoped
 # token minted only for users with page-read permission; turn this off to disable

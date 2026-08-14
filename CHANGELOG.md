@@ -1,8 +1,15 @@
 # v1.0.19
-## 08/12/2026
+## 08/14/2026
 
 1. [](#new)
     * Added a report endpoint that returns the effective Twig content sandbox policy, so the admin can show the built-in defaults alongside a site's own additions and restrictions.
+    * Added a translations API for browsing every string the site displays and telling apart what a plugin or theme provides, what this site has changed, and what has no translation yet.
+    * Site translation overrides now live in `user/languages` as ordinary language files, applied late enough to take precedence over the active theme's own wording.
+    * Added machine translation of missing strings through the AI Translate plugin, with placeholders shielded so they survive the round trip intact.
+    * Added `bin/plugin api i18n:migrate` for moving existing overrides out of the Translation Strings plugin.
+    * The admin can now report what the Translation Strings plugin is holding and import it, showing beforehand which strings are new, which disagree with what is already here, and which name keys nothing on the site provides.
+1. [](#bugfix)
+    * Strings belonging to a theme that is installed but not in use no longer reach the admin interface.
 
 # v1.0.18
 ## 08/12/2026
