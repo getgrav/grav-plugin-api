@@ -35,6 +35,7 @@ use Grav\Plugin\Api\Controllers\SsoController;
 use Grav\Plugin\Api\Controllers\FloatingWidgetController;
 use Grav\Plugin\Api\Controllers\ContextPanelController;
 use Grav\Plugin\Api\Controllers\SystemController;
+use Grav\Plugin\Api\Controllers\TranslationsEditorController;
 use Grav\Plugin\Api\Controllers\UsersController;
 use Grav\Plugin\Api\Controllers\GroupsController;
 use Grav\Plugin\Api\Controllers\InvitationsController;
@@ -768,6 +769,7 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('DELETE', '/reports/twig-content/events', [ReportsController::class, 'clearTwigEvents']);
         $r->addRoute('GET', '/reports/twig-content/page', [ReportsController::class, 'twigContentPageStatus']);
         $r->addRoute('GET', '/reports/twig-content/scan', [ReportsController::class, 'twigContentScan']);
+        $r->addRoute('GET', '/reports/twig-content/sandbox-policy', [ReportsController::class, 'twigContentSandboxPolicy']);
 
         // Audit trail (super-admin only; off by default)
         $r->addRoute('GET', '/audit/status', [AuditController::class, 'status']);
@@ -821,8 +823,28 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('DELETE', '/system/backups/{filename}', [SystemController::class, 'deleteBackup']);
         $r->addRoute('GET', '/system/backups/{filename}/download', [SystemController::class, 'downloadBackup']);
 
-        // Translations
+        // Translations — the SPA's own dictionary. NOTE this whole prefix is
+        // public (see $publicPrefixes above): the admin has to render its login
+        // screen before anyone is authenticated. Nothing that reads or writes
+        // site data may be added under it.
         $r->addRoute('GET', '/translations/{lang}', [SystemController::class, 'translations']);
+
+        // Translation editor. Deliberately NOT under /translations — that
+        // prefix skips authentication entirely, which would make the editor's
+        // reads and writes anonymous. Static segments precede parameterized
+        // ones so `/i18n/keys` is not swallowed by `/i18n/keys/{key}`.
+        $r->addRoute('GET', '/i18n/sources', [TranslationsEditorController::class, 'sources']);
+        $r->addRoute('GET', '/i18n/languages', [TranslationsEditorController::class, 'languages']);
+        $r->addRoute('GET', '/i18n/coverage', [TranslationsEditorController::class, 'coverage']);
+        $r->addRoute('GET', '/i18n/keys', [TranslationsEditorController::class, 'keys']);
+        $r->addRoute('GET', '/i18n/translate', [TranslationsEditorController::class, 'translateStatus']);
+        $r->addRoute('POST', '/i18n/translate', [TranslationsEditorController::class, 'translate']);
+        $r->addRoute('GET', '/i18n/import/translation-strings', [TranslationsEditorController::class, 'importStatus']);
+        $r->addRoute('POST', '/i18n/import/translation-strings', [TranslationsEditorController::class, 'import']);
+        $r->addRoute('GET', '/i18n/keys/{key:[A-Za-z0-9_.\-]+}', [TranslationsEditorController::class, 'key']);
+        $r->addRoute('GET', '/i18n/overrides/{lang}', [TranslationsEditorController::class, 'showOverrides']);
+        $r->addRoute('PATCH', '/i18n/overrides/{lang}', [TranslationsEditorController::class, 'patchOverrides']);
+        $r->addRoute('PUT', '/i18n/overrides/{lang}', [TranslationsEditorController::class, 'replaceOverrides']);
 
         // Admin UI languages (locales the admin itself can be rendered in,
         // as opposed to /languages which lists site content languages).

@@ -228,10 +228,11 @@ class ReportsController extends AbstractApiController
      * POST /reports/twig-content/allowlist
      *
      * Append a single blocked token to the matching security.twig_sandbox
-     * allowlist. Writes the FULL effective list back to user/config/security.yaml
-     * because Grav replaces (never deep-merges) YAML lists on config merge — a
-     * partial override would wipe the shipped defaults. Restricted to API super
-     * users, mirroring the security-scope write rule in ConfigController.
+     * allowlist. Since the 2026-08-12 audit the shipped defaults live in code
+     * (SandboxDefaults) and `allowed_*` is ADDITIVE, so this writes just the
+     * user's growing delta to user/config/security.yaml — the defaults are always
+     * merged in underneath. Restricted to API super users, mirroring the
+     * security-scope write rule in ConfigController.
      *
      * Body: { rule: tag|filter|function|method|property, token: string, class?: string }
      */
@@ -364,6 +365,24 @@ class ReportsController extends AbstractApiController
         $pages->enablePages();
 
         return ApiResponse::ok(Security::scanContentTwigUsage($pages));
+    }
+
+    /**
+     * GET /reports/twig-content/sandbox-policy
+     *
+     * The effective Twig-sandbox policy, broken down per list into the built-in
+     * code defaults, the site's additive `allowed_*` entries, its `denied_*`
+     * tightenings, and the resulting effective set. Read-only: it explains what
+     * page-content Twig may do and why, now that the ~300-line default baseline
+     * lives in code (Grav\Common\Twig\Sandbox\SandboxDefaults) rather than in the
+     * editable security.yaml. Operators still widen via POST .../allowlist and by
+     * hand-editing `allowed_*`/`denied_*`.
+     */
+    public function twigContentSandboxPolicy(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.reports.read');
+
+        return ApiResponse::ok(Security::describeEffectiveSandbox($this->grav['config']));
     }
 
     /**
