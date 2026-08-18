@@ -1,3 +1,11 @@
+# v1.0.20
+## 08/18/2026
+
+1. [](#bugfix)
+    * Media stored outside the standard folder, as on a multi-site install, now shows correctly in the admin media manager instead of appearing as broken images. Thanks to @nerdyjan for the diagnosis and the fix.
+    * Thumbnails are now generated for media in the site media folder, which previously failed silently and left every item without a preview.
+    * Blueprint fields keep the rest of their documented common attributes on the way to the admin, so `sublabel`, `display_label`, `labelclasses` and `outerclasses` work again as they do in Grav 1.7 [#18](https://github.com/getgrav/grav-admin-next/issues/18)
+
 # v1.0.19
 ## 08/14/2026
 

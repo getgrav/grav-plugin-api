@@ -24,6 +24,7 @@ class JwtAuthenticator implements AuthenticatorInterface
     protected const TOKEN_QUERY_ROUTES = [
         '/download',     // e.g. /system/backups/{filename}/download
         '/thumbnails',   // e.g. /thumbnails/{file}
+        '/media/raw',    // e.g. /media/raw/{path}
     ];
 
     /**

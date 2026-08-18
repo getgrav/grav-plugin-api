@@ -1054,6 +1054,64 @@ class MediaController extends AbstractApiController
     }
 
     /**
+     * GET /media/raw/{path} - Byte-serve a site-media file.
+     *
+     * Only used for files the web server refuses to serve directly (see
+     * {@see isWebServable()}); everything else keeps its cheap static URL. It is
+     * permission-gated like the rest of the site-media routes, and works as an
+     * `<img src>` because the API accepts the site's own session cookie.
+     */
+    public function rawSiteMedia(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.media.read');
+
+        $mediaPath = $this->getSiteMediaPath();
+        $relative = $this->validateRelativePath((string) $this->getRouteParam($request, 'path'), $mediaPath);
+
+        $filePath = $relative !== '' ? $mediaPath . '/' . $relative : '';
+        if ($filePath === '' || !is_file($filePath)) {
+            throw new NotFoundException('Media file not found.');
+        }
+
+        $mime = mime_content_type($filePath) ?: 'application/octet-stream';
+
+        // Allow-list rather than deny-list: this route steps around the web
+        // server's own rules, so anything not recognisably media stays
+        // unreachable instead of being handed back as readable source.
+        $servable = str_starts_with($mime, 'image/')
+            || str_starts_with($mime, 'video/')
+            || str_starts_with($mime, 'audio/')
+            || str_starts_with($mime, 'font/')
+            || $mime === 'application/pdf';
+
+        if (!$servable) {
+            throw new NotFoundException('Media file not found.');
+        }
+
+        $content = file_get_contents($filePath);
+        if ($content === false) {
+            throw new NotFoundException('Media file not found.');
+        }
+
+        return new Response(
+            200,
+            [
+                'Content-Type' => $mime,
+                'Content-Length' => (string) strlen($content),
+                'Content-Disposition' => 'inline; filename="' . basename($filePath) . '"',
+                // The media folder is user-writable, so an uploaded SVG is a
+                // stored-XSS vector the moment it is navigated to directly. The
+                // sandbox and null default-src neuter it while leaving it
+                // renderable in an <img>; nosniff stops type confusion.
+                'Content-Security-Policy' => "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+                'X-Content-Type-Options' => 'nosniff',
+                'Cache-Control' => 'private, max-age=600',
+            ],
+            $content
+        );
+    }
+
+    /**
      * Resolve a page from the route parameter or throw a 404.
      */
     private function findPageOrFail(ServerRequestInterface $request, ?string $pageAction = null): PageInterface
@@ -1915,6 +1973,101 @@ class MediaController extends AbstractApiController
     }
 
     /**
+     * Build the browser-facing URL for a site-media file already resolved to an
+     * absolute filesystem path.
+     *
+     * `user://media` is a stream, so it does not always land in `user/media`: a
+     * multi-site install resolves it per-environment (`user/env/<host>/media`),
+     * and a `user/` folder symlinked outside the install is a supported layout.
+     * A hardcoded `/user/media/` prefix therefore points at a path with nothing
+     * on disk, and every preview 404s (#28).
+     *
+     * The direct URL is derived the way core's `MediaFileTrait::url()` does it —
+     * strip the install root, prefix `base_url` — but only when the result is
+     * something the web server will actually hand over. Grav's shipped
+     * `.htaccess` and `webserver-configs/nginx.conf` both deny `user/env` and
+     * `user/config` whatever the file type, so those fall back to this plugin's
+     * own permission-gated byte-serving route instead of a guaranteed 403.
+     */
+    private function resolvePublicUrl(string $absolutePath, string $mediaRelativePath): string
+    {
+        $relative = $this->relativeToWebroot($absolutePath);
+
+        if ($relative !== null && $this->isWebServable($relative)) {
+            // `base_url` (not `base_url_relative`) is the key core's own media
+            // URLs use, so this honours the install's `system.absolute_urls`
+            // setting and its subfolder base in exactly the same way.
+            $base = rtrim((string) ($this->grav['base_url'] ?? ''), '/');
+
+            return $base . '/' . $relative;
+        }
+
+        $encoded = implode('/', array_map('rawurlencode', explode('/', $mediaRelativePath)));
+
+        return $this->getApiBaseUrl() . '/media/raw/' . $encoded;
+    }
+
+    /**
+     * Express an absolute path as a webroot-relative URL path, or null when it
+     * does not sit under a root the site is served from.
+     *
+     * Both sides are `realpath()`d and compared with a trailing separator: the
+     * locator is built on `GRAV_WEBROOT` and can hand back a symlink-resolved
+     * path, and a bare prefix compare would let `/var/www/html` swallow
+     * `/var/www/html-backup`. Returning null rather than the input path is
+     * deliberate — a miss must never put a server filesystem path into an
+     * `<img src>`.
+     */
+    private function relativeToWebroot(string $absolutePath): ?string
+    {
+        $real = realpath($absolutePath);
+        if ($real === false) {
+            return null;
+        }
+
+        // USER_DIR is listed separately from the install roots because a `user/`
+        // folder symlinked outside the install is a supported layout; its files
+        // are still served from `/<user-path>/…`, so the prefix is put back.
+        $roots = [
+            [GRAV_WEBROOT, ''],
+            [GRAV_ROOT, ''],
+            [USER_DIR, trim(GRAV_USER_PATH, '/') . '/'],
+        ];
+
+        foreach ($roots as [$root, $urlPrefix]) {
+            $realRoot = realpath($root);
+            if ($realRoot === false) {
+                continue;
+            }
+
+            $realRoot = rtrim($realRoot, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
+            if (strncmp($real, $realRoot, strlen($realRoot)) !== 0) {
+                continue;
+            }
+
+            return $urlPrefix . str_replace(DIRECTORY_SEPARATOR, '/', substr($real, strlen($realRoot)));
+        }
+
+        return null;
+    }
+
+    /**
+     * Whether the web server will serve a webroot-relative path directly.
+     *
+     * Mirrors the deny rules Grav ships in `.htaccess` and
+     * `webserver-configs/nginx.conf`, which block `user/config`, `user/env` and
+     * `user/accounts` for every file type. A multi-site `user://media` living
+     * inside `user/env/<host>/` is on disk but 403s over HTTP, so its direct URL
+     * would be exactly as broken as the hardcoded one it replaces.
+     */
+    private function isWebServable(string $relative): bool
+    {
+        $userPath = preg_quote(trim(GRAV_USER_PATH, '/'), '#');
+
+        return !preg_match('#^' . $userPath . '/(config|env|accounts)(/|$)#i', $relative);
+    }
+
+    /**
      * Build a serialized array for a raw file in the site media directory.
      * Used when we don't have Grav Medium objects available.
      */
@@ -1928,7 +2081,7 @@ class MediaController extends AbstractApiController
         $data = [
             'filename' => $filename,
             'path' => $relativePath,
-            'url' => '/user/media/' . $fullRelativePath,
+            'url' => $this->resolvePublicUrl($filePath, $fullRelativePath),
             'type' => $mime,
             'size' => (int) filesize($filePath),
         ];
@@ -1951,12 +2104,13 @@ class MediaController extends AbstractApiController
                 ];
             }
 
-            // Generate thumbnail
+            // Generate thumbnail. The mime is already known, so pass it through
+            // to skip the service's own magic-byte sniff.
             try {
                 $thumbnailService = $this->getThumbnailService();
-                $hash = $thumbnailService->getOrCreate($filePath);
-                if ($hash) {
-                    $data['thumbnail_url'] = $this->getApiBaseUrl() . '/thumbnails/' . $hash;
+                $thumbFilename = $thumbnailService->ensureThumbnail($filePath, $mime);
+                if ($thumbFilename) {
+                    $data['thumbnail_url'] = $this->getApiBaseUrl() . '/thumbnails/' . $thumbFilename;
                 }
             } catch (\Throwable) {
                 // Thumbnail generation failed — skip it

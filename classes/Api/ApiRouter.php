@@ -674,6 +674,11 @@ class ApiRouter extends ProcessorBase
         // Site-level media
         $r->addRoute('GET', '/media', [MediaController::class, 'siteMedia']);
         $r->addRoute('POST', '/media', [MediaController::class, 'uploadSiteMedia']);
+        // Byte-serving fallback for site media the web server will not serve
+        // directly. Grav's shipped .htaccess/nginx configs deny `user/env` and
+        // `user/config` outright, so a multi-site `user://media` resolving to
+        // `user/env/<host>/media` is only reachable through here (#28).
+        $r->addRoute('GET', '/media/raw/{path:.+}', [MediaController::class, 'rawSiteMedia']);
         $r->addRoute('POST', '/media/folders', [MediaController::class, 'createFolder']);
         $r->addRoute('POST', '/media/rename', [MediaController::class, 'renameFile']);
         // Per-file metadata (.meta.yaml sidecar) for site media. The file is
