@@ -125,6 +125,13 @@ class SchedulerController extends AbstractApiController
             }
         }
 
+        // The environment this request booted with, whether it carries overrides the bare CLI
+        // ('cli') never loads, and the environment of the last real run. Together they let the
+        // admin flag a crontab that is running a different configuration than the site (grav#4248).
+        $environment = \Grav\Common\Config\Setup::$environment ?: null;
+        $overrideEnvironment = method_exists($scheduler, 'getOverrideEnvironment') ? $scheduler->getOverrideEnvironment() : null;
+        $lastRunEnvironment = method_exists($scheduler, 'getLastRunEnvironment') ? $scheduler->getLastRunEnvironment() : null;
+
         // Webhook plugin status
         $webhookInstalled = class_exists('Grav\\Plugin\\SchedulerWebhookPlugin')
             || is_dir($this->grav['locator']->findResource('plugin://scheduler-webhook') ?: '');
@@ -140,6 +147,9 @@ class SchedulerController extends AbstractApiController
             'cron_detection' => $detection,
             'process_available' => $processAvailable,
             'last_run' => $lastRun,
+            'environment' => $environment,
+            'environment_has_overrides' => $overrideEnvironment !== null,
+            'last_run_environment' => $lastRunEnvironment,
             'cron_command' => $redact ? self::DEMO_REDACTED : $scheduler->getCronCommand(),
             'scheduler_command' => $redact ? self::DEMO_REDACTED : $scheduler->getSchedulerCommand(),
             'whoami' => $redact ? self::DEMO_REDACTED : $whoami,

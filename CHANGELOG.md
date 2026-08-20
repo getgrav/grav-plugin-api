@@ -5,6 +5,7 @@
     * Media stored outside the standard folder, as on a multi-site install, now shows correctly in the admin media manager instead of appearing as broken images. Thanks to @nerdyjan for the diagnosis and the fix.
     * Thumbnails are now generated for media in the site media folder, which previously failed silently and left every item without a preview.
     * Blueprint fields keep the rest of their documented common attributes on the way to the admin, so `sublabel`, `display_label`, `labelclasses` and `outerclasses` work again as they do in Grav 1.7 [#18](https://github.com/getgrav/grav-admin-next/issues/18)
+    * The scheduler status now reports which environment the site and the last scheduler run used, so the admin can warn when a cron job runs under a different configuration than the site [#4248](https://github.com/getgrav/grav/issues/4248)
 1. [](#new)
     * Added an After Save preference for Flex Objects, so the admin remembers where you chose to go after saving a record [#160](https://github.com/getgrav/grav-plugin-admin2/issues/160)
 
