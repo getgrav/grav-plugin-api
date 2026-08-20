@@ -12,6 +12,7 @@
     * The scheduler status now reports which environment the site and the last scheduler run used, so the admin can warn when a cron job runs under a different configuration than the site [#4248](https://github.com/getgrav/grav/issues/4248)
 1. [](#new)
     * Added an After Save preference for Flex Objects, so the admin remembers where you chose to go after saving a record [#160](https://github.com/getgrav/grav-plugin-admin2/issues/160)
+    * A premium package can now name its own store and checkout link, so packages sold outside the Grav Premium store send buyers to the right place instead of always to licensing.getgrav.org.
 
 # v1.0.19
 ## 08/14/2026
