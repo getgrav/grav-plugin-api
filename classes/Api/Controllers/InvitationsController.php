@@ -347,6 +347,15 @@ class InvitationsController extends AbstractApiController
     /**
      * Strip super-admin flags from an access tree.
      *
+     * Both access-tree shapes have to be handled. PermissionResolver::buildFlatAccess()
+     * runs the account's access map through Utils::arrayFlattenDotNotation(), which
+     * collapses the nested form (['api' => ['super' => true]]) into exactly the literal
+     * key the dot-keyed form (['api.super' => true]) already is, so resolveExact() and
+     * isSuperAdmin() cannot tell them apart. Stripping only the nested form let an
+     * api.users.write inviter smuggle super past this gate and mint a super-admin
+     * through the public accept endpoint. UsersController::accessGrantsSuper() has
+     * always checked both shapes; this guard now matches it.
+     *
      * @param array<string, mixed> $access
      * @return array<string, mixed>
      */
@@ -356,7 +365,9 @@ class InvitationsController extends AbstractApiController
             if (isset($access[$scope]) && is_array($access[$scope])) {
                 unset($access[$scope]['super']);
             }
+            unset($access["{$scope}.super"]);
         }
+
         return $access;
     }
 

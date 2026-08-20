@@ -341,6 +341,17 @@ class AuthController extends AbstractApiController
             throw new \RuntimeException('Email service not available.');
         }
 
+        // With require_trusted_host on but no Site Host or Custom Base URL set, the
+        // link would be built from the request `Host` and could be pointed at an
+        // attacker. Hold it back rather than mail a spoofable token, matching the
+        // Login plugin's own send paths (GHSA-262p-56vv-7v5r). Return silently so
+        // the neutral forgot-password response cannot be used to enumerate accounts.
+        if ($this->trustedHostRequiredButMissing()) {
+            $this->grav['log']->error('api.auth: password reset email withheld — require_trusted_host is on but neither plugins.login.site_host nor system.custom_base_url is set.');
+
+            return;
+        }
+
         $adminBase = $this->resolveAdminBaseUrl($clientBaseUrl, $request);
 
         $resetLink = rtrim($adminBase, '/')

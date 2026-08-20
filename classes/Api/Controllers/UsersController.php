@@ -1005,7 +1005,7 @@ class UsersController extends AbstractApiController
         // super-admin targets, assign groups, or grant super via `access`. An
         // unscoped super credential (session, JWT, unscoped key) is unaffected.
         $isSuper = $this->isSuperWithinScope($request);
-        if (!$isSuper && $this->accessGrantsSuper($user->get('access'))) {
+        if (!$isSuper && $this->targetIsSuper($user)) {
             throw new ForbiddenException('Only super-admins can modify super-admin accounts.');
         }
 
@@ -1157,7 +1157,7 @@ class UsersController extends AbstractApiController
         // reason as requireNotSuperTarget(): the super branch grants an exemption,
         // so a bare isSuperAdmin() let a scoped key on a super account delete other
         // super-admins without carrying admin.super in its scopes.
-        if (!$this->isSuperWithinScope($request) && $this->accessGrantsSuper($user->get('access'))) {
+        if (!$this->isSuperWithinScope($request) && $this->targetIsSuper($user)) {
             throw new ForbiddenException('Only super-admins can delete super-admin accounts.');
         }
 
@@ -1589,9 +1589,43 @@ class UsersController extends AbstractApiController
             return;
         }
 
-        if (!$this->isSuperWithinScope($request) && $this->accessGrantsSuper($target->get('access'))) {
+        if (!$this->isSuperWithinScope($request) && $this->targetIsSuper($target)) {
             throw new ForbiddenException('Only super-admins can manage super-admin accounts.');
         }
+    }
+
+    /**
+     * Whether a loaded target account is EFFECTIVELY super — through its own
+     * access map or through any group it belongs to.
+     *
+     * `$target->get('access')` only ever returns the account's own map, but both
+     * authorization layers resolve groups first (core UserTrait::authorize() and
+     * PermissionResolver::buildFlatAccess()), and a group carrying admin.super
+     * authorizes every action for its members. An account that is super purely by
+     * group membership was therefore invisible to every target guard while being
+     * fully super at authorization time, letting a non-super api.users.write
+     * manager reset its password and take it over (GHSA-vv8m-jqpm-38x4).
+     *
+     * This deliberately does NOT go through $target->authorize(): a target loaded
+     * from storage is not `authenticated`, so authorize() returns false for every
+     * action and the guard would fail OPEN. Reading access maps directly is the
+     * only login-state-independent answer.
+     *
+     * @param UserInterface $target
+     */
+    private function targetIsSuper(UserInterface $target): bool
+    {
+        if ($this->accessGrantsSuper($target->get('access'))) {
+            return true;
+        }
+
+        foreach ((array) $target->get('groups', []) as $group) {
+            if (is_string($group) && $this->accessGrantsSuper($this->config->get("groups.{$group}.access"))) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
