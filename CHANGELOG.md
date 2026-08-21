@@ -1,5 +1,5 @@
 # v1.0.20
-## 08/18/2026
+## 08/21/2026
 
 1. [](#bugfix)
     * [security] A user manager who is not a super administrator can no longer grant super-admin access through an invitation.
