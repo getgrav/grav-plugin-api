@@ -557,7 +557,8 @@ class ApiRouter extends ProcessorBase
 
     protected function createDispatcher(): Dispatcher
     {
-        $cacheFile = $this->container['locator']->findResource('cache://api', true, true) . '/route.cache';
+        $cacheDir = $this->container['locator']->findResource('cache://api', true, true);
+        $cacheFile = $cacheDir . '/route.' . $this->routeCacheFingerprint() . '.cache';
         $cacheDisabled = $this->config->get('system.debugger.enabled', false);
 
         return cachedDispatcher(function (RouteCollector $r) {
@@ -567,6 +568,39 @@ class ApiRouter extends ProcessorBase
             'cacheFile' => $cacheFile,
             'cacheDisabled' => $cacheDisabled,
         ]);
+    }
+
+    /**
+     * Identity of the route table, so installing or enabling a plugin takes
+     * effect without a manual cache clear.
+     *
+     * Plugin routes come from onApiRegisterRoutes, which only fires while the
+     * dispatcher is being BUILT — so once route.cache exists, a newly installed
+     * plugin never gets asked for its routes again. Its sidebar item and page
+     * script still appear (those events fire every request), so the plugin looks
+     * installed and then every call it makes 404s. Nothing in Grav invalidates
+     * this file on plugin install, which made "install a plugin from the admin"
+     * silently half-work until someone ran `bin/grav clear`.
+     *
+     * Keyed on the enabled plugin set rather than invalidated by an event: it
+     * needs no cooperation from whatever changed the set, and it is correct for
+     * install, enable, disable and removal alike. Stale files stay in cache://api
+     * and go with any cache clear; the set changes rarely enough that they do not
+     * accumulate meaningfully.
+     */
+    protected function routeCacheFingerprint(): string
+    {
+        $enabled = [];
+        foreach ((array) $this->config->get('plugins', []) as $slug => $settings) {
+            // Grav treats a missing `enabled` as on, so only an explicit false
+            // counts as disabled.
+            if (!is_array($settings) || ($settings['enabled'] ?? true) !== false) {
+                $enabled[] = (string) $slug;
+            }
+        }
+        sort($enabled);
+
+        return substr(hash('sha256', implode(',', $enabled)), 0, 16);
     }
 
     protected function registerCoreRoutes(RouteCollector $r): void
@@ -640,6 +674,11 @@ class ApiRouter extends ProcessorBase
         // Site-level media
         $r->addRoute('GET', '/media', [MediaController::class, 'siteMedia']);
         $r->addRoute('POST', '/media', [MediaController::class, 'uploadSiteMedia']);
+        // Byte-serving fallback for site media the web server will not serve
+        // directly. Grav's shipped .htaccess/nginx configs deny `user/env` and
+        // `user/config` outright, so a multi-site `user://media` resolving to
+        // `user/env/<host>/media` is only reachable through here (#28).
+        $r->addRoute('GET', '/media/raw/{path:.+}', [MediaController::class, 'rawSiteMedia']);
         $r->addRoute('POST', '/media/folders', [MediaController::class, 'createFolder']);
         $r->addRoute('POST', '/media/rename', [MediaController::class, 'renameFile']);
         // Per-file metadata (.meta.yaml sidecar) for site media. The file is

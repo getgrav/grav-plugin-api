@@ -37,6 +37,8 @@ class PreferencesResolver
     private const VALID_LOGO_MODE = ['default', 'text', 'custom'];
     private const VALID_PAGES_VIEW_MODE = ['tree', 'list', 'miller'];
     private const VALID_ACCOUNTS_VIEW_MODE = ['cards', 'table'];
+    /** '' = follow whatever the Flex directory blueprint declares. */
+    private const VALID_FLEX_AFTER_SAVE = ['', 'create-new', 'edit', 'list'];
 
     public function __construct(
         private readonly Grav $grav,
@@ -67,6 +69,7 @@ class PreferencesResolver
             'groupsViewMode' => 'cards',
             'pluginsViewMode' => 'cards',
             'themesViewMode' => 'cards',
+            'flexAfterSave' => '',
         ];
     }
 
@@ -435,6 +438,7 @@ class PreferencesResolver
             'pagesPerPage' => is_numeric($value) ? max(1, min(200, (int) $value)) : null,
             'pagesViewMode' => is_string($value) && in_array($value, self::VALID_PAGES_VIEW_MODE, true) ? $value : null,
             'usersViewMode', 'groupsViewMode', 'pluginsViewMode', 'themesViewMode' => is_string($value) && in_array($value, self::VALID_ACCOUNTS_VIEW_MODE, true) ? $value : null,
+            'flexAfterSave' => is_string($value) && in_array($value, self::VALID_FLEX_AFTER_SAVE, true) ? $value : null,
             default => null,
         };
     }

@@ -41,7 +41,7 @@ trait ResolvesAdminBaseUrl
         ServerRequestInterface $request,
         array $stripSuffixes = ['/forgot'],
     ): string {
-        $serverUrl = rtrim((string) $this->grav['uri']->rootUrl(true), '/');
+        $serverUrl = rtrim($this->trustedAdminBaseUrl() ?? (string) $this->grav['uri']->rootUrl(true), '/');
         $allowedOrigins = $this->allowedAdminOrigins();
 
         // 1. Explicit admin_base_url from the request body.
@@ -102,7 +102,12 @@ trait ResolvesAdminBaseUrl
     {
         $origins = [];
 
-        $serverOrigin = $this->normalizeOrigin((string) $this->grav['uri']->rootUrl(true));
+        // Anchor on the operator-configured hostname. Falling back to Grav's
+        // root URL here would seed the allowlist with the request `Host` header,
+        // letting an anonymous caller allowlist their own domain and poison a
+        // reset/invite link (GHSA-262p-56vv-7v5r).
+        $trusted = $this->trustedAdminBaseUrl();
+        $serverOrigin = $this->normalizeOrigin($trusted ?? (string) $this->grav['uri']->rootUrl(true));
         if ($serverOrigin !== null) {
             $origins[$serverOrigin] = true;
         }
@@ -128,6 +133,39 @@ trait ResolvesAdminBaseUrl
         $origin = $this->normalizeOrigin($url);
 
         return $origin !== null && in_array($origin, $allowedOrigins, true);
+    }
+
+    /**
+     * The operator-configured base URL for self-referential admin links, or null
+     * when the site has none and we would otherwise fall back to the request
+     * `Host`. Mirrors the Login plugin's own trusted-host settings so both plugins
+     * agree on what a trusted origin is (GHSA-262p-56vv-7v5r).
+     */
+    protected function trustedAdminBaseUrl(): ?string
+    {
+        foreach ([
+            (string) $this->config->get('system.custom_base_url', ''),
+            (string) $this->config->get('plugins.login.site_host', ''),
+        ] as $configured) {
+            $configured = trim($configured);
+            if ($configured !== '' && $this->normalizeOrigin($configured) !== null) {
+                return rtrim($configured, '/');
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * True when the operator has turned on require_trusted_host but has not set a
+     * hostname to trust, so any self-referential link would be built from the
+     * request `Host`. Callers hold the link back in that case rather than mailing
+     * a spoofable token (GHSA-262p-56vv-7v5r).
+     */
+    protected function trustedHostRequiredButMissing(): bool
+    {
+        return (bool) $this->config->get('plugins.login.require_trusted_host', false)
+            && $this->trustedAdminBaseUrl() === null;
     }
 
     /**

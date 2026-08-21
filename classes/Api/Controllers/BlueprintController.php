@@ -1417,6 +1417,13 @@ class BlueprintController extends AbstractApiController
             $props = [
                 'label', 'help', 'placeholder', 'default', 'description', 'content',
                 'size', 'classes', 'id', 'style', 'title', 'text',
+                // Documented common field attributes. Classic admin's
+                // forms/field.html.twig renders every one of these, so a blueprint
+                // written for 1.7 expects them to survive the trip to the SPA;
+                // missing from this list they were dropped server-side and never
+                // reached the browser at all (grav-admin-next#18).
+                'sublabel', 'sublabelclasses', 'labelclasses', 'outerclasses',
+                'display_label', 'autocomplete', 'autofocus', 'novalidate',
                 'disabled', 'readonly', 'toggleable', 'highlight',
                 'minlength', 'maxlength', 'min', 'max', 'step',
                 'rows', 'cols', 'multiple', 'yaml',
@@ -1449,7 +1456,7 @@ class BlueprintController extends AbstractApiController
             // without translating them here the SPA receives the raw key and
             // humanizes it to "Day Plural" (admin2#64) — the GRAV.* core
             // namespace isn't in the SPA's client string table.
-            foreach (['label', 'title', 'description', 'help', 'placeholder', 'text', 'content', 'success_msg', 'error_msg', 'append', 'prepend'] as $textProp) {
+            foreach (['label', 'sublabel', 'title', 'description', 'help', 'placeholder', 'text', 'content', 'success_msg', 'error_msg', 'append', 'prepend'] as $textProp) {
                 if (isset($serialized[$textProp]) && is_string($serialized[$textProp])) {
                     $serialized[$textProp] = $this->translateLabel($serialized[$textProp]);
                 }

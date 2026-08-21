@@ -52,12 +52,30 @@ class PackageSerializer implements SerializerInterface
         if (!empty($resource->premium)) {
             $slug = $resource->slug ?? $options['slug_key'] ?? '';
             $premium = $resource->premium;
-            $permalink = is_object($premium) ? ($premium->permalink ?? null) : ($premium['permalink'] ?? null);
+            $premiumValue = static function (string $key) use ($premium) {
+                $value = is_object($premium) ? ($premium->{$key} ?? null) : ($premium[$key] ?? null);
+
+                return is_string($value) && $value !== '' ? $value : null;
+            };
 
             $data['premium'] = true;
             $data['licensed'] = !empty(Licenses::get($slug));
 
-            if ($permalink) {
+            // Not every premium package is sold from the Grav Premium store.
+            // A package may name its own storefront, in which case the client
+            // sends the buyer there instead of to licensing.getgrav.org/buy.
+            // `vendor` is purely cosmetic — it lets the admin say who sells
+            // this, rather than implying everything premium is Grav Premium.
+            $vendor = $premiumValue('vendor');
+            if ($vendor) {
+                $data['vendor'] = $vendor;
+            }
+
+            $checkoutUrl = $premiumValue('checkout_url');
+            $permalink = $premiumValue('permalink');
+            if ($checkoutUrl) {
+                $data['purchase_url'] = $checkoutUrl;
+            } elseif ($permalink) {
                 $data['purchase_url'] = 'https://licensing.getgrav.org/buy/' . $permalink;
             }
         }

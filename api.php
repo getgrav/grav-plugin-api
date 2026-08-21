@@ -357,10 +357,44 @@ class ApiPlugin extends Plugin
         }
 
         // Only a super-admin may act on a super-admin account.
+        // NOT $target->authorize(): a target loaded from storage is not
+        // `authenticated`, so authorize() returns false for every action and this
+        // guard never fired for ANY super target. Read the effective access map —
+        // own plus group-inherited — instead (GHSA-vv8m-jqpm-38x4).
         $target = $this->grav['accounts']->load($username);
-        if ($target->exists() && $target->authorize('admin.super') && !$current->authorize('admin.super')) {
+        if ($target->exists() && $this->accountIsSuper($target) && !$current->authorize('admin.super')) {
             $this->outputJson(['status' => 'error', 'message' => 'Only super-admins can manage super-admin accounts.']);
         }
+    }
+
+    /**
+     * Whether an account loaded from storage is effectively super, through its own
+     * access map or any group it belongs to. Login-state independent by design, so
+     * it works on the non-authenticated user objects `accounts->load()` returns.
+     *
+     * @param object $target
+     */
+    protected function accountIsSuper($target): bool
+    {
+        $maps = [$target->get('access')];
+        foreach ((array) $target->get('groups', []) as $group) {
+            if (is_string($group)) {
+                $maps[] = $this->grav['config']->get("groups.{$group}.access");
+            }
+        }
+
+        foreach ($maps as $access) {
+            if (!is_array($access)) {
+                continue;
+            }
+            foreach (['admin', 'api'] as $scope) {
+                if (!empty($access[$scope]['super']) || !empty($access["{$scope}.super"])) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     protected function handleApiKeyGenerate(): void
