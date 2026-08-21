@@ -155,6 +155,10 @@ paths:
         Authenticate with username and password to receive an access token and a
         refresh token. The access token is short-lived; use the refresh token to
         obtain a new pair without re-authenticating.
+
+        If the site requires a login captcha, `captcha_token` is mandatory and
+        the request fails with 422 without it. Call `GET /auth/captcha` first to
+        find out.
       security: []
       requestBody:
         required: true
@@ -171,6 +175,14 @@ paths:
                   type: string
                   format: password
                   example: Pa$$w0rd!
+                captcha_token:
+                  type: string
+                  description: >-
+                    A solved captcha, required only when the site has a login
+                    captcha configured. For the built-in `cap` provider this is
+                    the token returned by `POST /auth/captcha/redeem`; for
+                    Turnstile or reCAPTCHA it is the widget's response token.
+                    Single use.
             example:
               username: admin
               password: Pa$$w0rd!
@@ -198,6 +210,162 @@ paths:
           $ref: "#/components/responses/ValidationError"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+
+  /auth/captcha:
+    get:
+      operationId: getCaptchaConfig
+      tags: [Auth]
+      summary: Discover the login captcha
+      description: |
+        Report which captcha (if any) guards the unauthenticated auth endpoints,
+        so a client can render the right challenge before submitting. Public,
+        and never returns a secret.
+      security: []
+      responses:
+        "200":
+          description: Captcha configuration.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                      provider:
+                        type: string
+                        nullable: true
+                        enum: [cap, turnstile, recaptcha, null]
+                      mode:
+                        type: string
+                        enum: [invisible, checkbox]
+                      token_field:
+                        type: string
+                        description: Body field to send the solved token in.
+                      flows:
+                        type: object
+                        description: Which unauthenticated flows are gated.
+                        properties:
+                          login:
+                            type: boolean
+                          forgot_password:
+                            type: boolean
+                          setup:
+                            type: boolean
+                      endpoint:
+                        type: string
+                        description: Base URL of the cap challenge/redeem pair. Only for the `cap` provider.
+                      site_key:
+                        type: string
+                        description: Public widget key. Only for the `turnstile` and `recaptcha` providers.
+              example:
+                data:
+                  enabled: true
+                  provider: cap
+                  mode: invisible
+                  token_field: captcha_token
+                  flows:
+                    login: true
+                    forgot_password: true
+                    setup: false
+                  endpoint: https://example.com/api/v1/auth/captcha/
+
+  /auth/captcha/challenge:
+    post:
+      operationId: createCaptchaChallenge
+      tags: [Auth]
+      summary: Mint a proof-of-work challenge
+      description: |
+        Issue a cap.js challenge for the client to solve. Only available while
+        `cap` is the active provider; 404 otherwise. The response is the cap.js
+        wire format, not this API's `data` envelope.
+      security: []
+      responses:
+        "200":
+          description: Challenge issued.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  challenge:
+                    type: object
+                    properties:
+                      c:
+                        type: integer
+                        description: Number of sub-challenges.
+                      s:
+                        type: integer
+                        description: Salt length.
+                      d:
+                        type: integer
+                        description: Required leading zero digits.
+                  token:
+                    type: string
+                  expires:
+                    type: integer
+                    format: int64
+              example:
+                challenge: { c: 30, s: 32, d: 4 }
+                token: 72d323130ee3541275ca2dc1aa9607b4ca61095a08
+                expires: 1787332679923
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /auth/captcha/redeem:
+    post:
+      operationId: redeemCaptchaChallenge
+      tags: [Auth]
+      summary: Exchange solutions for a captcha token
+      description: |
+        Trade the solved sub-challenges for a single-use token to send with the
+        login, forgotten-password or setup request. Only available while `cap`
+        is the active provider; 404 otherwise. The response is the cap.js wire
+        format, not this API's `data` envelope.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, solutions]
+              properties:
+                token:
+                  type: string
+                  description: The challenge token from `/auth/captcha/challenge`.
+                solutions:
+                  type: array
+                  description: One nonce per sub-challenge, in order.
+                  items:
+                    type: integer
+      responses:
+        "200":
+          description: Result of the redemption. `success` is false when the solutions don't verify.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  token:
+                    type: string
+                  expires:
+                    type: integer
+                    format: int64
+                  message:
+                    type: string
+              example:
+                success: true
+                token: e734e7c49c34bb0d:d43a6be90ca08cf9f91171a5320e0a
+                expires: 1787333298530
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
 
   /auth/refresh:
     post:

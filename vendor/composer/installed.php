@@ -3,7 +3,7 @@
         'name' => 'getgrav/grav-plugin-api',
         'pretty_version' => 'dev-develop',
         'version' => 'dev-develop',
-        'reference' => '770790988ef0b53f11b4c2096003a471596448fc',
+        'reference' => 'a3cc1bfe808bbc46bc561611443ffa5711567e58',
         'type' => 'grav-plugin',
         'install_path' => __DIR__ . '/../../',
         'aliases' => array(),
@@ -22,7 +22,7 @@
         'getgrav/grav-plugin-api' => array(
             'pretty_version' => 'dev-develop',
             'version' => 'dev-develop',
-            'reference' => '770790988ef0b53f11b4c2096003a471596448fc',
+            'reference' => 'a3cc1bfe808bbc46bc561611443ffa5711567e58',
             'type' => 'grav-plugin',
             'install_path' => __DIR__ . '/../../',
             'aliases' => array(),
@@ -294,6 +294,15 @@
             'install_path' => __DIR__ . '/../theseer/tokenizer',
             'aliases' => array(),
             'dev_requirement' => true,
+        ),
+        'trilbymedia/cap-php' => array(
+            'pretty_version' => '1.0.0',
+            'version' => '1.0.0.0',
+            'reference' => '88dbea9eeca2a73ba1576f60eaabd869396ad00d',
+            'type' => 'library',
+            'install_path' => __DIR__ . '/../trilbymedia/cap-php',
+            'aliases' => array(),
+            'dev_requirement' => false,
         ),
     ),
 );

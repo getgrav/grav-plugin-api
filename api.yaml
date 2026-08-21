@@ -13,6 +13,39 @@ auth:
   jwt_refresh_expiry: 604800
   session_enabled: true
 
+login:
+  # Challenge shown in front of the unauthenticated auth endpoints. Off by
+  # default; the admin login is already rate-limited by the Login plugin and
+  # supports per-account 2FA, so this is defense in depth rather than the first
+  # line of it.
+  #
+  # If a misconfigured captcha ever locks you out of the admin, set `enabled`
+  # back to false in user/config/plugins/api.yaml and run `bin/grav clear`.
+  captcha:
+    enabled: false
+    # 'cap' is a proof-of-work challenge served by this plugin — no keys, no
+    # third-party service. 'turnstile' and 'recaptcha' need the Form plugin
+    # installed and its keys configured; they are read from that plugin's own
+    # config rather than duplicated here.
+    provider: cap
+    # 'invisible' solves in the background as the user types; 'checkbox' makes
+    # them click. Honored by cap and Turnstile.
+    mode: invisible
+    # Which unauthenticated flows the challenge guards. Setup runs once on a
+    # brand-new site, so it's off by default.
+    flows:
+      login: true
+      forgot_password: true
+      setup: false
+    # Proof-of-work tuning for the 'cap' provider. More/harder sub-challenges
+    # cost the client more CPU; the defaults take well under a second on a
+    # phone.
+    cap:
+      challenge_count: 30
+      challenge_size: 32
+      challenge_difficulty: 4
+      expires_ms: 600000
+
 cors:
   enabled: true
   # Cross-origin browser access is OFF by default (same-origin only). To allow a

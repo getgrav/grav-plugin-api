@@ -13,6 +13,7 @@ use Grav\Framework\Psr7\Response;
 use Grav\Plugin\Api\Audit\AuditContext;
 use Grav\Plugin\Api\Controllers\AuditController;
 use Grav\Plugin\Api\Controllers\AuthController;
+use Grav\Plugin\Api\Controllers\CaptchaController;
 use Grav\Plugin\Api\Controllers\BlueprintController;
 use Grav\Plugin\Api\Controllers\BlueprintFilesController;
 use Grav\Plugin\Api\Controllers\BlueprintUploadController;
@@ -619,6 +620,14 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('GET',  '/auth/setup', [SetupController::class, 'status']);
         $r->addRoute('POST', '/auth/setup', [SetupController::class, 'create']);
         $r->addRoute('GET',  '/auth/password-policy', [PasswordPolicyController::class, 'show']);
+
+        // Login captcha (public — under /auth/). `captcha` is discovery: the
+        // login page asks what challenge to render, the way it asks for SSO
+        // providers. The challenge/redeem pair is the cap.js proof-of-work
+        // round-trip, and only responds while cap is the active provider.
+        $r->addRoute('GET',  '/auth/captcha', [CaptchaController::class, 'show']);
+        $r->addRoute('POST', '/auth/captcha/challenge', [CaptchaController::class, 'challenge']);
+        $r->addRoute('POST', '/auth/captcha/redeem', [CaptchaController::class, 'redeem']);
 
         // SSO / OAuth login bridge for admin-next (public — under /auth/). Static
         // routes before the parameterized ones (FastRoute matching order).

@@ -7,6 +7,7 @@ namespace Grav\Plugin\Api\Controllers;
 use Grav\Common\User\Interfaces\UserCollectionInterface;
 use Grav\Common\User\Interfaces\UserInterface;
 use Grav\Plugin\Api\Auth\JwtAuthenticator;
+use Grav\Plugin\Api\Captcha\LoginCaptcha;
 use Grav\Plugin\Api\Exceptions\ForbiddenException;
 use Grav\Plugin\Api\Exceptions\TooManyRequestsException;
 use Grav\Plugin\Api\Exceptions\UnauthorizedException;
@@ -30,6 +31,11 @@ class AuthController extends AbstractApiController
         $password = (string) $body['password'];
 
         $this->enforceLoginRateLimit($username);
+
+        // Verify the captcha before any credential work. After the rate limit,
+        // so a caller already locked out can't make us do the verification
+        // (which is a remote call for Turnstile/reCAPTCHA) on every attempt.
+        $this->captcha()->verify(LoginCaptcha::FLOW_LOGIN, $body, $this->getRequestIp($request));
 
         // Route through the Login plugin when available so the full
         // onUserLoginAuthenticate / onUserLoginAuthorize / onUserLogin chain
@@ -260,6 +266,8 @@ class AuthController extends AbstractApiController
         $body = $this->getRequestBody($request);
         $this->requireFields($body, ['email']);
 
+        $this->captcha()->verify(LoginCaptcha::FLOW_FORGOT_PASSWORD, $body, $this->getRequestIp($request));
+
         $email = htmlspecialchars(strip_tags((string) $body['email']), ENT_QUOTES, 'UTF-8');
 
         $neutralResponse = ApiResponse::create([
@@ -488,6 +496,11 @@ class AuthController extends AbstractApiController
      * same cache store the frontend login uses. Throws 429 if the caller is
      * currently locked out.
      */
+    private function captcha(): LoginCaptcha
+    {
+        return new LoginCaptcha($this->grav, $this->config);
+    }
+
     private function enforceLoginRateLimit(string $username): void
     {
         if (!class_exists(Login::class) || !isset($this->grav['login'])) {

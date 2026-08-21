@@ -1,3 +1,11 @@
+# v1.0.21
+## 08/21/2026
+
+1. [](#new)
+    * Added an optional captcha on the admin login form, using a built-in challenge that needs no keys and no third-party service [#4254](https://github.com/getgrav/grav/issues/4254)
+    * Cloudflare Turnstile and Google reCAPTCHA can be used for that challenge instead, on sites that already have them configured in the Form plugin
+    * The captcha can also guard the forgotten-password and first-run setup forms
+
 # v1.0.20
 ## 08/21/2026
 

@@ -6,6 +6,7 @@ $vendorDir = dirname(__DIR__);
 $baseDir = dirname($vendorDir);
 
 return array(
+    'TrilbyMedia\\Cap\\' => array($vendorDir . '/trilbymedia/cap-php/src'),
     'Psr\\Http\\Message\\' => array($vendorDir . '/psr/http-message/src'),
     'PhpParser\\' => array($vendorDir . '/nikic/php-parser/lib/PhpParser'),
     'Grav\\Plugin\\Api\\Tests\\' => array($baseDir . '/tests'),
