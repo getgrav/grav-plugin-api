@@ -5,6 +5,10 @@
     * Added an optional captcha on the admin login form, using a built-in challenge that needs no keys and no third-party service [#4254](https://github.com/getgrav/grav/issues/4254)
     * Cloudflare Turnstile and Google reCAPTCHA can be used for that challenge instead, on sites that already have them configured in the Form plugin
     * The captcha can also guard the forgotten-password and first-run setup forms
+1. [](#bugfix)
+    * Fixed every API-key request failing on a site where `user/data` is not writable by the web server. Recording when a key was last used is bookkeeping and no longer takes down the request that triggered it. Thanks to @sandymac for the report and the diagnosis [#30](https://github.com/getgrav/grav-plugin-api/issues/30)
+    * Fixed the same failure in three other places: an unwritable folder no longer breaks token validation, frontend page views, or the media manager's thumbnails.
+    * Errors from a folder that cannot be written now say which path is at fault, instead of reporting a missing temporary file.
 
 # v1.0.20
 ## 08/21/2026

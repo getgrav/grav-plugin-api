@@ -446,7 +446,7 @@ class MediaController extends AbstractApiController
 
         $targetDir = $relativePath !== '' ? $mediaPath . '/' . $relativePath : $mediaPath;
 
-        if (!is_dir($targetDir) && !mkdir($targetDir, 0775, true)) {
+        if (!is_dir($targetDir) && !@mkdir($targetDir, 0775, true) && !is_dir($targetDir)) {
             throw new ValidationException('Unable to create upload directory.');
         }
 
@@ -669,7 +669,9 @@ class MediaController extends AbstractApiController
             throw new ValidationException('Folder already exists.');
         }
 
-        if (!mkdir($absolutePath, 0775, true)) {
+        // Suppressed so the ValidationException below is what the caller sees,
+        // rather than a raw PHP warning fataling the request first (#30).
+        if (!@mkdir($absolutePath, 0775, true) && !is_dir($absolutePath)) {
             throw new ValidationException('Unable to create folder.');
         }
 
@@ -779,7 +781,7 @@ class MediaController extends AbstractApiController
 
         // Ensure target directory exists
         $targetDir = dirname($toAbsolute);
-        if (!is_dir($targetDir) && !mkdir($targetDir, 0775, true)) {
+        if (!is_dir($targetDir) && !@mkdir($targetDir, 0775, true) && !is_dir($targetDir)) {
             throw new ValidationException('Unable to create destination directory.');
         }
 
