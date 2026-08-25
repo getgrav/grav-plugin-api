@@ -21,6 +21,15 @@ use RocketTheme\Toolbox\Event\Event;
 
 class GpmController extends AbstractApiController
 {
+    /**
+     * Package management: browsing the repository, listing installed packages,
+     * checking updates. NOT the routes that serve an installed plugin's own
+     * admin UI (page definitions, section/field/widget scripts) — those gate
+     * on plain `api.access`, because an admin whose account can reach a
+     * plugin's screens must be able to render them without also being handed
+     * the package manager; the data behind each screen still answers to that
+     * plugin's own permissions.
+     */
     private const PERMISSION_READ = 'api.gpm.read';
     private const PERMISSION_WRITE = 'api.gpm.write';
 
@@ -1323,7 +1332,7 @@ class GpmController extends AbstractApiController
      */
     public function customFieldScript(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, self::PERMISSION_READ);
+        $this->requirePermission($request, 'api.access');
 
         $slug = $this->getRouteParam($request, 'slug');
         $fieldType = $this->getRouteParam($request, 'type');
@@ -1348,7 +1357,7 @@ class GpmController extends AbstractApiController
      */
     public function customFieldBundle(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, self::PERMISSION_READ);
+        $this->requirePermission($request, 'api.access');
 
         $slug = $this->getRouteParam($request, 'slug');
         $pkgType = str_contains($request->getUri()->getPath(), '/themes/') ? 'themes' : 'plugins';
@@ -1400,7 +1409,7 @@ class GpmController extends AbstractApiController
      */
     public function pluginPage(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, self::PERMISSION_READ);
+        $this->requirePermission($request, 'api.access');
 
         $slug = $this->getRouteParam($request, 'slug');
 
@@ -1433,7 +1442,7 @@ class GpmController extends AbstractApiController
      */
     public function customPageScript(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, self::PERMISSION_READ);
+        $this->requirePermission($request, 'api.access');
 
         $slug = $this->getRouteParam($request, 'slug');
         $path = $this->resolvePackagePath($slug, 'plugins');
@@ -1449,7 +1458,7 @@ class GpmController extends AbstractApiController
      */
     public function widgetScript(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, self::PERMISSION_READ);
+        $this->requirePermission($request, 'api.access');
 
         $slug = $this->getRouteParam($request, 'slug');
         $path = $this->resolvePackagePath($slug, 'plugins');
@@ -1465,7 +1474,7 @@ class GpmController extends AbstractApiController
      */
     public function panelScript(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, self::PERMISSION_READ);
+        $this->requirePermission($request, 'api.access');
 
         $slug = $this->getRouteParam($request, 'slug');
         $path = $this->resolvePackagePath($slug, 'plugins');
@@ -1482,7 +1491,7 @@ class GpmController extends AbstractApiController
      */
     public function modalScript(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, self::PERMISSION_READ);
+        $this->requirePermission($request, 'api.access');
 
         $slug = $this->getRouteParam($request, 'slug');
         $modalId = $this->getRouteParam($request, 'modalId');
@@ -1499,7 +1508,7 @@ class GpmController extends AbstractApiController
      */
     public function reportScript(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, self::PERMISSION_READ);
+        $this->requirePermission($request, 'api.access');
 
         $slug = $this->getRouteParam($request, 'slug');
         $reportId = $this->getRouteParam($request, 'reportId');
