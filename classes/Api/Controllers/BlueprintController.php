@@ -1441,6 +1441,8 @@ class BlueprintController extends AbstractApiController
                 // pagemediaselect / filepicker
                 'preview_images', 'preview_image', 'on_demand', 'folder', 'filter',
                 'self', 'display', 'resize', 'media_picker_field',
+                // media — which pickers the field offers (page / site / url).
+                'sources',
                 // colorpicker — opt out of the alpha slider with `alpha: false`.
                 'alpha',
             ];
