@@ -10,6 +10,7 @@
     * Fixed every API-key request failing on a site where `user/data` is not writable by the web server. Recording when a key was last used is bookkeeping and no longer takes down the request that triggered it. Thanks to @sandymac for the report and the diagnosis [#30](https://github.com/getgrav/grav-plugin-api/issues/30)
     * Fixed the same failure in three other places: an unwritable folder no longer breaks token validation, frontend page views, or the media manager's thumbnails.
     * Errors from a folder that cannot be written now say which path is at fault, instead of reporting a missing temporary file.
+    * Fixed the account, user group and configuration forms failing with "Parent blueprint missing" on any site that adds its own fields to them. A site's own blueprint was loaded on its own, so the one it was extending was no longer there to extend. Thanks to @nerdyjan for the report and the diagnosis [#31](https://github.com/getgrav/grav-plugin-api/issues/31)
 
 # v1.0.20
 ## 08/21/2026

@@ -409,17 +409,23 @@ class BlueprintController extends AbstractApiController
         $this->requirePermission($request, 'api.access');
         $this->primeAdminLanguages($request);
 
-        $blueprintPath = $this->grav['locator']->findResource('blueprints://user/account.yaml');
+        // Resolve only to confirm the blueprint exists — a clean 404 beats a
+        // Blueprint-internal exception — but load from the stream URL, never
+        // from the resolved path. A concrete path makes Blueprint::getFiles()
+        // return that single file, dropping the rest of the blueprints://
+        // cascade; a site override using `extends@: parent@` then has no parent
+        // left to extend and core throws "Parent blueprint missing".
+        $blueprintUri = 'blueprints://user/account.yaml';
 
-        if (!$blueprintPath) {
-            $blueprintPath = $this->grav['locator']->findResource('system://blueprints/user/account.yaml');
+        if (!$this->grav['locator']->findResource($blueprintUri)) {
+            $blueprintUri = 'system://blueprints/user/account.yaml';
         }
 
-        if (!$blueprintPath) {
+        if (!$this->grav['locator']->findResource($blueprintUri)) {
             throw new NotFoundException('User account blueprint not found.');
         }
 
-        $blueprint = $this->loadConfigBlueprint($blueprintPath);
+        $blueprint = $this->loadConfigBlueprint($blueprintUri);
 
         $data = $this->serializeBlueprint($blueprint, 'account');
 
@@ -462,14 +468,19 @@ class BlueprintController extends AbstractApiController
         $this->requirePermission($request, 'api.users.read');
         $this->primeAdminLanguages($request);
 
-        $path = $this->grav['locator']->findResource("blueprints://user/{$name}.yaml")
-            ?: $this->grav['locator']->findResource("system://blueprints/user/{$name}.yaml");
+        // Existence check only — the stream URL is what gets loaded, so the
+        // full cascade stays available to `extends@: parent@`.
+        $uri = "blueprints://user/{$name}.yaml";
 
-        if (!$path) {
-            throw new NotFoundException("Group blueprint '{$name}' not found.");
+        if (!$this->grav['locator']->findResource($uri)) {
+            $uri = "system://blueprints/user/{$name}.yaml";
+
+            if (!$this->grav['locator']->findResource($uri)) {
+                throw new NotFoundException("Group blueprint '{$name}' not found.");
+            }
         }
 
-        $blueprint = $this->loadConfigBlueprint($path);
+        $blueprint = $this->loadConfigBlueprint($uri);
 
         $data = $this->serializeBlueprint($blueprint, $name);
 
@@ -650,20 +661,22 @@ class BlueprintController extends AbstractApiController
             throw new NotFoundException("Config blueprint scope '{$scope}' not found.");
         }
 
-        // Use the blueprints:// stream to find config blueprints so that
-        // plugin overrides (e.g., admin's media.yaml) are resolved correctly.
-        $realPath = $this->grav['locator']->findResource("blueprints://config/{$scope}.yaml");
+        // Use the blueprints:// stream so that plugin overrides (e.g. admin's
+        // media.yaml) are resolved correctly. findResource() is the existence
+        // check only — the loader is handed the stream URL, because a resolved
+        // path would collapse the cascade and break `extends@: parent@`.
+        $uri = "blueprints://config/{$scope}.yaml";
 
-        if (!$realPath) {
+        if (!$this->grav['locator']->findResource($uri)) {
             // Fallback to system blueprints directly
-            $realPath = $this->grav['locator']->findResource("system://blueprints/config/{$scope}.yaml");
+            $uri = "system://blueprints/config/{$scope}.yaml";
+
+            if (!$this->grav['locator']->findResource($uri)) {
+                throw new NotFoundException("Config blueprint for '{$scope}' not found.");
+            }
         }
 
-        if (!$realPath) {
-            throw new NotFoundException("Config blueprint for '{$scope}' not found.");
-        }
-
-        $blueprint = $this->loadConfigBlueprint($realPath);
+        $blueprint = $this->loadConfigBlueprint($uri);
 
         return ApiResponse::create($this->serializeBlueprint($blueprint, $scope));
     }
@@ -731,7 +744,9 @@ class BlueprintController extends AbstractApiController
      * into the form. The failure was silent, since an unresolved directive just
      * looks like an empty field (grav-plugin-api#21).
      *
-     * @param string $file Absolute path to the blueprint file.
+     * @param string $file Blueprint to load. Pass a `blueprints://` stream URL
+     *                     whenever the file can be layered over by a site, so
+     *                     `extends@: parent@` can still find its parents.
      */
     private function loadConfigBlueprint(string $file): Blueprint
     {
