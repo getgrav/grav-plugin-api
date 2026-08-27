@@ -7,6 +7,7 @@
     * The captcha can also guard the forgotten-password and first-run setup forms
     * Blueprint fields now carry their `sources` list to the admin, so a `media` field can say which pickers it offers
 1. [](#bugfix)
+    * Fixed the admin never receiving Grav's own translations or any plugin's. Only the admin plugin's strings were being sent, so a plugin's labels showed up as a guess at the key name rather than the text it ships [#259](https://github.com/trilbymedia/grav-plugin-git-sync/discussions/259)
     * Fixed every API-key request failing on a site where `user/data` is not writable by the web server. Recording when a key was last used is bookkeeping and no longer takes down the request that triggered it. Thanks to @sandymac for the report and the diagnosis [#30](https://github.com/getgrav/grav-plugin-api/issues/30)
     * Fixed the same failure in three other places: an unwritable folder no longer breaks token validation, frontend page views, or the media manager's thumbnails.
     * Errors from a folder that cannot be written now say which path is at fault, instead of reporting a missing temporary file.
