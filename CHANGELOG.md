@@ -6,6 +6,10 @@
     * Cloudflare Turnstile and Google reCAPTCHA can be used for that challenge instead, on sites that already have them configured in the Form plugin
     * The captcha can also guard the forgotten-password and first-run setup forms
     * Blueprint fields now carry their `sources` list to the admin, so a `media` field can say which pickers it offers
+    * `POST /scheduler/run` can now run the jobs that have missed their scheduled time, which is what a manual trigger is usually for, and is what it does by default. It can also run every job regardless of schedule, or a single job by name
+    * The scheduler job listing now says when each job next runs, whether it has missed its last scheduled time, and whether its last run was started by cron or by hand
+1. [](#improved)
+    * A manual scheduler run now reports which jobs actually ran, whether each succeeded and what it printed, instead of only that the run finished
 1. [](#bugfix)
     * Fixed the admin never receiving Grav's own translations or any plugin's. Only the admin plugin's strings were being sent, so a plugin's labels showed up as a guess at the key name rather than the text it ships [#259](https://github.com/trilbymedia/grav-plugin-git-sync/discussions/259)
     * Fixed every API-key request failing on a site where `user/data` is not writable by the web server. Recording when a key was last used is bookkeeping and no longer takes down the request that triggered it. Thanks to @sandymac for the report and the diagnosis [#30](https://github.com/getgrav/grav-plugin-api/issues/30)

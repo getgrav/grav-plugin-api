@@ -3767,6 +3767,9 @@ paths:
                     enabled: true
                     status: success
                     last_run: "2026-03-26T03:00:00+00:00"
+                    last_run_trigger: cron
+                    next_run: "2026-03-27T03:00:00+00:00"
+                    overdue: false
                     error: null
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -3880,9 +3883,17 @@ paths:
       tags: [Scheduler]
       summary: Trigger a scheduler run
       description: |
-        Trigger the scheduler to process all due jobs immediately. Optionally
-        force all jobs to run regardless of their schedule. Requires super
-        admin permissions.
+        Run scheduler jobs now, without waiting for cron.
+
+        By default this runs every job that has missed the last slot its
+        schedule gave it (`overdue`). That is almost always what is wanted from
+        a manual trigger: a job is only "due" during the exact minute its cron
+        expression names, so `due` mode from a button press usually runs
+        nothing at all.
+
+        Runs triggered this way are recorded as manual, and deliberately do not
+        count as evidence that the scheduler is being triggered automatically.
+        Pressing this on a site with no crontab will not make it report one.
       requestBody:
         required: false
         content:
@@ -3890,12 +3901,27 @@ paths:
             schema:
               type: object
               properties:
+                mode:
+                  type: string
+                  enum: [overdue, due, all]
+                  default: overdue
+                  description: >
+                    `overdue` runs the jobs that missed their last scheduled
+                    slot. `due` runs only what a cron tick this minute would
+                    have run. `all` runs every enabled job whatever its
+                    schedule says.
+                job:
+                  type: string
+                  description: >
+                    Run only this job, whatever its schedule says. Ignores
+                    `mode`.
+                  example: default-site-backup
                 force:
                   type: boolean
-                  description: When `true`, run all jobs regardless of schedule.
+                  description: "Legacy alias for `mode: all`."
                   default: false
             example:
-              force: false
+              mode: overdue
       responses:
         "200":
           description: Scheduler run completed.
@@ -3907,10 +3933,25 @@ paths:
                   data:
                     type: object
                     properties:
+                      message:
+                        type: string
+                        example: 2 jobs ran successfully.
+                      mode:
+                        type: string
+                        enum: [overdue, due, all, job]
+                        example: overdue
                       jobs_run:
                         type: integer
                         description: Number of jobs that were executed.
                         example: 2
+                      jobs_failed:
+                        type: integer
+                        description: How many of those jobs failed.
+                        example: 0
+                      duration:
+                        type: number
+                        description: Seconds the run took.
+                        example: 3.41
                       results:
                         type: array
                         items:
@@ -3919,14 +3960,17 @@ paths:
                             id:
                               type: string
                               example: default-site-backup
-                            status:
+                            successful:
+                              type: boolean
+                              example: true
+                            output:
                               type: string
-                              enum: [success, error, skipped]
-                              example: success
-                            message:
-                              type: string
-                              nullable: true
-                              example: null
+                              description: Whatever the job wrote, trimmed.
+                              example: ""
+        "404":
+          description: No job with the requested id.
+        "409":
+          description: The requested job is disabled.
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -6654,6 +6698,27 @@ components:
           nullable: true
           description: Timestamp of the last execution.
           example: "2026-03-26T03:00:00+00:00"
+        last_run_trigger:
+          type: string
+          nullable: true
+          enum: [cron, manual, null]
+          description: >
+            What started the last execution: `cron` for an automated trigger,
+            `manual` for a run somebody asked for. `null` for a job that has
+            never run, or one last run by a version that did not record this.
+          example: cron
+        next_run:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the schedule next calls for this job to run.
+          example: "2026-03-27T03:00:00+00:00"
+        overdue:
+          type: boolean
+          description: >
+            Whether the job has missed the last slot its schedule gave it.
+            These are the jobs a run in `overdue` mode picks up.
+          example: false
         error:
           type: string
           nullable: true
