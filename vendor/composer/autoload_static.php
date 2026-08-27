@@ -13,6 +13,10 @@ class ComposerStaticInit5508aef35623927a059951e9e6b14117
     );
 
     public static $prefixLengthsPsr4 = array (
+        'T' =>
+        array (
+            'TrilbyMedia\\Cap\\' => 16,
+        ),
         'P' =>
         array (
             'Psr\\Http\\Message\\' => 17,
@@ -35,6 +39,10 @@ class ComposerStaticInit5508aef35623927a059951e9e6b14117
     );
 
     public static $prefixDirsPsr4 = array (
+        'TrilbyMedia\\Cap\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/trilbymedia/cap-php/src',
+        ),
         'Psr\\Http\\Message\\' =>
         array (
             0 => __DIR__ . '/..' . '/psr/http-message/src',

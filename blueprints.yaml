@@ -1,7 +1,7 @@
 name: API
 slug: api
 type: plugin
-version: 1.0.20
+version: 1.0.21
 description: RESTful API for Grav CMS. Provides headless access to pages, media, configuration, users, and system management.
 icon: plug
 author:
@@ -231,6 +231,101 @@ form:
                 0: Disabled
               validate:
                 type: bool
+
+            section_login_captcha:
+              type: section
+              title: Login Captcha
+              underline: true
+
+            login.captcha.enabled:
+              type: toggle
+              label: Login Captcha
+              help: "Require a captcha challenge on the admin login form. The login is already rate-limited and supports per-account 2FA, so this is an extra layer rather than the only one."
+              highlight: 0
+              default: 0
+              options:
+                1: Enabled
+                0: Disabled
+              validate:
+                type: bool
+
+            login.captcha.provider:
+              type: select
+              label: Captcha Provider
+              help: "Cap is a proof-of-work challenge served by this plugin — no keys and no third-party service. Turnstile and reCAPTCHA require the Form plugin, and use the keys already configured there."
+              default: cap
+              options:
+                cap: "Cap (built-in, no keys)"
+                turnstile: "Cloudflare Turnstile (Form plugin)"
+                recaptcha: "Google reCAPTCHA (Form plugin)"
+              validate:
+                type: string
+
+            login.captcha.mode:
+              type: select
+              label: Captcha Mode
+              help: "Invisible solves in the background while the user types their credentials. Checkbox makes them click. Honored by Cap and Turnstile."
+              default: invisible
+              options:
+                invisible: Invisible
+                checkbox: Checkbox
+              validate:
+                type: string
+
+            login.captcha.flows.login:
+              type: toggle
+              label: Guard Login
+              highlight: 1
+              default: 1
+              options:
+                1: Enabled
+                0: Disabled
+              validate:
+                type: bool
+
+            login.captcha.flows.forgot_password:
+              type: toggle
+              label: Guard Forgotten Password
+              help: "Recommended — the forgotten-password endpoint sends mail, which makes it a more attractive target than login itself."
+              highlight: 1
+              default: 1
+              options:
+                1: Enabled
+                0: Disabled
+              validate:
+                type: bool
+
+            login.captcha.flows.setup:
+              type: toggle
+              label: Guard First-run Setup
+              help: "Only reachable on a site with no accounts yet."
+              highlight: 0
+              default: 0
+              options:
+                1: Enabled
+                0: Disabled
+              validate:
+                type: bool
+
+            login.captcha.cap.challenge_difficulty:
+              type: text
+              label: Cap Difficulty
+              help: "Leading zero bits each sub-challenge must produce. Higher is more work for the client — raise only if you're seeing scripted attempts get through."
+              default: 4
+              validate:
+                type: int
+                min: 1
+                max: 8
+
+            login.captcha.cap.challenge_count:
+              type: text
+              label: Cap Sub-challenges
+              help: "How many sub-challenges make up one captcha. The default takes well under a second on a phone."
+              default: 30
+              validate:
+                type: int
+                min: 1
+                max: 200
 
         tab_cors:
           type: tab

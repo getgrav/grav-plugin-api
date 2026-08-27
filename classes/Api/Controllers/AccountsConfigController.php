@@ -84,7 +84,7 @@ class AccountsConfigController extends AbstractApiController
 
         $filePath = $userConfig . '/' . self::CONFIG_FILE;
         $dir = dirname($filePath);
-        if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
+        if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
             throw new \RuntimeException(sprintf('Unable to create directory "%s"', $dir));
         }
 

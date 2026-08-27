@@ -14,6 +14,13 @@ use Grav\Common\Yaml;
  */
 class ApiKeyManager
 {
+    /**
+     * Marker cached when a last_used write fails, so following requests back off
+     * instead of re-attempting -- and re-logging -- the same failure.
+     */
+    private const TOUCH_BACKOFF_KEY = 'api-key-touch-failed';
+    private const TOUCH_BACKOFF_TTL = 300;
+
     protected static ?array $keysCache = null;
 
     /**
@@ -130,6 +137,13 @@ class ApiKeyManager
      * API-key call (YAML dump + atomic rename), so the write is throttled:
      * last_used is only refreshed once it is more than a minute stale, which
      * is plenty for a "when was this key last used" display.
+     *
+     * The write is also best-effort. last_used is display-only bookkeeping, so a
+     * site whose user/data has become unwritable must still be able to serve
+     * API-key requests: a failure here is logged once and backed off, never
+     * thrown. Note the throttle above cannot absorb this on its own -- a failed
+     * write leaves last_used stale forever, so without the backoff every single
+     * request would retry and re-log (#30).
      */
     public function touchKey(string $keyId): void
     {
@@ -144,8 +158,27 @@ class ApiKeyManager
             return;
         }
 
+        $cache = Grav::instance()['cache'] ?? null;
+        if ($cache && $cache->fetch(self::TOUCH_BACKOFF_KEY)) {
+            return;
+        }
+
         $keys[$keyId]['last_used'] = time();
-        $this->saveKeys($keys);
+
+        try {
+            $this->saveKeys($keys);
+        } catch (\Throwable $e) {
+            $cache?->save(self::TOUCH_BACKOFF_KEY, 1, self::TOUCH_BACKOFF_TTL);
+
+            $grav = Grav::instance();
+            if (isset($grav['log'])) {
+                $grav['log']->warning(sprintf(
+                    'api.keys: could not record last_used for API key %s: %s',
+                    $keyId,
+                    $e->getMessage()
+                ));
+            }
+        }
     }
 
     /**
@@ -253,14 +286,25 @@ class ApiKeyManager
         $file = $this->getKeysFile();
         $dir = dirname($file);
 
-        if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
+        // Suppressed so a permission failure reaches the RuntimeException below
+        // instead of ending the request as a raw PHP warning -- Grav's error
+        // handler turns unsilenced warnings into fatals, so without the `@` the
+        // clearer message never gets thrown.
+        if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
             throw new \RuntimeException(sprintf('Unable to create directory "%s"', $dir));
         }
 
-        // Write atomically
+        // Write atomically. Both calls are checked: an unwritable user/data means
+        // the temp file is never created, and the failing rename() then reports a
+        // missing temp file, which points at the wrong problem entirely (#30).
         $tmp = $file . '.tmp';
-        file_put_contents($tmp, Yaml::dump($keys));
-        rename($tmp, $file);
+        if (@file_put_contents($tmp, Yaml::dump($keys)) === false) {
+            throw new \RuntimeException(sprintf('Unable to write "%s"', $tmp));
+        }
+        if (!@rename($tmp, $file)) {
+            @unlink($tmp);
+            throw new \RuntimeException(sprintf('Unable to write "%s"', $file));
+        }
 
         static::$keysCache = $keys;
     }

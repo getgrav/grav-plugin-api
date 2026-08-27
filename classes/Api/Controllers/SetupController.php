@@ -8,6 +8,7 @@ use Grav\Common\User\Authentication;
 use Grav\Common\User\DataUser\User as DataUser;
 use Grav\Common\User\Interfaces\UserCollectionInterface;
 use Grav\Plugin\Api\Auth\JwtAuthenticator;
+use Grav\Plugin\Api\Captcha\LoginCaptcha;
 use Grav\Plugin\Api\Exceptions\ConflictException;
 use Grav\Plugin\Api\Exceptions\TooManyRequestsException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
@@ -35,6 +36,12 @@ class SetupController extends AbstractApiController
     public function create(ServerRequestInterface $request): ResponseInterface
     {
         $this->enforceSetupRateLimit($request);
+
+        (new LoginCaptcha($this->grav, $this->config))->verify(
+            LoginCaptcha::FLOW_SETUP,
+            $this->getRequestBody($request),
+            $this->getRequestIp($request),
+        );
 
         if (!$this->noAccountsExist()) {
             throw new ConflictException('Setup has already been completed.');

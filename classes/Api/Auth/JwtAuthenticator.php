@@ -571,6 +571,7 @@ class JwtAuthenticator implements AuthenticatorInterface
         }
 
         $revoked = json_decode(file_get_contents($file), true) ?: [];
+        // Housekeeping only: failing to prune must not fail the validation.
         $this->cleanExpiredRevocations($revoked, $file);
 
         return isset($revoked[$jti]);
@@ -590,14 +591,32 @@ class JwtAuthenticator implements AuthenticatorInterface
         }
 
         $revoked[$jti] = $expiresAt;
-        $this->cleanExpiredRevocations($revoked, $file);
+        // Here the write *is* the revocation, so a failure has to be loud.
+        // revokeToken() catches this and reports false to the caller rather than
+        // claiming a token was revoked when it was not.
+        if (!$this->cleanExpiredRevocations($revoked, $file)) {
+            throw new \RuntimeException(sprintf('Unable to write revoked token list "%s"', $file));
+        }
     }
 
-    protected function cleanExpiredRevocations(array &$revoked, string $file): void
+    /**
+     * Drop expired entries and persist the revocation list.
+     *
+     * Suppressed and returned rather than thrown, because the two callers need
+     * opposite handling: pruning on the read path is housekeeping and must never
+     * fail a request, while the write in addRevokedToken() *is* the revocation
+     * and losing it silently would leave a token the caller believes is dead
+     * still usable. An unsilenced warning here would fatal every JWT validation
+     * on a site whose cache directory has become unwritable (#30).
+     *
+     * @return bool Whether the list was written.
+     */
+    protected function cleanExpiredRevocations(array &$revoked, string $file): bool
     {
         $now = time();
         $revoked = array_filter($revoked, fn($exp) => $exp > $now);
-        file_put_contents($file, json_encode($revoked));
+
+        return @file_put_contents($file, json_encode($revoked)) !== false;
     }
 
     protected function getRevokedTokensFile(): string

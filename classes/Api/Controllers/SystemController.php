@@ -727,7 +727,7 @@ class SystemController extends AbstractApiController
         // for `/translations/en` resolves to admin2's `en-US.yaml`.
         $lang = self::normalizeLangCode($lang);
 
-        $translations = $this->buildTranslationDictionary($lang);
+        $translations = $this->buildTranslationChain($lang);
 
         // Backfill gaps from English. `flattenByLang()` returns the requested
         // language *only* — it does not merge a base locale — so any key a
@@ -744,7 +744,7 @@ class SystemController extends AbstractApiController
         // the flat `FOO` would shadow a real translation, because the client checks
         // ICU first.
         if ($lang !== self::FALLBACK_LANG) {
-            $base = $this->buildTranslationDictionary(self::FALLBACK_LANG);
+            $base = $this->buildTranslationChain(self::FALLBACK_LANG);
             foreach ($base as $key => $value) {
                 if (!is_string($key) || isset($translations[$key])) {
                     continue;
@@ -949,11 +949,72 @@ class SystemController extends AbstractApiController
             unset($translations[$key]);
         }
 
-        // Drop flat `<key>` entries when an `ICU.<key>` shadow exists. Admin2 ships
-        // the canonical PLUGIN_ADMIN.* vocabulary under ICU; if a 3rd-party plugin
-        // still using the Grav 1 flat convention is also installed, its values
-        // would otherwise leak into the dictionary served to the client. Keeping
-        // only the ICU side guarantees admin2 is the source of truth.
+        return self::stripIcuShadowedKeys($translations);
+    }
+
+    /**
+     * Build the dictionary for a language, merging every bucket in its chain.
+     *
+     * Grav keeps one bucket per language code exactly as spelled on disk, and
+     * `flattenByLang()` reads a single bucket with no fallback. Admin2 ships
+     * region-suffixed files (`en-US.yaml`) while Grav core and every plugin ship
+     * bare-code ones (`en.yaml`), and `normalizeLangCode()` coerces a request for
+     * `en` up to `en-US`. The result was that `/translations/en-US` returned
+     * admin2's own strings and nothing else: no core strings and no plugin
+     * strings at all, so `window.__GRAV_I18N.t('PLUGIN_*.KEY')` humanized for
+     * every plugin (git-sync#259).
+     *
+     * Merging a code with its primary subtag fixes both directions: `en-US`
+     * reaches `en` for core- and plugin-owned strings, and `ru-RU` reaches `ru`.
+     * The requested code always wins, so a region-specific translation still
+     * overrides the bare one.
+     *
+     * @return array<string, string>
+     */
+    private function buildTranslationChain(string $lang): array
+    {
+        $merged = [];
+
+        // Least specific first, so the requested code overwrites what it shares.
+        foreach (array_reverse(self::translationChainFor($lang)) as $code) {
+            $merged = array_merge($merged, $this->buildTranslationDictionary($code));
+        }
+
+        // Re-strip after merging. Each bucket was filtered against itself, so a
+        // flat `<key>` from the bare bucket can still land next to an `ICU.<key>`
+        // that only the region bucket ships.
+        return self::stripIcuShadowedKeys($merged);
+    }
+
+    /**
+     * Language codes to merge for a request, most specific first.
+     *
+     * @return array<int, string>
+     */
+    private static function translationChainFor(string $lang): array
+    {
+        $chain = [$lang];
+
+        $primary = self::primarySubtag($lang);
+        if ($primary !== '' && $primary !== $lang) {
+            $chain[] = $primary;
+        }
+
+        return $chain;
+    }
+
+    /**
+     * Drop flat `<key>` entries when an `ICU.<key>` shadow exists. Admin2 ships
+     * the canonical PLUGIN_ADMIN.* vocabulary under ICU; if a 3rd-party plugin
+     * still using the Grav 1 flat convention is also installed, its values would
+     * otherwise leak into the dictionary served to the client. Keeping only the
+     * ICU side guarantees admin2 is the source of truth.
+     *
+     * @param array<string, string> $translations
+     * @return array<string, string>
+     */
+    private static function stripIcuShadowedKeys(array $translations): array
+    {
         foreach (array_keys($translations) as $key) {
             if (is_string($key) && !str_starts_with($key, 'ICU.') && isset($translations['ICU.' . $key])) {
                 unset($translations[$key]);

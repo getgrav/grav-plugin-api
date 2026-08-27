@@ -162,11 +162,15 @@ class PopularityStore
      */
     private function withLock(callable $mutator): void
     {
-        if (!is_dir($this->dataDir) && !mkdir($this->dataDir, 0755, true) && !is_dir($this->dataDir)) {
+        if (!is_dir($this->dataDir) && !@mkdir($this->dataDir, 0755, true) && !is_dir($this->dataDir)) {
             throw new \RuntimeException(sprintf('Unable to create directory "%s"', $this->dataDir));
         }
 
-        $fp = fopen($this->filePath, 'c+');
+        // Suppressed so the null check below is actually reached. Popularity is
+        // best-effort analytics recorded on ordinary frontend page views, and an
+        // unwritable data directory must not take the front end down -- but an
+        // unsilenced warning would fatal the request before we could bail (#30).
+        $fp = @fopen($this->filePath, 'c+');
         if ($fp === false) {
             return;
         }
