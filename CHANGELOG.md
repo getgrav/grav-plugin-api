@@ -1,5 +1,5 @@
 # v1.0.21
-## 08/21/2026
+## 08/27/2026
 
 1. [](#new)
     * Added an optional captcha on the admin login form, using a built-in challenge that needs no keys and no third-party service [#4254](https://github.com/getgrav/grav/issues/4254)
