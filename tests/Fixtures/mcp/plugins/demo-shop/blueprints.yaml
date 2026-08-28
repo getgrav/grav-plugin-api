@@ -1,0 +1,5 @@
+name: Demo Shop
+slug: demo-shop
+type: plugin
+version: 2.3.0
+description: Fixture plugin used by the MCP tool manifest tests.

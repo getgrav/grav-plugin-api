@@ -1,0 +1,16 @@
+# Second fixture manifest. It deliberately claims the same prefix as demo-shop so
+# one of its tools collides with a name demo-shop already registered.
+version: 1
+prefix: shop
+
+tools:
+  - name: list_products
+    description: Skipped, demo-shop already registered shop_list_products.
+    method: GET
+    path: /other-shop/products
+
+  - name: list_bundles
+    description: List the product bundles this store sells.
+    method: GET
+    path: /other-shop/bundles
+    permission: othershop.bundles.read

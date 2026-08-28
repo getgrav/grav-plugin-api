@@ -1,0 +1,8 @@
+# No `version` key, so the whole manifest is skipped with one warning.
+prefix: nover
+
+tools:
+  - name: ping
+    description: Never read, because the manifest declares no version.
+    method: GET
+    path: /no-version/ping

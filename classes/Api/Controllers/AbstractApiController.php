@@ -823,6 +823,35 @@ abstract class AbstractApiController
     }
 
     /**
+     * Whether an If-None-Match header — possibly a comma-separated list, possibly
+     * carrying weak-validator (W/) prefixes — matches our ETag.
+     *
+     * The read-side counterpart of validateEtag(): that one guards a write with
+     * If-Match, this one answers a conditional GET with a 304. Both are here so
+     * every endpoint that caches gets the same parsing.
+     */
+    protected function etagMatches(string $ifNoneMatch, string $etag): bool
+    {
+        $ifNoneMatch = trim($ifNoneMatch);
+        if ($ifNoneMatch === '') {
+            return false;
+        }
+        if ($ifNoneMatch === '*') {
+            return true;
+        }
+        foreach (explode(',', $ifNoneMatch) as $candidate) {
+            $candidate = trim($candidate);
+            if (str_starts_with($candidate, 'W/')) {
+                $candidate = substr($candidate, 2);
+            }
+            if ($candidate === $etag) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Create a response with ETag header, optionally paired with invalidation tags.
      *
      * By default the ETag is hashed from the response body. Pass an explicit

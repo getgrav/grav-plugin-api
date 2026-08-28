@@ -125,6 +125,8 @@ tags:
     description: Job scheduling, status, and execution history.
   - name: Sidebar
     description: Admin sidebar navigation items contributed by plugins.
+  - name: MCP
+    description: Tool manifests contributed by plugins, for an MCP server to offer to a model.
   - name: Dashboard
     description: Notifications, news feed, and statistics.
   - name: Webhooks
@@ -4149,6 +4151,112 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
 
   # ---------------------------------------------------------------------------
+  # MCP
+  # ---------------------------------------------------------------------------
+  /mcp/tools:
+    get:
+      operationId: getMcpTools
+      tags: [MCP]
+      summary: Get the MCP tools contributed by plugins
+      description: |
+        Return every MCP tool the enabled plugins describe, either in an
+        `mcp.yaml` manifest at the plugin root or through the `onApiMcpTools`
+        event. An MCP server calls this at startup and registers one tool per
+        entry.
+
+        Tools are filtered by the caller's permissions: a tool naming a
+        permission the caller does not hold is left out, tools naming no
+        permission are always included, and a super admin sees everything.
+        `plugins[].tools` counts what this caller can see.
+
+        `fingerprint` hashes the enabled-plugin set plus the manifest file
+        modification times, so a client can tell whether anything changed
+        without diffing the list. It is also the response's `ETag`, and a
+        matching `If-None-Match` gets a 304.
+      responses:
+        "200":
+          description: Tool manifests returned successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      tools:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/McpTool"
+                      plugins:
+                        type: array
+                        description: The contributing plugins, with the number of tools this caller can see.
+                        items:
+                          type: object
+                          properties:
+                            slug:
+                              type: string
+                              example: kahunacart
+                            name:
+                              type: string
+                              nullable: true
+                              example: KahunaCart
+                            version:
+                              type: string
+                              nullable: true
+                              example: 0.1.0
+                            tools:
+                              type: integer
+                              example: 48
+                      warnings:
+                        type: array
+                        description: One entry per manifest entry that was skipped, and why. Contains no secrets.
+                        items:
+                          type: string
+                        example:
+                          - "kahunacart: tool 'upload_image' skipped: unsupported schema keyword 'oneOf' at properties.file"
+                      fingerprint:
+                        type: string
+                        description: Identity of the manifest set, also sent as the ETag.
+                        example: 5f1d9c2a7b3e4d08
+              example:
+                data:
+                  tools:
+                    - name: kahunacart_list_products
+                      plugin: kahunacart
+                      title: List products
+                      description: List catalog products with paging, search and status filters.
+                      method: GET
+                      path: /kahunacart/products
+                      permission: kahunacart.products.manage
+                      annotations:
+                        readOnly: true
+                        destructive: false
+                        idempotent: true
+                      input_schema:
+                        type: object
+                        properties:
+                          q:
+                            type: string
+                      path_params: []
+                      query: []
+                  plugins:
+                    - slug: kahunacart
+                      name: KahunaCart
+                      version: 0.1.0
+                      tools: 48
+                  warnings: []
+                  fingerprint: 5f1d9c2a7b3e4d08
+        "304":
+          description: The manifest set has not changed since the ETag the client sent.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  # ---------------------------------------------------------------------------
   # Dashboard
   # ---------------------------------------------------------------------------
   /dashboard/notifications:
@@ -5587,6 +5695,74 @@ components:
           nullable: true
           description: Optional badge text (e.g. a count or status indicator).
           example: null
+
+    # -- MCP Tool --------------------------------------------------------------
+    McpTool:
+      type: object
+      description: One MCP tool contributed by a plugin.
+      properties:
+        name:
+          type: string
+          description: The tool name an MCP client registers, `{prefix}_{name}` from the manifest. 64 characters or fewer.
+          example: kahunacart_list_products
+        plugin:
+          type: string
+          description: Slug of the plugin that contributed the tool.
+          example: kahunacart
+        title:
+          type: string
+          nullable: true
+          description: Human title an MCP client may show.
+          example: List products
+        description:
+          type: string
+          description: What the tool does and returns, and when to use it.
+          example: List catalog products with paging, search and status filters.
+        method:
+          type: string
+          enum: [GET, POST, PATCH, PUT, DELETE]
+          example: GET
+        path:
+          type: string
+          description: Route path relative to the API base. `{name}` placeholders are filled from the arguments.
+          example: /kahunacart/products
+        permission:
+          type: string
+          nullable: true
+          description: The permission the route enforces, checked again by the client before it calls.
+          example: kahunacart.products.manage
+        annotations:
+          type: object
+          description: Always fully populated, with the per-method defaults applied.
+          properties:
+            readOnly:
+              type: boolean
+            destructive:
+              type: boolean
+            idempotent:
+              type: boolean
+        input_schema:
+          type: object
+          description: |
+            JSON Schema for the arguments, always present and always an object.
+            A tool with no arguments carries `{"type":"object","properties":{}}`.
+            Restricted to the subset an MCP client can convert: `type`,
+            `description`, `default`, `enum`, `nullable`, `minimum`, `maximum`,
+            `minLength`, `maxLength`, `pattern`, `format`, `items`, `properties`,
+            `required` and `additionalProperties`.
+          additionalProperties: true
+        path_params:
+          type: array
+          description: The `{name}` placeholders in `path`, in order. Each is a required property of `input_schema`.
+          items:
+            type: string
+          example: [id]
+        query:
+          type: array
+          description: For write methods, the properties to send as query-string parameters rather than in the JSON body. Ignored for GET, which sends every non-path property as a query parameter.
+          items:
+            type: string
+          example: []
 
     # -- Plugin Page Definition ------------------------------------------------
     PluginPageDefinition:
