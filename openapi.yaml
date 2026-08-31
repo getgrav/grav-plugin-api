@@ -125,6 +125,8 @@ tags:
     description: Job scheduling, status, and execution history.
   - name: Sidebar
     description: Admin sidebar navigation items contributed by plugins.
+  - name: MCP
+    description: Tool manifests contributed by plugins, for an MCP server to offer to a model.
   - name: Dashboard
     description: Notifications, news feed, and statistics.
   - name: Webhooks
@@ -3767,6 +3769,9 @@ paths:
                     enabled: true
                     status: success
                     last_run: "2026-03-26T03:00:00+00:00"
+                    last_run_trigger: cron
+                    next_run: "2026-03-27T03:00:00+00:00"
+                    overdue: false
                     error: null
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -3880,9 +3885,17 @@ paths:
       tags: [Scheduler]
       summary: Trigger a scheduler run
       description: |
-        Trigger the scheduler to process all due jobs immediately. Optionally
-        force all jobs to run regardless of their schedule. Requires super
-        admin permissions.
+        Run scheduler jobs now, without waiting for cron.
+
+        By default this runs every job that has missed the last slot its
+        schedule gave it (`overdue`). That is almost always what is wanted from
+        a manual trigger: a job is only "due" during the exact minute its cron
+        expression names, so `due` mode from a button press usually runs
+        nothing at all.
+
+        Runs triggered this way are recorded as manual, and deliberately do not
+        count as evidence that the scheduler is being triggered automatically.
+        Pressing this on a site with no crontab will not make it report one.
       requestBody:
         required: false
         content:
@@ -3890,12 +3903,27 @@ paths:
             schema:
               type: object
               properties:
+                mode:
+                  type: string
+                  enum: [overdue, due, all]
+                  default: overdue
+                  description: >
+                    `overdue` runs the jobs that missed their last scheduled
+                    slot. `due` runs only what a cron tick this minute would
+                    have run. `all` runs every enabled job whatever its
+                    schedule says.
+                job:
+                  type: string
+                  description: >
+                    Run only this job, whatever its schedule says. Ignores
+                    `mode`.
+                  example: default-site-backup
                 force:
                   type: boolean
-                  description: When `true`, run all jobs regardless of schedule.
+                  description: "Legacy alias for `mode: all`."
                   default: false
             example:
-              force: false
+              mode: overdue
       responses:
         "200":
           description: Scheduler run completed.
@@ -3907,10 +3935,25 @@ paths:
                   data:
                     type: object
                     properties:
+                      message:
+                        type: string
+                        example: 2 jobs ran successfully.
+                      mode:
+                        type: string
+                        enum: [overdue, due, all, job]
+                        example: overdue
                       jobs_run:
                         type: integer
                         description: Number of jobs that were executed.
                         example: 2
+                      jobs_failed:
+                        type: integer
+                        description: How many of those jobs failed.
+                        example: 0
+                      duration:
+                        type: number
+                        description: Seconds the run took.
+                        example: 3.41
                       results:
                         type: array
                         items:
@@ -3919,14 +3962,17 @@ paths:
                             id:
                               type: string
                               example: default-site-backup
-                            status:
+                            successful:
+                              type: boolean
+                              example: true
+                            output:
                               type: string
-                              enum: [success, error, skipped]
-                              example: success
-                            message:
-                              type: string
-                              nullable: true
-                              example: null
+                              description: Whatever the job wrote, trimmed.
+                              example: ""
+        "404":
+          description: No job with the requested id.
+        "409":
+          description: The requested job is disabled.
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -4097,6 +4143,112 @@ paths:
                     route: /pages
                     priority: 90
                     badge: null
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  # ---------------------------------------------------------------------------
+  # MCP
+  # ---------------------------------------------------------------------------
+  /mcp/tools:
+    get:
+      operationId: getMcpTools
+      tags: [MCP]
+      summary: Get the MCP tools contributed by plugins
+      description: |
+        Return every MCP tool the enabled plugins describe, either in an
+        `mcp.yaml` manifest at the plugin root or through the `onApiMcpTools`
+        event. An MCP server calls this at startup and registers one tool per
+        entry.
+
+        Tools are filtered by the caller's permissions: a tool naming a
+        permission the caller does not hold is left out, tools naming no
+        permission are always included, and a super admin sees everything.
+        `plugins[].tools` counts what this caller can see.
+
+        `fingerprint` hashes the enabled-plugin set plus the manifest file
+        modification times, so a client can tell whether anything changed
+        without diffing the list. It is also the response's `ETag`, and a
+        matching `If-None-Match` gets a 304.
+      responses:
+        "200":
+          description: Tool manifests returned successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      tools:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/McpTool"
+                      plugins:
+                        type: array
+                        description: The contributing plugins, with the number of tools this caller can see.
+                        items:
+                          type: object
+                          properties:
+                            slug:
+                              type: string
+                              example: kahunacart
+                            name:
+                              type: string
+                              nullable: true
+                              example: KahunaCart
+                            version:
+                              type: string
+                              nullable: true
+                              example: 0.1.0
+                            tools:
+                              type: integer
+                              example: 48
+                      warnings:
+                        type: array
+                        description: One entry per manifest entry that was skipped, and why. Contains no secrets.
+                        items:
+                          type: string
+                        example:
+                          - "kahunacart: tool 'upload_image' skipped: unsupported schema keyword 'oneOf' at properties.file"
+                      fingerprint:
+                        type: string
+                        description: Identity of the manifest set, also sent as the ETag.
+                        example: 5f1d9c2a7b3e4d08
+              example:
+                data:
+                  tools:
+                    - name: kahunacart_list_products
+                      plugin: kahunacart
+                      title: List products
+                      description: List catalog products with paging, search and status filters.
+                      method: GET
+                      path: /kahunacart/products
+                      permission: kahunacart.products.manage
+                      annotations:
+                        readOnly: true
+                        destructive: false
+                        idempotent: true
+                      input_schema:
+                        type: object
+                        properties:
+                          q:
+                            type: string
+                      path_params: []
+                      query: []
+                  plugins:
+                    - slug: kahunacart
+                      name: KahunaCart
+                      version: 0.1.0
+                      tools: 48
+                  warnings: []
+                  fingerprint: 5f1d9c2a7b3e4d08
+        "304":
+          description: The manifest set has not changed since the ETag the client sent.
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -5544,6 +5696,74 @@ components:
           description: Optional badge text (e.g. a count or status indicator).
           example: null
 
+    # -- MCP Tool --------------------------------------------------------------
+    McpTool:
+      type: object
+      description: One MCP tool contributed by a plugin.
+      properties:
+        name:
+          type: string
+          description: The tool name an MCP client registers, `{prefix}_{name}` from the manifest. 64 characters or fewer.
+          example: kahunacart_list_products
+        plugin:
+          type: string
+          description: Slug of the plugin that contributed the tool.
+          example: kahunacart
+        title:
+          type: string
+          nullable: true
+          description: Human title an MCP client may show.
+          example: List products
+        description:
+          type: string
+          description: What the tool does and returns, and when to use it.
+          example: List catalog products with paging, search and status filters.
+        method:
+          type: string
+          enum: [GET, POST, PATCH, PUT, DELETE]
+          example: GET
+        path:
+          type: string
+          description: Route path relative to the API base. `{name}` placeholders are filled from the arguments.
+          example: /kahunacart/products
+        permission:
+          type: string
+          nullable: true
+          description: The permission the route enforces, checked again by the client before it calls.
+          example: kahunacart.products.manage
+        annotations:
+          type: object
+          description: Always fully populated, with the per-method defaults applied.
+          properties:
+            readOnly:
+              type: boolean
+            destructive:
+              type: boolean
+            idempotent:
+              type: boolean
+        input_schema:
+          type: object
+          description: |
+            JSON Schema for the arguments, always present and always an object.
+            A tool with no arguments carries `{"type":"object","properties":{}}`.
+            Restricted to the subset an MCP client can convert: `type`,
+            `description`, `default`, `enum`, `nullable`, `minimum`, `maximum`,
+            `minLength`, `maxLength`, `pattern`, `format`, `items`, `properties`,
+            `required` and `additionalProperties`.
+          additionalProperties: true
+        path_params:
+          type: array
+          description: The `{name}` placeholders in `path`, in order. Each is a required property of `input_schema`.
+          items:
+            type: string
+          example: [id]
+        query:
+          type: array
+          description: For write methods, the properties to send as query-string parameters rather than in the JSON body. Ignored for GET, which sends every non-path property as a query parameter.
+          items:
+            type: string
+          example: []
+
     # -- Plugin Page Definition ------------------------------------------------
     PluginPageDefinition:
       type: object
@@ -6654,6 +6874,27 @@ components:
           nullable: true
           description: Timestamp of the last execution.
           example: "2026-03-26T03:00:00+00:00"
+        last_run_trigger:
+          type: string
+          nullable: true
+          enum: [cron, manual, null]
+          description: >
+            What started the last execution: `cron` for an automated trigger,
+            `manual` for a run somebody asked for. `null` for a job that has
+            never run, or one last run by a version that did not record this.
+          example: cron
+        next_run:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the schedule next calls for this job to run.
+          example: "2026-03-27T03:00:00+00:00"
+        overdue:
+          type: boolean
+          description: >
+            Whether the job has missed the last slot its schedule gave it.
+            These are the jobs a run in `overdue` mode picks up.
+          example: false
         error:
           type: string
           nullable: true

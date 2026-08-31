@@ -21,6 +21,7 @@ use Grav\Plugin\Api\Controllers\ConfigController;
 use Grav\Plugin\Api\Controllers\DashboardController;
 use Grav\Plugin\Api\Controllers\DashboardWidgetController;
 use Grav\Plugin\Api\Controllers\GpmController;
+use Grav\Plugin\Api\Controllers\McpController;
 use Grav\Plugin\Api\Controllers\MediaController;
 use Grav\Plugin\Api\Controllers\SchedulerController;
 use Grav\Plugin\Api\Controllers\PagesController;
@@ -591,8 +592,22 @@ class ApiRouter extends ProcessorBase
      */
     protected function routeCacheFingerprint(): string
     {
+        return substr(hash('sha256', implode(',', self::enabledPluginSlugs($this->config))), 0, 16);
+    }
+
+    /**
+     * The slugs of every enabled plugin, sorted.
+     *
+     * Shared with the MCP manifest loader, which keys its own fingerprint on the
+     * same set: both want "what is switched on right now", and one definition of
+     * that keeps the two from drifting apart.
+     *
+     * @return array<int, string>
+     */
+    public static function enabledPluginSlugs(Config $config): array
+    {
         $enabled = [];
-        foreach ((array) $this->config->get('plugins', []) as $slug => $settings) {
+        foreach ((array) $config->get('plugins', []) as $slug => $settings) {
             // Grav treats a missing `enabled` as on, so only an explicit false
             // counts as disabled.
             if (!is_array($settings) || ($settings['enabled'] ?? true) !== false) {
@@ -601,7 +616,7 @@ class ApiRouter extends ProcessorBase
         }
         sort($enabled);
 
-        return substr(hash('sha256', implode(',', $enabled)), 0, 16);
+        return $enabled;
     }
 
     protected function registerCoreRoutes(RouteCollector $r): void
@@ -783,6 +798,9 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('GET', '/gpm/repository/plugins', [GpmController::class, 'repositoryPlugins']);
         $r->addRoute('GET', '/gpm/repository/themes', [GpmController::class, 'repositoryThemes']);
         $r->addRoute('GET', '/gpm/repository/{slug}', [GpmController::class, 'repositoryPackage']);
+
+        // MCP tool manifests contributed by plugins, for an MCP server to load.
+        $r->addRoute('GET', '/mcp/tools', [McpController::class, 'tools']);
 
         // Dashboard
         $r->addRoute('GET', '/dashboard/notifications', [DashboardController::class, 'notifications']);

@@ -1563,31 +1563,6 @@ class GpmController extends AbstractApiController
     }
 
     /**
-     * Whether an If-None-Match header — possibly a comma-separated list, possibly
-     * carrying weak-validator (W/) prefixes — matches our ETag.
-     */
-    protected function etagMatches(string $ifNoneMatch, string $etag): bool
-    {
-        $ifNoneMatch = trim($ifNoneMatch);
-        if ($ifNoneMatch === '') {
-            return false;
-        }
-        if ($ifNoneMatch === '*') {
-            return true;
-        }
-        foreach (explode(',', $ifNoneMatch) as $candidate) {
-            $candidate = trim($candidate);
-            if (str_starts_with($candidate, 'W/')) {
-                $candidate = substr($candidate, 2);
-            }
-            if ($candidate === $etag) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
      * Discover a plugin page definition from filesystem conventions.
      *
      * Checks for admin-next/pages/{slug}.yaml and admin-next/pages/{slug}.js

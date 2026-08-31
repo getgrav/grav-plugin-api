@@ -1,0 +1,5 @@
+name: Quiet
+slug: quiet
+type: plugin
+version: 1.0.0
+description: Enabled fixture plugin that ships no mcp.yaml at all.

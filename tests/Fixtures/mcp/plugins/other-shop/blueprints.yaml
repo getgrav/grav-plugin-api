@@ -1,0 +1,5 @@
+name: Other Shop
+slug: other-shop
+type: plugin
+version: 0.9.1
+description: Second fixture plugin, used for the duplicate-name case.

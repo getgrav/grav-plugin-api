@@ -1,0 +1,141 @@
+# Fixture manifest for the MCP tool tests. The first block of tools is valid and
+# exercises the annotation defaults, path parameters, the query list and the
+# no-argument case. Everything after the divider breaks exactly one rule, so each
+# entry should produce one warning and no tool.
+version: 1
+prefix: shop
+
+tools:
+  - name: list_products
+    title: List products
+    description: List catalog products with paging, search and status filters.
+    method: GET
+    path: /demo-shop/products
+    permission: demoshop.products.read
+    input:
+      type: object
+      properties:
+        q: { type: string, description: "Search title or SKU" }
+        status: { type: string, enum: [draft, published, archived] }
+        page: { type: integer, minimum: 1, default: 1 }
+        tags:
+          type: array
+          items: { type: string }
+
+  - name: get_product
+    description: Return one product with its variants and attributes.
+    method: GET
+    path: /demo-shop/products/{id}
+    permission: demoshop.products.read
+    input:
+      type: object
+      properties:
+        id: { type: integer, description: "Product id" }
+
+  - name: update_product
+    title: Update a product
+    description: Change one or more fields of a product. Only the fields sent are changed.
+    method: PATCH
+    path: /demo-shop/products/{id}
+    permission: demoshop.products.manage
+    input:
+      type: object
+      required: [title]
+      properties:
+        id: { type: integer }
+        title: { type: string, maxLength: 200 }
+        notify: { type: boolean, default: false }
+        attributes:
+          type: object
+          description: "Attribute slug to value; null removes"
+    query: [notify]
+
+  - name: delete_product
+    description: Delete a product and everything hanging off it.
+    method: DELETE
+    path: /demo-shop/products/{id}
+    permission: demoshop.products.manage
+    input:
+      type: object
+      properties:
+        id: { type: integer }
+        force: { type: boolean }
+
+  - name: create_product
+    description: Create a product from a title and an optional SKU.
+    method: POST
+    path: /demo-shop/products
+    permission: demoshop.products.manage
+    annotations:
+      idempotent: true
+    input:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string }
+        sku: { type: string, nullable: true }
+
+  - name: storefront_status
+    description: Report whether the storefront is open and what currency it trades in.
+    method: GET
+    path: /demo-shop/status
+
+  # --- everything below breaks one rule and must be skipped with a warning ---
+
+  - name: ListProducts
+    description: Skipped, the name is not lower snake case.
+    method: GET
+    path: /demo-shop/products
+
+  - name: list_products_with_variants_and_attributes_and_categories_and_tags
+    description: Skipped, the prefixed name runs past the 64 character limit.
+    method: GET
+    path: /demo-shop/products
+
+  - name: purge_products
+    description: Skipped, PURGE is not one of the five supported methods.
+    method: PURGE
+    path: /demo-shop/products
+
+  - name: archive_product
+    description: Skipped, the id placeholder is not declared in input.properties.
+    method: POST
+    path: /demo-shop/products/{id}/archive
+    input:
+      type: object
+      properties:
+        reason: { type: string }
+
+  - name: upload_image
+    description: Skipped, oneOf is outside the supported schema subset.
+    method: POST
+    path: /demo-shop/products/{id}/image
+    input:
+      type: object
+      properties:
+        id: { type: integer }
+        file:
+          oneOf:
+            - { type: string }
+            - { type: object }
+
+  - name: search_products
+    description: Skipped, patternProperties nested inside an array item is outside the subset.
+    method: GET
+    path: /demo-shop/search
+    input:
+      type: object
+      properties:
+        filters:
+          type: array
+          items:
+            type: object
+            patternProperties:
+              '^x-': { type: string }
+
+  - name: bulk_publish
+    description: Skipped, cacheable is not one of the three annotations.
+    method: POST
+    path: /demo-shop/products/publish
+    annotations:
+      cacheable: true
