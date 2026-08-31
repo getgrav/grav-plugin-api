@@ -1,5 +1,5 @@
 # v1.0.22
-## 08/28/2026
+## 08/31/2026
 
 1. [](#new)
     * A plugin can now describe its API routes as MCP tools in an `mcp.yaml` manifest at its root, or add them in code through the new `onApiMcpTools` event. `GET /mcp/tools` serves the union for the authenticated caller, filtered to the tools their permissions let them call, so an MCP server such as grav-mcp offers a model every plugin's tools with no code written per plugin. See the README section "MCP tool manifests" for the format.
