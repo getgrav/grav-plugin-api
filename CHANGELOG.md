@@ -1,3 +1,9 @@
+# v1.0.23
+## 09/01/2026
+
+1. [](#new)
+    * Page Statistics now ignores command-line and library HTTP clients such as curl, wget and python-requests, which were being counted as real visitors. A new Excluded User Agents setting lets you add your own, for monitoring tools and scanners. Thanks to @mschiegg [#4274](https://github.com/getgrav/grav/issues/4274)
+
 # v1.0.22
 ## 08/31/2026
 

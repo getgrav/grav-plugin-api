@@ -166,6 +166,12 @@ popularity:
   # Visitor IPs or CIDR ranges to exclude from tracking, e.g.
   # '203.0.113.7' or '203.0.113.0/24' (IPv4 and IPv6 both supported).
   exclude_ips: []
+  # Skip command-line and library HTTP clients (curl, wget, Go-http-client,
+  # python-requests, ...) that report themselves as browsers rather than bots.
+  exclude_non_browsers: true
+  # Extra User-Agent fragments to exclude, matched anywhere in the header and
+  # ignoring case, e.g. 'uptimerobot' or 'my-scanner'.
+  exclude_agents: []
   history:
     daily: 30
     monthly: 12

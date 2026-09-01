@@ -1,7 +1,7 @@
 name: API
 slug: api
 type: plugin
-version: 1.0.22
+version: 1.0.23
 description: RESTful API for Grav CMS. Provides headless access to pages, media, configuration, users, and system management.
 icon: plug
 author:
@@ -489,6 +489,24 @@ form:
               type: array
               label: Excluded IP Addresses
               help: "Visitor IPs or CIDR ranges to exclude from tracking, e.g. 203.0.113.7 or 203.0.113.0/24. IPv4 and IPv6 are both supported."
+              value_only: true
+
+            popularity.exclude_non_browsers:
+              type: toggle
+              label: Exclude Non-Browser Clients
+              help: Skip page views from command-line and library HTTP clients such as curl, wget, Go-http-client and python-requests. These report themselves as browsers rather than bots, so a scanner hitting your site would otherwise count as real traffic
+              highlight: 1
+              default: 1
+              options:
+                1: Enabled
+                0: Disabled
+              validate:
+                type: bool
+
+            popularity.exclude_agents:
+              type: array
+              label: Excluded User Agents
+              help: "Additional User-Agent fragments to exclude from tracking, matched anywhere in the header and ignoring case, e.g. uptimerobot or my-scanner. Added to the built-in list above."
               value_only: true
 
         tab_audit_trail:
