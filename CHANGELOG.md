@@ -4,6 +4,9 @@
 1. [](#new)
     * Page Statistics now ignores command-line and library HTTP clients such as curl, wget and python-requests, which were being counted as real visitors. A new Excluded User Agents setting lets you add your own, for monitoring tools and scanners. Thanks to @mschiegg [#4274](https://github.com/getgrav/grav/issues/4274)
 
+1. [](#bugfix)
+    * **The route cache follows plugin upgrades.** The compiled route table was keyed on the set of enabled plugins alone, so a plugin whose new version registered a route it did not have before kept the old table until someone ran `bin/grav clear`, and every call to the new route answered 404 while the admin screen that made it looked installed. The key now also carries the modification time of each enabled plugin's `blueprints.yaml`, which a version bump always edits, at the cost of one stat per plugin per request.
+
 # v1.0.22
 ## 08/31/2026
 

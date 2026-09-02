@@ -584,15 +584,46 @@ class ApiRouter extends ProcessorBase
      * this file on plugin install, which made "install a plugin from the admin"
      * silently half-work until someone ran `bin/grav clear`.
      *
-     * Keyed on the enabled plugin set rather than invalidated by an event: it
-     * needs no cooperation from whatever changed the set, and it is correct for
-     * install, enable, disable and removal alike. Stale files stay in cache://api
-     * and go with any cache clear; the set changes rarely enough that they do not
-     * accumulate meaningfully.
+     * Keyed on the enabled plugin set and each plugin's blueprint mtime rather
+     * than invalidated by an event: it needs no cooperation from whatever
+     * changed the set, and it is correct for install, enable, disable, removal
+     * and upgrade alike. Stale files stay in cache://api and go with any cache
+     * clear; the set changes rarely enough that they do not accumulate
+     * meaningfully.
      */
     protected function routeCacheFingerprint(): string
     {
-        return substr(hash('sha256', implode(',', self::enabledPluginSlugs($this->config))), 0, 16);
+        $locator = $this->container['locator'];
+
+        return self::routeSetFingerprint($this->config, static function (string $slug) use ($locator): int {
+            $file = $locator->findResource("plugins://{$slug}/blueprints.yaml");
+
+            return \is_string($file) ? (int) (@filemtime($file) ?: 0) : 0;
+        });
+    }
+
+    /**
+     * The route table's identity: the enabled plugin set, plus when each
+     * plugin's blueprints.yaml last changed.
+     *
+     * The set alone covers install, enable and disable, but not upgrade: a
+     * plugin whose new version registers a route it did not have before keeps
+     * the old table until someone runs `bin/grav clear`, and every call to the
+     * new route 404s while the admin screen that makes it looks installed. A
+     * version bump always edits blueprints.yaml, so its mtime is the cheapest
+     * honest signal of "this plugin is not the one the table was built from".
+     * A stat per enabled plugin per request is the whole cost.
+     *
+     * @param callable(string): int $blueprintMtime the mtime of a plugin's blueprints.yaml, 0 when it has none
+     */
+    public static function routeSetFingerprint(Config $config, callable $blueprintMtime): string
+    {
+        $parts = [];
+        foreach (self::enabledPluginSlugs($config) as $slug) {
+            $parts[] = $slug . '@' . $blueprintMtime($slug);
+        }
+
+        return substr(hash('sha256', implode(',', $parts)), 0, 16);
     }
 
     /**
