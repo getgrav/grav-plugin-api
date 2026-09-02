@@ -66,6 +66,16 @@ class GpmController extends AbstractApiController
             } else {
                 $data['updatable'] = false;
             }
+
+            // Where this plugin keeps its own settings, if it says it keeps
+            // them on its own admin page. The Plugins list uses it to send
+            // Configure straight there instead of to a second copy of the
+            // same form.
+            $settingsRoute = $this->pluginSettingsRoute($slug, $request);
+            if ($settingsRoute !== null) {
+                $data['settings_route'] = $settingsRoute;
+            }
+
             $plugins[] = $data;
         }
 
@@ -101,6 +111,12 @@ class GpmController extends AbstractApiController
         $customFields = $this->discoverCustomFields($slug, 'plugins');
         if ($customFields) {
             $data['custom_fields'] = $customFields;
+        }
+
+        // Where this plugin keeps its own settings — see plugins() above.
+        $settingsRoute = $this->pluginSettingsRoute($slug, $request);
+        if ($settingsRoute !== null) {
+            $data['settings_route'] = $settingsRoute;
         }
 
         return $this->respondWithEtag($data);
@@ -1413,28 +1429,81 @@ class GpmController extends AbstractApiController
 
         $slug = $this->getRouteParam($request, 'slug');
 
-        // 1. Try event-based definition
-        $event = new Event([
-            'plugin' => $slug,
-            'definition' => null,
-            'user' => $this->getUser($request),
-        ]);
-        $this->grav->fireEvent('onApiPluginPageInfo', $event);
-
-        if ($event['definition']) {
-            $definition = $event['definition'];
-            // Check if a page web component exists
-            $definition['has_custom_component'] = $this->hasPluginPageScript($slug);
-            return ApiResponse::create($definition);
-        }
-
-        // 2. Try filesystem discovery
-        $definition = $this->discoverPluginPage($slug);
+        $definition = $this->resolvePluginPageDefinition($slug, $this->getUser($request));
         if ($definition) {
             return ApiResponse::create($definition);
         }
 
         throw new NotFoundException("No admin page found for plugin '{$slug}'.");
+    }
+
+    /**
+     * A plugin's admin page definition, from the plugin itself or from disk.
+     *
+     * Resolution order:
+     * 1. onApiPluginPageInfo (the plugin hands one over)
+     * 2. admin-next/pages/{slug}.yaml
+     * 3. admin-next/pages/{slug}.js, which means component mode
+     *
+     * @param  mixed  $user  the account asking, passed to the event
+     * @return array<string, mixed>|null
+     */
+    private function resolvePluginPageDefinition(string $slug, mixed $user = null): ?array
+    {
+        $event = new Event([
+            'plugin' => $slug,
+            'definition' => null,
+            'user' => $user,
+        ]);
+        $this->grav->fireEvent('onApiPluginPageInfo', $event);
+
+        $definition = $event['definition'] ?: $this->discoverPluginPage($slug);
+        if (!$definition) {
+            return null;
+        }
+
+        // Does the plugin ship a page-level web component?
+        $definition['has_custom_component'] = $this->hasPluginPageScript($slug);
+
+        // A page can say its settings live on itself, at a hash route inside
+        // its own screen — admin-next then sends /plugins/{slug} there rather
+        // than drawing a second copy of the same blueprint form. Only a hash
+        // route is accepted: this names a place inside the plugin's page, not
+        // somewhere else in the admin.
+        $route = $definition['settings_route'] ?? null;
+        if (is_string($route) && str_starts_with(trim($route), '#')) {
+            $definition['settings_route'] = trim($route);
+        } else {
+            unset($definition['settings_route']);
+        }
+
+        return $definition;
+    }
+
+    /**
+     * The hash route a plugin keeps its own settings at, or null if it has no
+     * admin page or has not said.
+     *
+     * Guarded on the plugin actually having a page on disk so listing every
+     * installed plugin does not fire onApiPluginPageInfo dozens of times for
+     * plugins that could never answer it.
+     */
+    private function pluginSettingsRoute(string $slug, ServerRequestInterface $request): ?string
+    {
+        try {
+            $path = $this->resolvePackagePath($slug, 'plugins');
+        } catch (NotFoundException) {
+            return null;
+        }
+
+        $pagesDir = $path . '/admin-next/pages/' . basename($slug);
+        if (!file_exists($pagesDir . '.js') && !file_exists($pagesDir . '.yaml')) {
+            return null;
+        }
+
+        $definition = $this->resolvePluginPageDefinition($slug, $this->getUser($request));
+
+        return $definition['settings_route'] ?? null;
     }
 
     /**

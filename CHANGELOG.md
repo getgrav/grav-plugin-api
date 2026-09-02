@@ -1,7 +1,8 @@
 # v1.0.23
-## 09/01/2026
+## 09/02/2026
 
 1. [](#new)
+    * A plugin page can now say its settings live on the plugin's own page, with a `settings_route` key holding a hash route such as `#/settings`. The plugin's entry in `GET /gpm/plugins` and `GET /gpm/plugins/{slug}` carries it too, so Admin Next can send `/plugins/{slug}` and the Configure button on the Plugins list straight to the plugin's own settings screen instead of drawing a second copy of the same form. Only a hash route is accepted, so the key names a place inside the plugin's page and nowhere else, and a plugin with no admin page on disk is never asked.
     * Albert Sans joins the admin font choices. The preferences resolver accepts `albert-sans` as a site default and as a personal choice, to match the Admin Next 2.1.4 bundle that ships the face.
     * Page Statistics now ignores command-line and library HTTP clients such as curl, wget and python-requests, which were being counted as real visitors. A new Excluded User Agents setting lets you add your own, for monitoring tools and scanners. Thanks to @mschiegg [#4274](https://github.com/getgrav/grav/issues/4274)
 
