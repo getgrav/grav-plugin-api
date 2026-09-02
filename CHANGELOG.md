@@ -2,6 +2,7 @@
 ## 09/01/2026
 
 1. [](#new)
+    * Albert Sans joins the admin font choices. The preferences resolver accepts `albert-sans` as a site default and as a personal choice, to match the Admin Next 2.1.4 bundle that ships the face.
     * Page Statistics now ignores command-line and library HTTP clients such as curl, wget and python-requests, which were being counted as real visitors. A new Excluded User Agents setting lets you add your own, for monitoring tools and scanners. Thanks to @mschiegg [#4274](https://github.com/getgrav/grav/issues/4274)
 
 1. [](#bugfix)
