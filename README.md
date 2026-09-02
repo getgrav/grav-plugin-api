@@ -15,7 +15,7 @@ Built for the AI-native era — designed to work seamlessly with AI agents, MCP 
 ### GPM (preferred)
 
 ```bash
-bin/grav install api
+bin/gpm install api
 ```
 
 ### Manual
