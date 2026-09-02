@@ -459,10 +459,31 @@ class MediaController extends AbstractApiController
         $settings = $this->parseUploadFieldSettings($request);
 
         $created = [];
+        $uploadedNames = [];
         foreach ($uploadedFiles as $file) {
             $filename = $this->processUploadedFile($file, $targetDir, $settings);
+            $uploadedNames[] = $filename;
             $created[] = $this->serializeSiteFile($targetDir, $filename, $relativePath);
         }
+
+        // Site media belongs to no page, so `object` and `page` are null here,
+        // unlike every other emitter of this event, which always has one. A
+        // listener that dereferences them without a check needs updating.
+        // Firing it at all is the point: plugins that watch the admin media
+        // events never heard about an upload to `user://media`, so Git Sync's
+        // "Sync on Media Changes" silently did nothing for a file added on
+        // Admin Next's Media page, and it only reached the remote on the next
+        // page save or scheduled sync (trilbymedia/grav-plugin-git-sync#261).
+        $this->fireAdminEvent('onAdminAfterAddMedia', [
+            'object' => null,
+            'page' => null,
+            'path' => $relativePath,
+        ]);
+        $this->fireEvent('onApiMediaUploaded', [
+            'page' => null,
+            'path' => $relativePath,
+            'filenames' => $uploadedNames,
+        ]);
 
         $location = $this->getApiBaseUrl() . '/media';
 
@@ -498,6 +519,19 @@ class MediaController extends AbstractApiController
 
         // Keep the folder's order sidecar coherent.
         $this->removeFromSiteMediaOrder(dirname($filePath), basename($filePath));
+
+        // Same null `object` / `page` caveat as the upload side above.
+        $this->fireAdminEvent('onAdminAfterDelMedia', [
+            'object' => null,
+            'page' => null,
+            'filename' => basename($relativePath),
+            'path' => $relativePath,
+        ]);
+        $this->fireEvent('onApiMediaDeleted', [
+            'page' => null,
+            'filename' => basename($relativePath),
+            'path' => $relativePath,
+        ]);
 
         $parentDir = ltrim(dirname($relativePath), '.');
         return ApiResponse::noContent(
