@@ -30,7 +30,7 @@ class PreferencesResolver
     public const SITE_CONFIG_FILE = 'admin-next.yaml';
 
     private const VALID_COLOR_MODE = ['', 'light', 'dark'];
-    private const VALID_FONT_FAMILY = ['inter', 'google-sans', 'public-sans', 'nunito-sans', 'jost'];
+    private const VALID_FONT_FAMILY = ['inter', 'google-sans', 'public-sans', 'nunito-sans', 'jost', 'albert-sans'];
     private const VALID_FONT_SIZE = ['small', 'normal', 'large', 'xlarge'];
     private const VALID_EDITOR_MODE = ['normal', 'expert'];
     private const VALID_EDITOR_KEYMAP = ['default', 'vim'];

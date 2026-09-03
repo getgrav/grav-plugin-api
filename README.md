@@ -15,7 +15,7 @@ Built for the AI-native era — designed to work seamlessly with AI agents, MCP 
 ### GPM (preferred)
 
 ```bash
-bin/grav install api
+bin/gpm install api
 ```
 
 ### Manual
@@ -1020,6 +1020,7 @@ The page definition structure:
 | `data_endpoint` | string | API path to fetch form data |
 | `save_endpoint` | string | API path to save form data |
 | `actions` | array | Toolbar action buttons (see below) |
+| `settings_route` | string | A hash route inside this page where the plugin keeps its own settings, such as `#/settings`. With it set, Admin Next redirects `/plugins/{slug}` to `/plugin/{slug}#/settings` and sends the Configure button on the Plugins list to the same place, so a plugin that renders its settings on its own page does not end up with two copies of them. Only a hash route is accepted — anything else is ignored. |
 
 Each action in the `actions` array:
 
