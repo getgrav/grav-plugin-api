@@ -744,7 +744,9 @@ class PagesController extends AbstractApiController
             // Template change requires renaming the page file (e.g. default.md → post.md)
             $templateChanged = false;
             $oldFilePath = null;
+            $previousTemplate = null;
             if (array_key_exists('template', $body) && $body['template'] !== $page->template()) {
+                $previousTemplate = $page->template();
                 // The page FILENAME is the template basename only. For modular
                 // modules Grav's template() returns a `modular/<name>` form, so
                 // feeding that straight into name()/the old path would write
@@ -794,7 +796,16 @@ class PagesController extends AbstractApiController
             $this->clearPagesCache();
 
             $this->fireAdminEvent('onAdminAfterSave', ['object' => $page, 'page' => $page]);
-            $this->fireEvent('onApiPageUpdated', ['page' => $page]);
+            // `previous_template` is only present when the template actually
+            // changed. Anything keyed on a page's template - the sync plugin's
+            // collaboration rooms, for one - cannot work out what the page used to
+            // be from the saved page alone, and would otherwise leave whatever it
+            // had built against the old one stranded.
+            $updatedEvent = ['page' => $page];
+            if ($templateChanged) {
+                $updatedEvent['previous_template'] = $previousTemplate;
+            }
+            $this->fireEvent('onApiPageUpdated', $updatedEvent);
 
             $data = $this->serializer->serialize($page);
             // ETag from the page state alone — see show() for why the caller's

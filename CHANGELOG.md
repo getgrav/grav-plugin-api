@@ -1,3 +1,9 @@
+# v1.0.25
+## 09/03/2026
+
+1. [](#improved)
+    * The `onApiPageUpdated` event now says which template a page had before, when a save changed it, so a plugin keeping anything keyed on the template can clean up after itself [getgrav/grav-plugin-sync#4](https://github.com/getgrav/grav-plugin-sync/issues/4)
+
 # v1.0.24
 ## 09/03/2026
 
