@@ -1,3 +1,9 @@
+# v1.0.24
+## 09/03/2026
+
+1. [](#bugfix)
+    * A package built for another generation of Grav can no longer be installed from the Plugins page. Nothing on this path checked, so a plugin still requiring the Grav 1.7 admin plugin could pull it in alongside Admin 2 whenever the repository happened to serve it [getgrav/grav-premium-issues#618](https://github.com/getgrav/grav-premium-issues/issues/618)
+
 # v1.0.23
 ## 09/02/2026
 
