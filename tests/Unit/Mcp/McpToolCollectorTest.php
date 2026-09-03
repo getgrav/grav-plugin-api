@@ -46,6 +46,7 @@ class McpToolCollectorTest extends TestCase
             'input_schema' => ['type' => 'object', 'properties' => ['q' => ['type' => 'string']]],
             'path_params' => [],
             'query' => [],
+            'body' => null,
         ], $this->roundTrip($collector->tools()[0]));
     }
 
@@ -375,6 +376,195 @@ class McpToolCollectorTest extends TestCase
         ], $collector->plugins());
     }
 
+    #[Test]
+    public function an_unknown_key_is_rejected(): void
+    {
+        $collector = new McpToolCollector();
+        $collector->add('demo', ['retries' => 3] + $this->tool());
+
+        self::assertSame([], $collector->tools());
+        self::assertSame(
+            "demo: tool 'demo_ping' skipped: unknown key 'retries'",
+            $collector->warnings()[0],
+        );
+    }
+
+    #[Test]
+    public function a_designated_body_names_the_property_that_is_the_request_body(): void
+    {
+        $collector = new McpToolCollector();
+        $collector->add('demo', $this->bodyTool());
+
+        self::assertSame([], $collector->warnings());
+        self::assertSame('object', $collector->tools()[0]['body']);
+        self::assertSame(['key'], $collector->tools()[0]['path_params']);
+    }
+
+    #[Test]
+    public function a_body_in_a_version_1_manifest_is_rejected(): void
+    {
+        $collector = new McpToolCollector();
+        $collector->add('demo', $this->bodyTool(), 1);
+
+        self::assertSame([], $collector->tools());
+        self::assertSame(
+            "demo: tool 'demo_update_object' skipped: 'body' needs manifest version 2",
+            $collector->warnings()[0],
+        );
+    }
+
+    #[Test]
+    public function a_body_that_is_not_a_non_empty_string_is_rejected(): void
+    {
+        $collector = new McpToolCollector();
+        $collector->add('demo', ['body' => 42] + $this->bodyTool());
+
+        self::assertSame([], $collector->tools());
+        self::assertStringContainsString("'body' must name a declared property", $collector->warnings()[0]);
+    }
+
+    #[Test]
+    public function a_body_naming_an_undeclared_property_is_rejected(): void
+    {
+        $collector = new McpToolCollector();
+        $collector->add('demo', ['body' => 'payload'] + $this->bodyTool());
+
+        self::assertSame([], $collector->tools());
+        self::assertStringContainsString(
+            "body property 'payload' is not declared in input.properties",
+            $collector->warnings()[0],
+        );
+    }
+
+    #[Test]
+    public function a_body_property_that_is_not_an_object_is_rejected(): void
+    {
+        $collector = new McpToolCollector();
+        $collector->add('demo', [
+            'input' => [
+                'type' => 'object',
+                'properties' => [
+                    'key' => ['type' => 'string'],
+                    'object' => ['type' => 'string'],
+                ],
+            ],
+        ] + $this->bodyTool());
+
+        self::assertSame([], $collector->tools());
+        self::assertStringContainsString(
+            "body property 'object' must be of type object",
+            $collector->warnings()[0],
+        );
+    }
+
+    #[Test]
+    public function a_body_naming_a_path_parameter_is_rejected(): void
+    {
+        $collector = new McpToolCollector();
+        $collector->add('demo', [
+            'body' => 'key',
+            'input' => [
+                'type' => 'object',
+                'properties' => ['key' => ['type' => 'object', 'additionalProperties' => true]],
+            ],
+        ] + $this->bodyTool());
+
+        self::assertSame([], $collector->tools());
+        self::assertStringContainsString(
+            "'key' is a path parameter and cannot also be the body",
+            $collector->warnings()[0],
+        );
+    }
+
+    #[Test]
+    public function a_body_that_is_also_a_query_parameter_is_rejected(): void
+    {
+        $collector = new McpToolCollector();
+        $collector->add('demo', ['query' => ['object']] + $this->bodyTool());
+
+        self::assertSame([], $collector->tools());
+        self::assertStringContainsString(
+            "'object' is a query parameter and cannot also be the body",
+            $collector->warnings()[0],
+        );
+    }
+
+    #[Test]
+    public function a_body_on_a_get_is_rejected(): void
+    {
+        $collector = new McpToolCollector();
+        $collector->add('demo', ['method' => 'GET'] + $this->bodyTool());
+
+        self::assertSame([], $collector->tools());
+        self::assertStringContainsString(
+            "'body' cannot be used with GET, which sends no request body",
+            $collector->warnings()[0],
+        );
+    }
+
+    #[Test]
+    public function a_body_alongside_an_open_root_schema_is_rejected(): void
+    {
+        $collector = new McpToolCollector();
+        $collector->add('demo', [
+            'input' => [
+                'type' => 'object',
+                'additionalProperties' => true,
+                'properties' => [
+                    'key' => ['type' => 'string'],
+                    'object' => ['type' => 'object', 'additionalProperties' => true],
+                ],
+            ],
+        ] + $this->bodyTool());
+
+        self::assertSame([], $collector->tools());
+        self::assertStringContainsString(
+            "'body' cannot be combined with 'additionalProperties: true' at the root of input",
+            $collector->warnings()[0],
+        );
+    }
+
+    #[Test]
+    public function a_property_with_nowhere_to_go_is_rejected_once_a_body_is_designated(): void
+    {
+        $collector = new McpToolCollector();
+        $collector->add('demo', [
+            'input' => [
+                'type' => 'object',
+                'properties' => [
+                    'key' => ['type' => 'string'],
+                    'title' => ['type' => 'string'],
+                    'object' => ['type' => 'object', 'additionalProperties' => true],
+                ],
+            ],
+        ] + $this->bodyTool());
+
+        self::assertSame([], $collector->tools());
+        self::assertStringContainsString(
+            "property 'title' is neither a path parameter, a query parameter nor the body",
+            $collector->warnings()[0],
+        );
+    }
+
+    #[Test]
+    public function a_leftover_property_is_fine_without_a_body(): void
+    {
+        $tool = $this->bodyTool();
+        unset($tool['body']);
+
+        $collector = new McpToolCollector();
+        $collector->add('demo', ['input' => [
+            'type' => 'object',
+            'properties' => [
+                'key' => ['type' => 'string'],
+                'title' => ['type' => 'string'],
+            ],
+        ]] + $tool);
+
+        self::assertSame([], $collector->warnings());
+        self::assertNull($collector->tools()[0]['body']);
+    }
+
     /**
      * A minimal valid tool that individual tests override one key of.
      *
@@ -387,6 +577,30 @@ class McpToolCollectorTest extends TestCase
             'description' => 'Say whether the service answers.',
             'method' => 'GET',
             'path' => '/demo/ping',
+        ];
+    }
+
+    /**
+     * A valid version 2 tool whose body is one declared property.
+     *
+     * @return array<string, mixed>
+     */
+    private function bodyTool(): array
+    {
+        return [
+            'name' => 'update_object',
+            'description' => 'Replace the fields of one object.',
+            'method' => 'PATCH',
+            'path' => '/demo/objects/{key}',
+            'body' => 'object',
+            'input' => [
+                'type' => 'object',
+                'required' => ['key', 'object'],
+                'properties' => [
+                    'key' => ['type' => 'string'],
+                    'object' => ['type' => 'object', 'additionalProperties' => true],
+                ],
+            ],
         ];
     }
 

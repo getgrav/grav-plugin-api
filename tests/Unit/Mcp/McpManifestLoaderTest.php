@@ -40,6 +40,7 @@ class McpManifestLoaderTest extends TestCase
             'shop_create_product',
             'shop_storefront_status',
             'shop_list_bundles',
+            'shop_update_bundle',
         ], array_column($tools, 'name'));
     }
 
@@ -50,7 +51,10 @@ class McpManifestLoaderTest extends TestCase
 
         // Nothing of demo-shop's is left, and other-shop's own list_products is
         // no longer a duplicate now that nobody claimed the name first.
-        self::assertSame(['shop_list_products', 'shop_list_bundles'], array_column($collector->tools(), 'name'));
+        self::assertSame(
+            ['shop_list_products', 'shop_list_bundles', 'shop_update_bundle'],
+            array_column($collector->tools(), 'name'),
+        );
         self::assertSame(['other-shop'], array_column($collector->plugins(), 'slug'));
     }
 
@@ -68,7 +72,7 @@ class McpManifestLoaderTest extends TestCase
     {
         self::assertSame([
             ['slug' => 'demo-shop', 'name' => 'Demo Shop', 'version' => '2.3.0', 'tools' => 6],
-            ['slug' => 'other-shop', 'name' => 'Other Shop', 'version' => '0.9.1', 'tools' => 1],
+            ['slug' => 'other-shop', 'name' => 'Other Shop', 'version' => '0.9.1', 'tools' => 2],
         ], $this->load()->plugins());
     }
 
@@ -91,7 +95,7 @@ class McpManifestLoaderTest extends TestCase
     {
         $warnings = $this->load()->warnings();
 
-        self::assertContains("no-version: mcp.yaml is missing 'version: 1'", $warnings);
+        self::assertContains("no-version: mcp.yaml is missing 'version' (1 or 2)", $warnings);
         self::assertNotContains('nover_ping', array_column($this->load()->tools(), 'name'));
     }
 
@@ -119,6 +123,14 @@ class McpManifestLoaderTest extends TestCase
         );
         self::assertContains(
             "demo-shop: tool 'shop_bulk_publish' skipped: unknown annotation 'cacheable' (expected one of readOnly, destructive, idempotent)",
+            $warnings,
+        );
+        self::assertContains(
+            "demo-shop: tool 'shop_replace_product' skipped: 'body' needs manifest version 2",
+            $warnings,
+        );
+        self::assertContains(
+            "demo-shop: tool 'shop_sync_products' skipped: unknown key 'retries'",
             $warnings,
         );
         self::assertContains(
@@ -153,6 +165,18 @@ class McpManifestLoaderTest extends TestCase
         self::assertSame(['notify'], $tools['shop_update_product']['query']);
         self::assertSame(['id'], $tools['shop_update_product']['path_params']);
         self::assertSame(['title', 'id'], $tools['shop_update_product']['input_schema']['required']);
+    }
+
+    #[Test]
+    public function a_version_2_manifest_carries_its_body_designation_through(): void
+    {
+        $tools = array_column($this->load()->tools(), null, 'name');
+
+        self::assertSame('bundle', $tools['shop_update_bundle']['body']);
+        self::assertSame(['id'], $tools['shop_update_bundle']['path_params']);
+        self::assertSame(['notify'], $tools['shop_update_bundle']['query']);
+        // A version 1 manifest's tools designate no body.
+        self::assertNull($tools['shop_update_product']['body']);
     }
 
     #[Test]

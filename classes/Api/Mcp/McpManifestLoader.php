@@ -26,8 +26,8 @@ use Throwable;
  */
 class McpManifestLoader
 {
-    /** The only manifest format that exists. */
-    private const MANIFEST_VERSION = 1;
+    /** Manifest formats this plugin reads. Version 2 added the `body` key. */
+    private const MANIFEST_VERSIONS = [1, 2];
 
     /** Identity of the manifest set, computed while loading. */
     private ?string $fingerprint = null;
@@ -105,15 +105,16 @@ class McpManifestLoader
             return;
         }
 
-        $version = $data['version'] ?? null;
-        if (!is_int($version) && !is_string($version)) {
-            $collector->warn($slug, "mcp.yaml is missing 'version: 1'");
+        $declared = $data['version'] ?? null;
+        if (!is_int($declared) && !is_string($declared)) {
+            $collector->warn($slug, "mcp.yaml is missing 'version' (1 or 2)");
             return;
         }
-        if ((int) $version !== self::MANIFEST_VERSION) {
+        $version = (int) $declared;
+        if (!in_array($version, self::MANIFEST_VERSIONS, true)) {
             $collector->warn($slug, sprintf(
                 'mcp.yaml declares manifest version %s, which this version of the API plugin does not read',
-                (string) $version,
+                (string) $declared,
             ));
             return;
         }
@@ -132,7 +133,7 @@ class McpManifestLoader
                 $collector->warn($slug, 'mcp.yaml holds an entry under `tools` that is not a mapping');
                 continue;
             }
-            $collector->add($slug, $tool);
+            $collector->add($slug, $tool, $version);
         }
     }
 
