@@ -87,6 +87,19 @@ class GpmService
             return false;
         }
 
+        // Refuse a package built for another Grav generation. Nothing else on
+        // this path checks: the caller resolves dependencies and hands us
+        // slugs, so before this a plugin still requiring the Grav 1.7 `admin`
+        // plugin could install it next to Admin 2 whenever the repository
+        // happened to serve it — which the testing release channel did, because
+        // that beta declared no compatibility for the feed to filter on
+        // (getgrav/grav-premium-issues#618).
+        foreach ($packages as $package) {
+            if (!GravGPM::declaresGravCompatibility($package->compatibility ?? null)) {
+                return false;
+            }
+        }
+
         $messages = '';
 
         foreach ($packages as $package) {
