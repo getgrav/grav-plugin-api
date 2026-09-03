@@ -5763,6 +5763,11 @@ components:
           items:
             type: string
           example: []
+        body:
+          type: string
+          nullable: true
+          description: The one property whose value is the whole request body, or null when the body is assembled from the properties left over after the path and query parameters.
+          example: null
 
     # -- Plugin Page Definition ------------------------------------------------
     PluginPageDefinition:
