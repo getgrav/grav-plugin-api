@@ -1180,7 +1180,7 @@ The API fires events before and after all write operations, allowing plugins to 
 | `onApiBeforePageCreate` | Before a page is saved | `route`, `header`, `content`, `template`, `lang` (modifiable by reference) |
 | `onApiPageCreated` | After page creation | `page` (PageInterface), `route`, `lang` |
 | `onApiBeforePageUpdate` | Before a page is updated | `page` (PageInterface), `data` (request body, modifiable by reference) |
-| `onApiPageUpdated` | After page update | `page` (PageInterface) |
+| `onApiPageUpdated` | After page update | `page` (PageInterface), `previous_template` (string, only when the template changed) |
 | `onApiBeforePageDelete` | Before a page is deleted | `page` (PageInterface), `lang` (if language-specific delete) |
 | `onApiPageDeleted` | After page deletion | `route`, `lang` (if language-specific delete) |
 | `onApiPageMoved` | After page move | `page` (PageInterface), `old_route`, `new_route` |
