@@ -1,5 +1,5 @@
 # v1.0.26
-## 09/04/2026
+## 09/03/2026
 
 1. [](#new)
     * MCP tool manifests gain a version 2 format with a `body` key, naming the one property whose value is the request body. A route whose body fields the site decides, such as a Flex directory's, can now be described as a tool: the fields come from the blueprint instead of the manifest, and a field called `type` or `key` no longer collides with a path placeholder. Version 1 manifests are read exactly as before [#32](https://github.com/getgrav/grav-plugin-api/issues/32)
