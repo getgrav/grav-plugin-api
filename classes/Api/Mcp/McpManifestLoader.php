@@ -110,7 +110,8 @@ class McpManifestLoader
             $collector->warn($slug, "mcp.yaml is missing 'version' (1 or 2)");
             return;
         }
-        $version = (int) $declared;
+        // Only a whole number is a version: `2.1` or `"2x"` must not be read as 2.
+        $version = is_int($declared) || ctype_digit($declared) ? (int) $declared : 0;
         if (!in_array($version, self::MANIFEST_VERSIONS, true)) {
             $collector->warn($slug, sprintf(
                 'mcp.yaml declares manifest version %s, which this version of the API plugin does not read',

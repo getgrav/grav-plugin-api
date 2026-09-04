@@ -100,6 +100,18 @@ class McpManifestLoaderTest extends TestCase
     }
 
     #[Test]
+    public function a_version_that_is_not_a_whole_number_is_not_read_as_one(): void
+    {
+        $collector = $this->load();
+
+        self::assertContains(
+            'odd-version: mcp.yaml declares manifest version 2x, which this version of the API plugin does not read',
+            $collector->warnings(),
+        );
+        self::assertNotContains('odd_ping', array_column($collector->tools(), 'name'));
+    }
+
+    #[Test]
     public function every_invalid_entry_in_the_fixture_manifest_is_reported(): void
     {
         $warnings = $this->load()->warnings();
@@ -269,6 +281,7 @@ class McpManifestLoaderTest extends TestCase
             'broken-yaml' => ['enabled' => true],
             'demo-shop' => ['enabled' => true],
             'no-version' => ['enabled' => true],
+            'odd-version' => ['enabled' => true],
             'other-shop' => ['enabled' => true],
             'quiet' => ['enabled' => true],
             'switched-off' => ['enabled' => false],
