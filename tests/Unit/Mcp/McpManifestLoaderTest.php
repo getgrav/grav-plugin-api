@@ -109,6 +109,14 @@ class McpManifestLoaderTest extends TestCase
             $collector->warnings(),
         );
         self::assertNotContains('odd_ping', array_column($collector->tools(), 'name'));
+
+        // A present value that is not a whole number is reported as what it is,
+        // not as a missing key.
+        self::assertContains(
+            'float-version: mcp.yaml declares manifest version 2.1, which this version of the API plugin does not read',
+            $collector->warnings(),
+        );
+        self::assertNotContains('floaty_ping', array_column($collector->tools(), 'name'));
     }
 
     #[Test]
@@ -282,6 +290,7 @@ class McpManifestLoaderTest extends TestCase
             'demo-shop' => ['enabled' => true],
             'no-version' => ['enabled' => true],
             'odd-version' => ['enabled' => true],
+            'float-version' => ['enabled' => true],
             'other-shop' => ['enabled' => true],
             'quiet' => ['enabled' => true],
             'switched-off' => ['enabled' => false],

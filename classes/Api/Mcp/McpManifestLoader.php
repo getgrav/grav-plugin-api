@@ -105,17 +105,17 @@ class McpManifestLoader
             return;
         }
 
-        $declared = $data['version'] ?? null;
-        if (!is_int($declared) && !is_string($declared)) {
+        if (!array_key_exists('version', $data)) {
             $collector->warn($slug, "mcp.yaml is missing 'version' (1 or 2)");
             return;
         }
-        // Only a whole number is a version: `2.1` or `"2x"` must not be read as 2.
-        $version = is_int($declared) || ctype_digit($declared) ? (int) $declared : 0;
+        // Only a whole number is a version: 2.1, "2x" or a list must not be read as 2.
+        $declared = $data['version'];
+        $version = is_int($declared) || (is_string($declared) && ctype_digit($declared)) ? (int) $declared : 0;
         if (!in_array($version, self::MANIFEST_VERSIONS, true)) {
             $collector->warn($slug, sprintf(
                 'mcp.yaml declares manifest version %s, which this version of the API plugin does not read',
-                (string) $declared,
+                is_scalar($declared) ? (string) $declared : (string) json_encode($declared),
             ));
             return;
         }
