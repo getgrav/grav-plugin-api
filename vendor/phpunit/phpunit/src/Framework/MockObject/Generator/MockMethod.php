@@ -20,7 +20,6 @@ use function sprintf;
 use function str_contains;
 use function strlen;
 use function strpos;
-use function strtolower;
 use function substr;
 use function substr_count;
 use function trim;
@@ -190,7 +189,7 @@ final class MockMethod
         $deprecation  = $this->deprecation;
         $returnResult = '';
 
-        if (!$this->returnType->isNever() && !$this->returnType->isVoid() && !$this->mustNotReturnValue()) {
+        if (!$this->returnType->isNever() && !$this->returnType->isVoid()) {
             $returnResult = <<<'EOT'
 
 
@@ -260,16 +259,6 @@ EOT;
     public function numberOfParameters(): int
     {
         return $this->numberOfParameters;
-    }
-
-    /**
-     * @see https://wiki.php.net/rfc/deprecate-return-value-from-construct
-     */
-    private function mustNotReturnValue(): bool
-    {
-        $methodName = strtolower($this->methodName);
-
-        return $methodName === '__construct' || $methodName === '__destruct';
     }
 
     /**

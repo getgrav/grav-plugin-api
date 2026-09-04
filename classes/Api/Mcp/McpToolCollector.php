@@ -265,8 +265,9 @@ class McpToolCollector
             return;
         }
 
+        // array_key_exists, not ??: an explicit `body: null` is a declaration too, and a wrong one.
         $body = $tool['body'] ?? null;
-        if ($body !== null && !$this->body($body, $method, $schema, $pathParams, $query, $error)) {
+        if (array_key_exists('body', $tool) && !$this->body($body, $method, $schema, $pathParams, $query, $error)) {
             $this->reject($plugin, $finalName, $error);
             return;
         }

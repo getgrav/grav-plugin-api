@@ -1078,13 +1078,6 @@ abstract class ParserAbstract implements Parser {
                 $node->default->getAttributes()
             ));
         }
-
-        if ($node->type instanceof Identifier && $node->type->name === 'void') {
-            $this->emitError(new Error(
-                'void cannot be used as a parameter type',
-                $node->type->getAttributes()
-            ));
-        }
     }
 
     protected function checkTryCatch(TryCatch $node): void {

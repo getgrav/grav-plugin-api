@@ -45,7 +45,7 @@ final class JobRunnerRegistry
     private static function runner(): JobRunner
     {
         if (self::$runner === null) {
-            self::$runner = new JobRunner(
+            self::$runner = new DefaultJobRunner(
                 new ChildProcessResultProcessor(
                     Facade::instance(),
                     Facade::emitter(),

@@ -367,7 +367,7 @@ abstract class TestCase extends Assert implements Reorderable, SelfDescribing, T
             return;
         }
 
-        (new SeparateProcessTestRunner)->run(
+        IsolatedTestRunnerRegistry::run(
             $this,
             $this->runClassInSeparateProcess && !$this->runTestInSeparateProcess,
             $this->preserveGlobalState,

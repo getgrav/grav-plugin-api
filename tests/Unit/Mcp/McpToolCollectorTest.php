@@ -565,6 +565,16 @@ class McpToolCollectorTest extends TestCase
         self::assertNull($collector->tools()[0]['body']);
     }
 
+    #[Test]
+    public function an_explicit_null_body_is_rejected_rather_than_read_as_absent(): void
+    {
+        $collector = new McpToolCollector();
+        $collector->add('demo', ['method' => 'POST', 'body' => null] + $this->tool());
+
+        self::assertSame([], $collector->tools());
+        self::assertStringContainsString("'body' must name a declared property", $collector->warnings()[0]);
+    }
+
     /**
      * A minimal valid tool that individual tests override one key of.
      *

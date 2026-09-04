@@ -40,7 +40,7 @@ final readonly class MigrationBuilder
             ConvertLogTypes::class,
         ],
 
-        '9.6' => [
+        '9.5' => [
             RemoveListeners::class,
             RemoveTestSuiteLoaderAttributes::class,
             RemoveCacheResultFileAttribute::class,
