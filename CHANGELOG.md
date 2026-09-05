@@ -1,3 +1,10 @@
+# v1.0.26
+## 09/03/2026
+
+1. [](#new)
+    * MCP tool manifests gain a version 2 format with a `body` key, naming the one property whose value is the request body. A route whose body fields the site decides, such as a Flex directory's, can now be described as a tool: the fields come from the blueprint instead of the manifest, and a field called `type` or `key` no longer collides with a path placeholder. Version 1 manifests are read exactly as before [#32](https://github.com/getgrav/grav-plugin-api/issues/32)
+    * A tool definition carrying a key the manifest format does not define is now dropped with an `unknown key` warning rather than quietly ignored, so a typo costs you that one tool and says so. `additionalProperties: true` at the root of a tool's `input` is documented: undeclared arguments are passed through, and it cannot be combined with `body`
+
 # v1.0.25
 ## 09/03/2026
 

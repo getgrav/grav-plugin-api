@@ -1,0 +1,11 @@
+# 2.0 is a float too, and one that YAML authors write all the time. It is skipped
+# like 2.1, and the warning must say 2.0: PHP prints the float as "2", which
+# would read as "version 2 is not read".
+version: 2.0
+prefix: floatwhole
+
+tools:
+  - name: ping
+    description: Never read.
+    method: GET
+    path: /float-whole-version/ping

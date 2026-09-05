@@ -1,0 +1,10 @@
+# 2.1 is a float, not a manifest version: skipped, and the warning names 2.1
+# rather than calling the key missing.
+version: 2.1
+prefix: floaty
+
+tools:
+  - name: ping
+    description: Never read.
+    method: GET
+    path: /float-version/ping

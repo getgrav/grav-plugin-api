@@ -34,8 +34,17 @@ use stdClass;
  */
 class McpToolCollector
 {
-    /** HTTP methods a tool may use. Multipart routes are out of scope for version 1. */
+    /** The newest manifest format, and what a tool added in code is read as. */
+    public const LATEST_VERSION = 2;
+
+    /** HTTP methods a tool may use. Multipart routes are out of scope. */
     private const METHODS = ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'];
+
+    /** Keys a tool definition may carry. `body` needs manifest version 2. */
+    private const KEYS = [
+        'name', 'title', 'description', 'method', 'path',
+        'permission', 'annotations', 'input', 'query',
+    ];
 
     /** Annotation keys a tool may set, each a plain boolean. */
     private const ANNOTATIONS = ['readOnly', 'destructive', 'idempotent'];
@@ -109,8 +118,11 @@ class McpToolCollector
      *
      * @param string $plugin The owning plugin's slug.
      * @param array<string, mixed> $tool The definition, in manifest form.
+     * @param int $version The manifest format the definition is written in.
+     *   Callers with no manifest behind them, such as `onApiMcpTools` listeners,
+     *   get the newest format.
      */
-    public function add(string $plugin, array $tool): void
+    public function add(string $plugin, array $tool, int $version = self::LATEST_VERSION): void
     {
         $plugin = trim($plugin);
         if ($plugin === '') {
@@ -149,6 +161,16 @@ class McpToolCollector
                 $this->tools[$finalName]['plugin'],
             ));
             return;
+        }
+
+        $known = $version >= 2 ? [...self::KEYS, 'body'] : self::KEYS;
+        foreach (array_keys($tool) as $key) {
+            if (!in_array($key, $known, true)) {
+                $this->reject($plugin, $finalName, $key === 'body'
+                    ? "'body' needs manifest version 2"
+                    : sprintf("unknown key '%s'", (string) $key));
+                return;
+            }
         }
 
         $description = $tool['description'] ?? null;
@@ -243,6 +265,13 @@ class McpToolCollector
             return;
         }
 
+        // array_key_exists, not ??: an explicit `body: null` is a declaration too, and a wrong one.
+        $body = $tool['body'] ?? null;
+        if (array_key_exists('body', $tool) && !$this->body($body, $method, $schema, $pathParams, $query, $error)) {
+            $this->reject($plugin, $finalName, $error);
+            return;
+        }
+
         $this->tools[$finalName] = [
             'name' => $finalName,
             'plugin' => $plugin,
@@ -255,6 +284,7 @@ class McpToolCollector
             'input_schema' => $this->encodeSchema($schema),
             'path_params' => $pathParams,
             'query' => $query,
+            'body' => is_string($body) ? $body : null,
         ];
     }
 
@@ -434,6 +464,74 @@ class McpToolCollector
         }
 
         return $names;
+    }
+
+    /**
+     * Validate the `body` designation: the one declared property whose value is
+     * the request body itself, rather than one field of it.
+     *
+     * Routes whose body fields are decided by the site — a Flex directory's
+     * blueprint, say — cannot list them, and a field called `type` or `key`
+     * would collide with a path placeholder. Naming the body closes both holes,
+     * at the price of every other property having to say where it goes: with a
+     * body designated, nothing is left over to fall into it.
+     *
+     * @param array<string, mixed> $schema The validated root schema.
+     * @param array<int, string> $pathParams
+     * @param array<int, string> $query
+     */
+    private function body(
+        mixed $body,
+        string $method,
+        array $schema,
+        array $pathParams,
+        array $query,
+        ?string &$error,
+    ): bool {
+        if (!is_string($body) || $body === '') {
+            $error = "'body' must name a declared property";
+            return false;
+        }
+
+        if ($method === 'GET') {
+            $error = "'body' cannot be used with GET, which sends no request body";
+            return false;
+        }
+
+        $properties = is_array($schema['properties'] ?? null) ? $schema['properties'] : [];
+        if (!array_key_exists($body, $properties)) {
+            $error = sprintf("body property '%s' is not declared in input.properties", $body);
+            return false;
+        }
+        if (($properties[$body]['type'] ?? null) !== 'object') {
+            $error = sprintf("body property '%s' must be of type object", $body);
+            return false;
+        }
+        if (in_array($body, $pathParams, true)) {
+            $error = sprintf("'%s' is a path parameter and cannot also be the body", $body);
+            return false;
+        }
+        if (in_array($body, $query, true)) {
+            $error = sprintf("'%s' is a query parameter and cannot also be the body", $body);
+            return false;
+        }
+
+        if (($schema['additionalProperties'] ?? null) === true) {
+            $error = "'body' cannot be combined with 'additionalProperties: true' at the root of input";
+            return false;
+        }
+
+        foreach (array_keys($properties) as $name) {
+            if ($name !== $body && !in_array($name, $pathParams, true) && !in_array($name, $query, true)) {
+                $error = sprintf(
+                    "property '%s' is neither a path parameter, a query parameter nor the body",
+                    $name,
+                );
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
