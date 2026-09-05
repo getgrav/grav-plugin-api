@@ -15,17 +15,23 @@ use PHPUnit\Framework\TestCase;
 /**
  * A plugin page can say its settings live on the plugin's own page, so
  * admin-next sends /plugins/{slug} there instead of drawing a second copy of
- * the same blueprint form.
+ * the same blueprint form. With `settings_page` it can name a different
+ * plugin's page as the one that draws them, which is how an add-on with no
+ * admin page of its own gets its settings inside the page of the plugin it
+ * extends.
  *
- * What is asserted here is the contract admin-next relies on: the key survives
- * when it names a hash route inside the plugin's page, and is dropped when it
- * names anything else, so a page definition cannot use it to point the admin at
- * an arbitrary address.
+ * What is asserted here is the contract admin-next relies on: the keys survive
+ * when they name a hash route and, where given, an installed plugin that has an
+ * admin page, and are dropped when they name anything else, so a page
+ * definition cannot use them to point the admin at an arbitrary address.
  */
 #[CoversClass(GpmController::class)]
 class GpmControllerSettingsRouteTest extends TestCase
 {
     private string $tempDir;
+
+    /** @var array<string, mixed>|null definition the fake event hands back */
+    private ?array $eventDefinition = null;
 
     protected function setUp(): void
     {
@@ -33,6 +39,8 @@ class GpmControllerSettingsRouteTest extends TestCase
         mkdir($this->tempDir . '/cache', 0775, true);
         mkdir($this->tempDir . '/plugins/demo/admin-next/pages', 0775, true);
         mkdir($this->tempDir . '/plugins/plain', 0775, true);
+        mkdir($this->tempDir . '/plugins/addon', 0775, true);
+        $this->eventDefinition = null;
     }
 
     protected function tearDown(): void
@@ -83,6 +91,106 @@ class GpmControllerSettingsRouteTest extends TestCase
     #[Test]
     public function a_plugin_with_no_admin_page_has_no_settings_route(): void
     {
+        $this->assertSame([], $this->target('plain'));
+    }
+
+    #[Test]
+    public function a_settings_page_naming_a_plugin_with_an_admin_page_survives(): void
+    {
+        $this->eventDefinition = $this->addonDefinition('  demo  ', '#/section/addon/settings');
+
+        $definition = $this->resolve('addon');
+
+        $this->assertSame('demo', $definition['settings_page'] ?? null);
+        $this->assertSame('#/section/addon/settings', $definition['settings_route'] ?? null);
+    }
+
+    #[Test]
+    public function a_settings_page_naming_a_plugin_with_no_admin_page_drops_both(): void
+    {
+        $this->eventDefinition = $this->addonDefinition('plain', '#/settings');
+
+        $definition = $this->resolve('addon');
+
+        $this->assertArrayNotHasKey('settings_page', $definition);
+        $this->assertArrayNotHasKey('settings_route', $definition);
+    }
+
+    #[Test]
+    public function a_settings_page_naming_a_plugin_that_is_not_installed_drops_both(): void
+    {
+        $this->eventDefinition = $this->addonDefinition('not-installed', '#/settings');
+
+        $definition = $this->resolve('addon');
+
+        $this->assertArrayNotHasKey('settings_page', $definition);
+        $this->assertArrayNotHasKey('settings_route', $definition);
+    }
+
+    #[Test]
+    public function a_settings_page_that_is_not_a_plain_slug_drops_both(): void
+    {
+        $this->eventDefinition = $this->addonDefinition('../demo', '#/settings');
+
+        $definition = $this->resolve('addon');
+
+        $this->assertArrayNotHasKey('settings_page', $definition);
+        $this->assertArrayNotHasKey('settings_route', $definition);
+    }
+
+    #[Test]
+    public function a_settings_page_without_a_hash_route_drops_both(): void
+    {
+        $this->eventDefinition = $this->addonDefinition('demo', '/plugins/demo');
+
+        $definition = $this->resolve('addon');
+
+        $this->assertArrayNotHasKey('settings_page', $definition);
+        $this->assertArrayNotHasKey('settings_route', $definition);
+    }
+
+    #[Test]
+    public function an_add_on_with_no_page_of_its_own_still_gets_a_settings_target(): void
+    {
+        $this->eventDefinition = $this->addonDefinition('demo', '#/section/addon/settings');
+
+        $this->assertSame(
+            ['settings_route' => '#/section/addon/settings', 'settings_page' => 'demo'],
+            $this->target('addon'),
+        );
+    }
+
+    #[Test]
+    public function a_plugin_that_draws_its_own_settings_has_no_settings_page(): void
+    {
+        $this->writePageYaml("settings_route: '#/settings'");
+
+        $this->assertSame(['settings_route' => '#/settings'], $this->target('demo'));
+    }
+
+    /**
+     * A definition of the kind a host plugin hands back for an add-on that has
+     * no admin page of its own.
+     *
+     * @return array<string, mixed>
+     */
+    private function addonDefinition(string $settingsPage, string $settingsRoute): array
+    {
+        // The host plugin has a page of its own; that is what makes it a
+        // candidate for drawing someone else's settings.
+        $this->writePageYaml('');
+
+        return [
+            'id' => 'addon',
+            'plugin' => 'addon',
+            'settings_page' => $settingsPage,
+            'settings_route' => $settingsRoute,
+        ];
+    }
+
+    /** @return array<string, string> */
+    private function target(string $slug): array
+    {
         $this->boot();
         $controller = new GpmController(\Grav\Common\Grav::instance(), $this->config());
         $request = TestHelper::createMockRequest(
@@ -91,10 +199,10 @@ class GpmControllerSettingsRouteTest extends TestCase
             attributes: ['api_user' => $this->user()],
         );
 
-        $method = new \ReflectionMethod(GpmController::class, 'pluginSettingsRoute');
+        $method = new \ReflectionMethod(GpmController::class, 'pluginSettingsTarget');
         $method->setAccessible(true);
 
-        $this->assertNull($method->invoke($controller, 'plain', $request));
+        return $method->invoke($controller, $slug, $request);
     }
 
     private function writePageYaml(string $extra): void
@@ -138,13 +246,24 @@ class GpmControllerSettingsRouteTest extends TestCase
 
     private function boot(): void
     {
-        TestHelper::createMockGrav([
+        $grav = TestHelper::createMockGrav([
             'config' => $this->config(),
             'locator' => new GpmSettingsRouteTestLocator($this->tempDir),
             'permissions' => new Permissions(),
             'events' => new GpmSettingsRouteTestEvents(),
             'debugger' => new GpmSettingsRouteTestDebugger(),
         ]);
+
+        // A host plugin answering onApiPluginPageInfo for an add-on that has
+        // no admin page of its own — the case `settings_page` exists for.
+        $definition = $this->eventDefinition;
+        if ($definition !== null) {
+            $grav->addListener('onApiPluginPageInfo', static function (object $event) use ($definition): void {
+                if (($event['plugin'] ?? null) === 'addon') {
+                    $event['definition'] = $definition;
+                }
+            });
+        }
     }
 
     private function rmrf(string $path): void
