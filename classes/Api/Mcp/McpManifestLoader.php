@@ -113,9 +113,15 @@ class McpManifestLoader
         $declared = $data['version'];
         $version = is_int($declared) || (is_string($declared) && ctype_digit($declared)) ? (int) $declared : 0;
         if (!in_array($version, self::MANIFEST_VERSIONS, true)) {
+            // Name the value as written. A (string) cast, and json_encode too, print
+            // 2.0 as "2", which would claim version 2 is not read; var_export keeps the ".0".
             $collector->warn($slug, sprintf(
                 'mcp.yaml declares manifest version %s, which this version of the API plugin does not read',
-                is_scalar($declared) ? (string) $declared : (string) json_encode($declared),
+                match (true) {
+                    is_string($declared) => $declared,
+                    is_scalar($declared) => var_export($declared, true),
+                    default => (string) json_encode($declared),
+                },
             ));
             return;
         }

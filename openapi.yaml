@@ -5750,6 +5750,10 @@ components:
             `description`, `default`, `enum`, `nullable`, `minimum`, `maximum`,
             `minLength`, `maxLength`, `pattern`, `format`, `items`, `properties`,
             `required` and `additionalProperties`.
+            `additionalProperties: true` at the root means what it means on a
+            nested object: arguments the schema does not declare are passed
+            through, as query parameters for a `GET` and into the body for every
+            other method. It never appears on a tool that designates a `body`.
           additionalProperties: true
         path_params:
           type: array

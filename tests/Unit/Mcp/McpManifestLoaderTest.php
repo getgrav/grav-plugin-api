@@ -117,6 +117,14 @@ class McpManifestLoaderTest extends TestCase
             $collector->warnings(),
         );
         self::assertNotContains('floaty_ping', array_column($collector->tools(), 'name'));
+
+        // 2.0 is a float as well. PHP prints it as "2", which would claim that
+        // version 2 is not read; the warning has to name it as written.
+        self::assertContains(
+            'float-whole-version: mcp.yaml declares manifest version 2.0, which this version of the API plugin does not read',
+            $collector->warnings(),
+        );
+        self::assertNotContains('floatwhole_ping', array_column($collector->tools(), 'name'));
     }
 
     #[Test]
@@ -291,6 +299,7 @@ class McpManifestLoaderTest extends TestCase
             'no-version' => ['enabled' => true],
             'odd-version' => ['enabled' => true],
             'float-version' => ['enabled' => true],
+            'float-whole-version' => ['enabled' => true],
             'other-shop' => ['enabled' => true],
             'quiet' => ['enabled' => true],
             'switched-off' => ['enabled' => false],

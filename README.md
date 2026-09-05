@@ -1102,7 +1102,7 @@ The fields:
 
 Only JSON bodies are supported. Multipart routes (file, image and release uploads) are out of scope, so leave them out of the manifest.
 
-An `additionalProperties: true` at the root of `input` is honored: arguments the schema does not declare are passed through, as query parameters for a `GET` and into the body for everything else. Use it for a route that forwards whatever it is handed. It is never added for you at the root, and it cannot be combined with `body`, which needs a closed schema so that every property has exactly one place to go. A key on a tool that is not one of the keys above is an error, not something ignored: the tool is dropped with an `unknown key` warning.
+An `additionalProperties: true` at the root of `input` is honored: arguments the schema does not declare are passed through, as query parameters for a `GET` and into the body for everything else. Use it for a route that forwards whatever it is handed. The root is an object like any other, so the free-form-map rule below reaches it too: an `input` declaring `type: object` with no `properties` is open. For a tool that takes no arguments, omit `input` entirely rather than writing an empty `type: object`. It cannot be combined with `body`, which needs a closed schema so that every property has exactly one place to go. A key on a tool that is not one of the keys above is an error, not something ignored: the tool is dropped with an `unknown key` warning.
 
 A body-designated tool, for a route whose fields come from the site's own blueprints:
 
