@@ -1,3 +1,9 @@
+# v1.0.26
+## 09/05/2026
+
+1. [](#new)
+    * **A plugin page can now draw another plugin's settings.** A page definition gains a `settings_page` key beside `settings_route`, naming the plugin whose admin page holds the form. Answer `onApiPluginPageInfo` for an add-on that has no admin page of its own, point it at your page, and `GET /gpm/plugins` and `GET /gpm/plugins/{slug}` carry both keys so Admin Next sends `/plugins/{add-on}` and the Configure button on the Plugins list to `/plugin/{settings_page}{settings_route}`. That is how a suite of add-ons keeps every setting in one admin page instead of scattering them across the Plugins list. The named plugin has to be installed and have an admin page, and `settings_route` still has to be a hash route — otherwise both keys are dropped. Listing plugins now asks every installed plugin rather than only those with a page on disk, which is what lets a plugin answer for its add-ons.
+
 # v1.0.25
 ## 09/03/2026
 

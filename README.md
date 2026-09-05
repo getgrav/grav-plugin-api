@@ -1021,6 +1021,7 @@ The page definition structure:
 | `save_endpoint` | string | API path to save form data |
 | `actions` | array | Toolbar action buttons (see below) |
 | `settings_route` | string | A hash route inside this page where the plugin keeps its own settings, such as `#/settings`. With it set, Admin Next redirects `/plugins/{slug}` to `/plugin/{slug}#/settings` and sends the Configure button on the Plugins list to the same place, so a plugin that renders its settings on its own page does not end up with two copies of them. Only a hash route is accepted — anything else is ignored. |
+| `settings_page` | string | The slug of the plugin whose page draws those settings, when it is not this plugin's own. Answer `onApiPluginPageInfo` for an add-on that has no admin page of its own, name your page here, and Admin Next redirects `/plugins/{add-on}` to `/plugin/{settings_page}{settings_route}` — that is how an add-on's settings end up inside the page of the plugin it extends. Kept only when it names an installed plugin that has an admin page and `settings_route` is a hash route; otherwise both keys are dropped. |
 
 Each action in the `actions` array:
 
