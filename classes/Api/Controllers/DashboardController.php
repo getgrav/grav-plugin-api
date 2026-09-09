@@ -231,9 +231,13 @@ class DashboardController extends AbstractApiController
         $publishedPages = 0;
 
         foreach ($allPages as $page) {
-            // Skip the virtual pages-root container (no file on disk); the
-            // home page IS a real file-backed page with route '/'.
-            if (!$page->route() || !$page->exists()) {
+            // Skip the virtual pages-root container (no file on disk); the home
+            // page IS a real file-backed page with route '/', and a page
+            // carrying `routes.default: ''` is a real page whose route is the
+            // empty string. Ask root() rather than testing the route for
+            // truthiness, which was leaving such pages out of the count
+            // (getgrav/grav-plugin-api#34).
+            if ($page->root() || !$page->exists()) {
                 continue;
             }
             $totalPages++;

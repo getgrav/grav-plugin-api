@@ -104,14 +104,23 @@ class PopularityTracker
 
         /** @var \Grav\Common\Page\Interfaces\PageInterface|null $page */
         $page = $grav['page'] ?? null;
-        if ($page === null || !$page->route()) {
+        if ($page === null || $page->route() === null) {
             return;
         }
         if ($page->template() === 'error') {
             return;
         }
 
+        // A page carrying `routes.default: ''` has a legitimately empty public
+        // route, which used to fail the guard above and go uncounted. It is a
+        // real, reachable page, so it gets tracked like any other; the store
+        // keys records by route, and an empty string is no use as a key, so
+        // fall back to the structural route which is always present
+        // (getgrav/grav-plugin-api#34).
         $route = $page->route();
+        if ($route === '') {
+            $route = (string) $page->rawRoute();
+        }
         $url = (string) str_replace($grav['base_url_relative'], '', $page->url());
 
         foreach ((array) $this->config->get('plugins.api.popularity.ignore', []) as $ignore) {

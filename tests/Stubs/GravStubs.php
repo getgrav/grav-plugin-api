@@ -207,6 +207,13 @@ namespace Grav\Common\Page\Interfaces {
         interface PageInterface
         {
             public function route($var = null): ?string;
+            // The structural route, which unlike route() is never rewritten by
+            // a `routes.default` alias, and root(), which is how the listings
+            // identify Grav's virtual pages-root container. Both are declared
+            // on the real PageRoutableInterface (getgrav/grav-plugin-api#34).
+            public function rawRoute($var = null): ?string;
+            public function root(): bool;
+            public function exists(): bool;
             public function slug($var = null): string;
             public function order($var = null): ?int;
             public function path($var = null): ?string;

@@ -133,10 +133,13 @@ class PagesController extends AbstractApiController
         $collection = $collection->sort([$flexSortField => $sortOrder]);
 
         // Skip the virtual pages-root container (no file on disk). The home
-        // page IS a real file-backed page even though its route is '/'.
+        // page IS a real file-backed page even though its route is '/', and a
+        // page carrying `routes.default: ''` is a real page whose route is the
+        // empty string, so ask root() rather than testing the route for
+        // truthiness (getgrav/grav-plugin-api#34).
         $items = [];
         foreach ($collection as $page) {
-            if ($page instanceof PageInterface && $page->route() && $page->exists()) {
+            if ($page instanceof PageInterface && !$page->root() && $page->exists()) {
                 $items[] = $page;
             }
         }
@@ -2158,9 +2161,12 @@ class PagesController extends AbstractApiController
         $pages = [];
 
         foreach ($instances as $page) {
-            // Skip the virtual pages-root container (no file on disk).
-            // The home page is a real file-backed page with route '/'.
-            if (!$page->route() || !$page->exists()) {
+            // Skip the virtual pages-root container (no file on disk). The home
+            // page is a real file-backed page with route '/', and a page
+            // carrying `routes.default: ''` is a real page whose route is the
+            // empty string, so ask root() rather than testing the route for
+            // truthiness (getgrav/grav-plugin-api#34).
+            if ($page->root() || !$page->exists()) {
                 continue;
             }
 
@@ -2185,7 +2191,7 @@ class PagesController extends AbstractApiController
                 'template' => $page->template() === $value,
                 'routable' => $page->routable() === filter_var($value, FILTER_VALIDATE_BOOLEAN),
                 'visible' => $page->visible() === filter_var($value, FILTER_VALIDATE_BOOLEAN),
-                'parent' => str_starts_with($page->route(), '/' . trim($value, '/')),
+                'parent' => self::routeStartsWith($page, '/' . trim($value, '/')),
                 'children_of' => $this->isDirectChildOf($page, $value),
                 // Root-level = direct child of the pages-root, resolved from the
                 // real hierarchy (see isDirectChildOf) so home-page children
@@ -2214,6 +2220,28 @@ class PagesController extends AbstractApiController
      * (getgrav/grav-plugin-admin2#32). Comparing against the actual parent
      * page, like admin-classic's tree does, keeps the hierarchy correct.
      */
+    /**
+     * Does either of the page's routes start with the given prefix?
+     *
+     * The `parent` filter matches on the public route, which a route alias can
+     * rewrite. A page carrying `routes.default: ''` has an empty public route
+     * and so could never prefix-match anything, which left it unreachable
+     * through this filter (getgrav/grav-plugin-api#34). The structural route is
+     * always present, so testing both keeps existing public-route matches
+     * working while letting an aliased page still be found by where it actually
+     * lives in the tree.
+     */
+    private static function routeStartsWith(PageInterface $page, string $prefix): bool
+    {
+        foreach ([$page->route(), $page->rawRoute()] as $route) {
+            if (is_string($route) && $route !== '' && str_starts_with($route, $prefix)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function isDirectChildOf(PageInterface $page, string $parentValue): bool
     {
         $parent = $page->parent();

@@ -1,3 +1,10 @@
+# v1.0.29
+## 09/09/2026
+
+1. [](#bugfix)
+    * A page whose header sets an empty route alias (`routes.default: ''`) is listed again. The listings skip Grav's invisible root container, and did so by asking whether a page had a route at all, which an empty one answers falsely, so the page went missing from the pages section, the parent picker and the dashboard count. Thanks to @TomOne [#34](https://github.com/getgrav/grav-plugin-api/issues/34)
+    * Such a page is also counted by the page-view tracker again, and can be found through the `parent` filter, both of which had the same flaw
+
 # v1.0.28
 ## 09/09/2026
 
