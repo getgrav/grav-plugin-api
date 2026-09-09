@@ -29,6 +29,31 @@ final class ConfigSecretMaskerTest extends TestCase
         self::assertSame(1788906703, $masked['providers']['mailgun']['set_up_at']);
     }
 
+    /**
+     * The names that end in `key` rather than in `secret`.
+     *
+     * The heuristic matches a name's ending, and an AWS secret access key ends
+     * in `key` — so `secret_key` matched none of the alternatives and an
+     * account's sending credentials were handed to the browser in the clear.
+     */
+    public function testASecretKeyIsMaskedDespiteEndingInKey(): void
+    {
+        $masked = ConfigSecretMasker::mask([
+            'access_key' => 'AKIAEXAMPLE',
+            'secret_key' => 'the-real-one',
+            'secret_access_key' => 'the-other-one',
+            'region' => 'us-east-2',
+        ]);
+
+        self::assertSame(ConfigSecretMasker::SENTINEL, $masked['secret_key']);
+        self::assertSame(ConfigSecretMasker::SENTINEL, $masked['secret_access_key']);
+
+        // The access key id is an identifier, not a secret. Masking it would
+        // hide the one value somebody needs to see to tell two keys apart.
+        self::assertSame('AKIAEXAMPLE', $masked['access_key']);
+        self::assertSame('us-east-2', $masked['region']);
+    }
+
     public function testTheSentinelComingBackUnchangedIsRestored(): void
     {
         $existing = ['providers' => ['mailgun' => ['secret' => 'the-real-one']]];

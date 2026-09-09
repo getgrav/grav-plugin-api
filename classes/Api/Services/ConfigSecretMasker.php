@@ -34,7 +34,7 @@ class ConfigSecretMasker
      * `mailer.smtp.password` and `cache.redis.password` both trip it even when
      * the blueprint types them as plain text.
      */
-    private const SECRET_NAME_PATTERN = '/(password|passwd|passphrase|secret|api[_-]?key|apikey|private[_-]?key|licen[sc]e[_-]?key|access[_-]?token|client[_-]?secret|token)$/i';
+    private const SECRET_NAME_PATTERN = '/(password|passwd|passphrase|secret|api[_-]?key|apikey|private[_-]?key|secret[_-]?key|secret[_-]?access[_-]?key|licen[sc]e[_-]?key|access[_-]?token|client[_-]?secret|token)$/i';
 
     /**
      * Return a copy of $data with every secret scalar replaced by the sentinel.
