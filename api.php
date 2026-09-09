@@ -121,11 +121,33 @@ class ApiPlugin extends Plugin
             return;
         }
 
-        // Unlock this one page for this request only (nothing is written to disk).
-        // Setting both flags also covers a page that is explicitly `routable:
-        // false`, which the author still wants to see rendered in a preview.
-        $page->published(true);
-        $page->routable(true);
+        // Unlock for this request only (nothing is written to disk). Setting
+        // both flags also covers a page that is explicitly `routable: false`,
+        // which the author still wants rendered in a preview, and every module
+        // is non-routable by definition.
+        //
+        // A module cannot be shown on its own: it exists only as a section
+        // inside its parent, so the admin points the preview at the nearest
+        // ordinary ancestor instead (admin2#170). Keep walking up while the
+        // page is a module, so a nested module and the ordinary page hosting it
+        // are unlocked too. An ordinary page leaves the loop after one pass,
+        // exactly as before, and the chain is read from the site's own page
+        // tree, so the token still reaches nothing but the pages the module
+        // physically lives in. `$seen` guards a malformed tree.
+        //
+        // The unlock has to land on the hydrated objects that find() and
+        // parent() return: a collection filter trusts the frozen index flag
+        // while a page is still lazy, and only reads the live one once the page
+        // is instantiated (Collection::filterByPageFlag, grav#4201). Touching
+        // the chain here is what lets the parent's `@self.modular` collection
+        // see an unpublished module, so do not "optimise" the walk away.
+        $seen = [];
+        while ($page !== null && !$page->root() && !isset($seen[(string) $page->path()])) {
+            $seen[(string) $page->path()] = true;
+            $page->published(true);
+            $page->routable(true);
+            $page = $page->isModule() ? $page->parent() : null;
+        }
     }
 
     public function autoload(): ClassLoader

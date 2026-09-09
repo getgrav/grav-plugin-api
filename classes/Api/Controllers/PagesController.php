@@ -6,6 +6,7 @@ namespace Grav\Plugin\Api\Controllers;
 
 use Grav\Common\Filesystem\Folder;
 use Grav\Common\Grav;
+use Grav\Common\Inflector;
 use Grav\Common\Config\Config;
 use Grav\Common\Language\Language;
 use Grav\Common\Language\LanguageCodes;
@@ -304,9 +305,21 @@ class PagesController extends AbstractApiController
             $page = $this->findPageOrFail('/' . $route, $request, self::PERMISSION_READ);
             $this->authorizePageAction($request, $page, 'read', self::PERMISSION_READ);
 
-            // Pin the token to the page's canonical public route — the same value
-            // the admin builds the preview URL from — so it can only ever unlock
-            // this page. Only super admins and users with page-read can reach here.
+            // The page the browser must actually load. The same page as the one
+            // asked for, except for a module, which only renders inside its
+            // parent (admin2#170).
+            $target = self::previewRenderTarget($page);
+
+            // Previewing a module unlocks its host page too, so the caller has
+            // to be allowed to read that page in its own right: a per-page ACL
+            // can grant a module without granting its parent.
+            if ($target !== $page) {
+                $this->authorizePageAction($request, $target, 'read', self::PERMISSION_READ);
+            }
+
+            // Pin the token to the page's canonical public route, the same value
+            // the admin builds the preview URL from, so it can only ever unlock
+            // this page. Only super admins and users with page-read reach here.
             $jwt = new JwtAuthenticator($this->grav, $this->config);
             $ttl = max(30, (int) $this->config->get('plugins.api.preview_token_ttl', 300));
             $token = $jwt->generatePreviewToken($this->getUser($request), $page->route(), $ttl);
@@ -314,10 +327,66 @@ class PagesController extends AbstractApiController
             return ApiResponse::create([
                 'token' => $token,
                 'expires_in' => $ttl,
+                'route' => (string) $target->route(),
+                // A theme that gives its modules an anchor can scroll straight
+                // to the one being previewed. Advisory only: a theme that emits
+                // no such id simply lands at the top of the parent.
+                'anchor' => $target !== $page ? self::previewAnchor($page) : null,
             ]);
         } finally {
             $this->restoreLanguage($previousLang);
         }
+    }
+
+    /**
+     * The page a preview of `$page` should actually load.
+     *
+     * Normally the page itself. A module is the exception: it is never a page
+     * in its own right, only a section the theme draws inside its parent.
+     * Requesting one directly renders the module template standalone, with no
+     * `<html>` and no theme assets, and emits the section twice, because a
+     * module's content is already that template's output (Twig::processPage())
+     * and the dispatched page render then wraps it in the very same template
+     * again (admin2#170).
+     *
+     * Resolved by walking the real hierarchy, never by trimming the route:
+     * with `system.home.hide_in_urls` a route can be missing its home segment,
+     * and string-splitting it lands on the wrong page (admin2#132).
+     */
+    private static function previewRenderTarget(PageInterface $page): PageInterface
+    {
+        $seen = [];
+
+        while ($page->isModule()) {
+            $seen[(string) $page->path()] = true;
+            $parent = $page->parent();
+            if ($parent === null || $parent->root() || isset($seen[(string) $parent->path()])) {
+                break;
+            }
+            $page = $parent;
+        }
+
+        return $page;
+    }
+
+    /**
+     * The fragment that scrolls a preview to the module being previewed.
+     *
+     * There is no core convention for this, so it is advisory: our themes give
+     * each module an element whose id is the module's menu label hyphenized
+     * (see Quark 2's `modular.html.twig`), and a theme that emits nothing of
+     * the sort simply lands at the top of the parent page.
+     */
+    private static function previewAnchor(PageInterface $page): ?string
+    {
+        $label = trim((string) $page->menu());
+        if ($label === '') {
+            return null;
+        }
+
+        $anchor = Inflector::hyphenize($label);
+
+        return $anchor === '' ? null : $anchor;
     }
 
     /**
