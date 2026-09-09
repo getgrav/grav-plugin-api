@@ -1,3 +1,14 @@
+# v1.0.28
+## 09/09/2026
+
+1. [](#new)
+    * A plugin's MCP tool manifest can now name the one argument that carries the whole request body, so a route whose fields are decided by the site's own blueprints, such as a Flex directory's, can be offered as a tool. The fields come from the blueprint rather than the manifest, and an argument called `type` or `key` no longer collides with a path placeholder [#32](https://github.com/getgrav/grav-plugin-api/issues/32)
+    * Manifests opt into that by declaring `version: 2`, so an older API plugin skips such a file with a warning instead of serving a tool that would write a junk field. Version 1 manifests are read exactly as they were
+
+1. [](#improved)
+    * A tool definition carrying a key the manifest format does not define is now dropped with a warning naming the key, instead of being quietly ignored, so a typo costs you that one tool and says so
+    * The README and OpenAPI description now say what `additionalProperties: true` at the root of a tool's `input` means: arguments the schema does not declare are passed through, and it cannot be combined with `body`
+
 # v1.0.27
 ## 09/08/2026
 

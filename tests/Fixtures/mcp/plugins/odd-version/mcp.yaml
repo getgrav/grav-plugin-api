@@ -1,0 +1,10 @@
+# The version is not a whole number, so the manifest is skipped: "2x" must not
+# be read as 2.
+version: "2x"
+prefix: odd
+
+tools:
+  - name: ping
+    description: Never read, because the version is not one this plugin knows.
+    method: GET
+    path: /odd-version/ping

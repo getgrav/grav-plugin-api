@@ -73,7 +73,7 @@ class McpControllerTest extends TestCase
     {
         $body = $this->body($this->controller()->tools($this->request(['api' => ['super' => true]])));
 
-        self::assertCount(7, $body['data']['tools']);
+        self::assertCount(8, $body['data']['tools']);
     }
 
     #[Test]
