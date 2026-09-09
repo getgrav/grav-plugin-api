@@ -1,3 +1,13 @@
+# v1.0.29
+## 09/09/2026
+
+1. [](#improved)
+    * Previewing a modular child page now loads the page it lives in, with the module in place, instead of rendering the module's template on its own. A module is only ever a section inside its parent, so on its own it came out as a bare, doubled fragment with no theme styling. Unpublished modules show up in the preview too. Thanks to @onetrev [getgrav/grav-plugin-admin2#170](https://github.com/getgrav/grav-plugin-admin2/issues/170)
+
+1. [](#bugfix)
+    * A page whose header sets an empty route alias (`routes.default: ''`) is listed again. The listings skip Grav's invisible root container, and did so by asking whether a page had a route at all, which an empty one answers falsely, so the page went missing from the pages section, the parent picker and the dashboard count. Thanks to @TomOne [#34](https://github.com/getgrav/grav-plugin-api/issues/34)
+    * Such a page is also counted by the page-view tracker again, and can be found through the `parent` filter, both of which had the same flaw
+
 # v1.0.28
 ## 09/09/2026
 
