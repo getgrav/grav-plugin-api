@@ -1,3 +1,9 @@
+# v1.0.27
+## 09/08/2026
+
+1. [](#bugfix)
+    * **Saving a plugin's settings no longer deletes a secret the form did not send back.** Secrets are masked on the way out and restored on the way in, and the restore only looked at the paths present in what was submitted — so a secret that came back as the sentinel was put back, and one that came back missing entirely was silently dropped. Found on a live store: a merchant changed one From address on a plugin's settings form, and every webhook signing secret that plugin kept under a config key its blueprint does not declare was removed, leaving five registered webhooks posting at addresses that had stopped existing with nothing on any screen to say so. A secret absent from a submission is now restored from disk, which is the only honest reading of a field that was not sent. Clearing one on purpose still clears it, because that posts an empty string — a value, not an absence
+
 # v1.0.26
 ## 09/05/2026
 
