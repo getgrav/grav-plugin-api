@@ -26,8 +26,8 @@ use Throwable;
  */
 class McpManifestLoader
 {
-    /** The only manifest format that exists. */
-    private const MANIFEST_VERSION = 1;
+    /** Manifest formats this plugin reads. Version 2 added the `body` key. */
+    private const MANIFEST_VERSIONS = [1, 2];
 
     /** Identity of the manifest set, computed while loading. */
     private ?string $fingerprint = null;
@@ -105,15 +105,23 @@ class McpManifestLoader
             return;
         }
 
-        $version = $data['version'] ?? null;
-        if (!is_int($version) && !is_string($version)) {
-            $collector->warn($slug, "mcp.yaml is missing 'version: 1'");
+        if (!array_key_exists('version', $data)) {
+            $collector->warn($slug, "mcp.yaml is missing 'version' (1 or 2)");
             return;
         }
-        if ((int) $version !== self::MANIFEST_VERSION) {
+        // Only a whole number is a version: 2.1, "2x" or a list must not be read as 2.
+        $declared = $data['version'];
+        $version = is_int($declared) || (is_string($declared) && ctype_digit($declared)) ? (int) $declared : 0;
+        if (!in_array($version, self::MANIFEST_VERSIONS, true)) {
+            // Name the value as written. A (string) cast, and json_encode too, print
+            // 2.0 as "2", which would claim version 2 is not read; var_export keeps the ".0".
             $collector->warn($slug, sprintf(
                 'mcp.yaml declares manifest version %s, which this version of the API plugin does not read',
-                (string) $version,
+                match (true) {
+                    is_string($declared) => $declared,
+                    is_scalar($declared) => var_export($declared, true),
+                    default => (string) json_encode($declared),
+                },
             ));
             return;
         }
@@ -132,7 +140,7 @@ class McpManifestLoader
                 $collector->warn($slug, 'mcp.yaml holds an entry under `tools` that is not a mapping');
                 continue;
             }
-            $collector->add($slug, $tool);
+            $collector->add($slug, $tool, $version);
         }
     }
 

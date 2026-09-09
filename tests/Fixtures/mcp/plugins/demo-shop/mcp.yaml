@@ -139,3 +139,20 @@ tools:
     path: /demo-shop/products/publish
     annotations:
       cacheable: true
+
+  - name: replace_product
+    description: Skipped, `body` is a version 2 key and this manifest declares version 1.
+    method: PUT
+    path: /demo-shop/products/{id}
+    body: product
+    input:
+      type: object
+      properties:
+        id: { type: integer }
+        product: { type: object, additionalProperties: true }
+
+  - name: sync_products
+    description: Skipped, `retries` is not a key a tool definition may carry.
+    method: POST
+    path: /demo-shop/products/sync
+    retries: 3

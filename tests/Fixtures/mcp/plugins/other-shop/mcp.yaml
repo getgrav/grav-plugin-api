@@ -1,6 +1,7 @@
-# Second fixture manifest. It deliberately claims the same prefix as demo-shop so
-# one of its tools collides with a name demo-shop already registered.
-version: 1
+# Second fixture manifest, in the version 2 format. It deliberately claims the
+# same prefix as demo-shop so one of its tools collides with a name demo-shop
+# already registered, and it carries one body-designated tool.
+version: 2
 prefix: shop
 
 tools:
@@ -14,3 +15,22 @@ tools:
     method: GET
     path: /other-shop/bundles
     permission: othershop.bundles.read
+
+  - name: update_bundle
+    title: Update a bundle
+    description: Replace the fields of one bundle. The fields come from the bundle blueprint.
+    method: PATCH
+    path: /other-shop/bundles/{id}
+    permission: othershop.bundles.manage
+    body: bundle
+    input:
+      type: object
+      required: [id, bundle]
+      properties:
+        id: { type: string }
+        notify: { type: boolean, default: false }
+        bundle:
+          type: object
+          additionalProperties: true
+          description: "Fields per the bundle blueprint"
+    query: [notify]
