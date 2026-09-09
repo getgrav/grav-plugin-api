@@ -34,7 +34,7 @@ class ConfigSecretMasker
      * `mailer.smtp.password` and `cache.redis.password` both trip it even when
      * the blueprint types them as plain text.
      */
-    private const SECRET_NAME_PATTERN = '/(password|passwd|passphrase|secret|api[_-]?key|apikey|private[_-]?key|licen[sc]e[_-]?key|access[_-]?token|client[_-]?secret|token)$/i';
+    private const SECRET_NAME_PATTERN = '/(password|passwd|passphrase|secret|api[_-]?key|apikey|private[_-]?key|secret[_-]?key|secret[_-]?access[_-]?key|licen[sc]e[_-]?key|access[_-]?token|client[_-]?secret|token)$/i';
 
     /**
      * Return a copy of $data with every secret scalar replaced by the sentinel.
@@ -79,6 +79,32 @@ class ConfigSecretMasker
                 $merged = ConfigDiffer::setDotPath($merged, $path, ConfigDiffer::valueAtPath($existing, $path));
             }
         }
+
+        // And the secret that came back absent rather than as the sentinel,
+        // which is the same round trip with one step more taken from it: a
+        // client that strips masked values before posting, or a blueprint merge
+        // that replaced a block the blueprint does not describe with the
+        // client's copy of it. The loop above cannot see either, because it
+        // walks the paths in what was submitted — and the whole point is that
+        // the path is not in there any more.
+        //
+        // Absent is never somebody clearing a secret. Clearing one posts an
+        // empty string, which is a value and passes through untouched; absent
+        // means the field was not part of what was sent, and the only honest
+        // reading of that is "unchanged".
+        //
+        // Found on a live store: a merchant changed one From address on a
+        // plugin's settings form and every webhook signing secret that plugin
+        // kept under a config key the blueprint does not declare was silently
+        // removed, leaving five registered webhooks posting at addresses that
+        // no longer existed.
+        foreach (self::secretLeafPaths($existing, $blueprint) as $path) {
+            if (ConfigDiffer::valueAtPath($merged, $path) === null
+                && ConfigDiffer::valueAtPath($existing, $path) !== null) {
+                $merged = ConfigDiffer::setDotPath($merged, $path, ConfigDiffer::valueAtPath($existing, $path));
+            }
+        }
+
         return $merged;
     }
 

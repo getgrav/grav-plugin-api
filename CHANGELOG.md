@@ -1,9 +1,25 @@
-# v1.0.26
-## 09/03/2026
+# v1.0.28
+## 09/09/2026
 
 1. [](#new)
-    * MCP tool manifests gain a version 2 format with a `body` key, naming the one property whose value is the request body. A route whose body fields the site decides, such as a Flex directory's, can now be described as a tool: the fields come from the blueprint instead of the manifest, and a field called `type` or `key` no longer collides with a path placeholder. Version 1 manifests are read exactly as before [#32](https://github.com/getgrav/grav-plugin-api/issues/32)
-    * A tool definition carrying a key the manifest format does not define is now dropped with an `unknown key` warning rather than quietly ignored, so a typo costs you that one tool and says so. `additionalProperties: true` at the root of a tool's `input` is documented: undeclared arguments are passed through, and it cannot be combined with `body`
+    * A plugin's MCP tool manifest can now name the one argument that carries the whole request body, so a route whose fields are decided by the site's own blueprints, such as a Flex directory's, can be offered as a tool. The fields come from the blueprint rather than the manifest, and an argument called `type` or `key` no longer collides with a path placeholder [#32](https://github.com/getgrav/grav-plugin-api/issues/32)
+    * Manifests opt into that by declaring `version: 2`, so an older API plugin skips such a file with a warning instead of serving a tool that would write a junk field. Version 1 manifests are read exactly as they were
+
+1. [](#improved)
+    * A tool definition carrying a key the manifest format does not define is now dropped with a warning naming the key, instead of being quietly ignored, so a typo costs you that one tool and says so
+    * The README and OpenAPI description now say what `additionalProperties: true` at the root of a tool's `input` means: arguments the schema does not declare are passed through, and it cannot be combined with `body`
+
+# v1.0.27
+## 09/08/2026
+
+1. [](#bugfix)
+    * **Saving a plugin's settings no longer deletes a secret the form did not send back.** Secrets are masked on the way out and restored on the way in, and the restore only looked at the paths present in what was submitted — so a secret that came back as the sentinel was put back, and one that came back missing entirely was silently dropped. Found on a live store: a merchant changed one From address on a plugin's settings form, and every webhook signing secret that plugin kept under a config key its blueprint does not declare was removed, leaving five registered webhooks posting at addresses that had stopped existing with nothing on any screen to say so. A secret absent from a submission is now restored from disk, which is the only honest reading of a field that was not sent. Clearing one on purpose still clears it, because that posts an empty string — a value, not an absence
+
+# v1.0.26
+## 09/05/2026
+
+1. [](#new)
+    * **A plugin page can now draw another plugin's settings.** A page definition gains a `settings_page` key beside `settings_route`, naming the plugin whose admin page holds the form. Answer `onApiPluginPageInfo` for an add-on that has no admin page of its own, point it at your page, and `GET /gpm/plugins` and `GET /gpm/plugins/{slug}` carry both keys so Admin Next sends `/plugins/{add-on}` and the Configure button on the Plugins list to `/plugin/{settings_page}{settings_route}`. That is how a suite of add-ons keeps every setting in one admin page instead of scattering them across the Plugins list. The named plugin has to be installed and have an admin page, and `settings_route` still has to be a hash route — otherwise both keys are dropped. Listing plugins now asks every installed plugin rather than only those with a page on disk, which is what lets a plugin answer for its add-ons.
 
 # v1.0.25
 ## 09/03/2026

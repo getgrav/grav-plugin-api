@@ -67,14 +67,11 @@ class GpmController extends AbstractApiController
                 $data['updatable'] = false;
             }
 
-            // Where this plugin keeps its own settings, if it says it keeps
-            // them on its own admin page. The Plugins list uses it to send
-            // Configure straight there instead of to a second copy of the
-            // same form.
-            $settingsRoute = $this->pluginSettingsRoute($slug, $request);
-            if ($settingsRoute !== null) {
-                $data['settings_route'] = $settingsRoute;
-            }
+            // Where this plugin keeps its settings, if it says they are drawn
+            // on an admin page — its own, or the page of a plugin it extends.
+            // The Plugins list uses it to send Configure straight there
+            // instead of to a second copy of the same form.
+            $data += $this->pluginSettingsTarget($slug, $request);
 
             $plugins[] = $data;
         }
@@ -113,11 +110,8 @@ class GpmController extends AbstractApiController
             $data['custom_fields'] = $customFields;
         }
 
-        // Where this plugin keeps its own settings — see plugins() above.
-        $settingsRoute = $this->pluginSettingsRoute($slug, $request);
-        if ($settingsRoute !== null) {
-            $data['settings_route'] = $settingsRoute;
-        }
+        // Where this plugin keeps its settings — see plugins() above.
+        $data += $this->pluginSettingsTarget($slug, $request);
 
         return $this->respondWithEtag($data);
     }
@@ -1468,42 +1462,85 @@ class GpmController extends AbstractApiController
         // A page can say its settings live on itself, at a hash route inside
         // its own screen — admin-next then sends /plugins/{slug} there rather
         // than drawing a second copy of the same blueprint form. Only a hash
-        // route is accepted: this names a place inside the plugin's page, not
+        // route is accepted: this names a place inside a plugin's page, not
         // somewhere else in the admin.
         $route = $definition['settings_route'] ?? null;
-        if (is_string($route) && str_starts_with(trim($route), '#')) {
-            $definition['settings_route'] = trim($route);
+        $route = is_string($route) && str_starts_with(trim($route), '#') ? trim($route) : null;
+
+        // The page drawing those settings is the plugin's own unless the
+        // definition names another one. That is how an add-on with no admin
+        // page of its own gets its settings drawn inside the page of the
+        // plugin it extends: the host answers onApiPluginPageInfo for the
+        // add-on's slug and points at itself. The named plugin has to be
+        // installed and have an admin-next page, and there has to be a hash
+        // route to send people to — otherwise both keys go, because half of
+        // this pair is no use on its own.
+        $page = $definition['settings_page'] ?? null;
+        if ($page !== null) {
+            $page = is_string($page) ? trim($page) : '';
+            if ($page === '' || $route === null || !$this->hasPluginAdminPage($page)) {
+                $route = null;
+                $page = null;
+            }
+        }
+
+        if ($route !== null) {
+            $definition['settings_route'] = $route;
         } else {
             unset($definition['settings_route']);
+        }
+
+        if ($page !== null) {
+            $definition['settings_page'] = $page;
+        } else {
+            unset($definition['settings_page']);
         }
 
         return $definition;
     }
 
     /**
-     * The hash route a plugin keeps its own settings at, or null if it has no
-     * admin page or has not said.
+     * Where a plugin keeps its settings: the hash route, and the slug of the
+     * plugin whose admin page draws them when that is not the plugin itself.
      *
-     * Guarded on the plugin actually having a page on disk so listing every
-     * installed plugin does not fire onApiPluginPageInfo dozens of times for
-     * plugins that could never answer it.
+     * Empty when the plugin has not said. Resolving the definition fires
+     * onApiPluginPageInfo, which is what lets a plugin answer for an add-on
+     * that has no admin page of its own.
+     *
+     * @return array<string, string>
      */
-    private function pluginSettingsRoute(string $slug, ServerRequestInterface $request): ?string
+    private function pluginSettingsTarget(string $slug, ServerRequestInterface $request): array
+    {
+        $definition = $this->resolvePluginPageDefinition($slug, $this->getUser($request));
+        $route = $definition['settings_route'] ?? null;
+        if (!is_string($route)) {
+            return [];
+        }
+
+        $target = ['settings_route' => $route];
+
+        $page = $definition['settings_page'] ?? null;
+        if (is_string($page)) {
+            $target['settings_page'] = $page;
+        }
+
+        return $target;
+    }
+
+    /**
+     * Is this an installed plugin with an admin-next page of its own?
+     */
+    private function hasPluginAdminPage(string $slug): bool
     {
         try {
             $path = $this->resolvePackagePath($slug, 'plugins');
-        } catch (NotFoundException) {
-            return null;
+        } catch (NotFoundException | ValidationException) {
+            return false;
         }
 
         $pagesDir = $path . '/admin-next/pages/' . basename($slug);
-        if (!file_exists($pagesDir . '.js') && !file_exists($pagesDir . '.yaml')) {
-            return null;
-        }
 
-        $definition = $this->resolvePluginPageDefinition($slug, $this->getUser($request));
-
-        return $definition['settings_route'] ?? null;
+        return file_exists($pagesDir . '.js') || file_exists($pagesDir . '.yaml');
     }
 
     /**
