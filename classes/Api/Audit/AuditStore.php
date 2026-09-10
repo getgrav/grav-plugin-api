@@ -44,7 +44,7 @@ class AuditStore
         // matching WebhookManager's user://data/api convention.
         $dir = $grav['locator']->findResource('user://data/api', true, true) . '/audit';
         if (!is_dir($dir)) {
-            @mkdir($dir, 0755, true);
+            @mkdir($dir, 0775, true);
         }
         $this->dbPath = $dir . '/audit.sqlite';
     }

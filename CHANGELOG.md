@@ -1,3 +1,13 @@
+# v1.0.30
+## 09/10/2026
+
+1. [](#improved)
+    * Plugins and themes that read the current user now see the account making the request during Admin2 and API calls, instead of a guest, so something like a page type picker filtered by group works in Admin2 the way it did in the classic admin. An API key limited to specific scopes still looks like a guest to them, since the account behind it can do more than the key allows. Thanks to @etucek [#36](https://github.com/getgrav/grav-plugin-api/issues/36)
+
+1. [](#bugfix)
+    * Folders the API plugin creates for webhooks, thumbnails, page-view stats, the audit log and avatars are group-writable like the rest of Grav, so on hosts where the web server and the command line run as different users, the command line can clear them. Thanks to @sandymac [getgrav/grav#4295](https://github.com/getgrav/grav/issues/4295)
+    * Clearing the Twig-in-Content report's events now needs permission to change system settings. Viewing reports was enough before, so an account that could only look at the report could empty a record every admin relies on. Thanks to @sandymac [#35](https://github.com/getgrav/grav-plugin-api/issues/35)
+
 # v1.0.29
 ## 09/09/2026
 

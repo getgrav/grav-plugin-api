@@ -162,7 +162,7 @@ class PopularityStore
      */
     private function withLock(callable $mutator): void
     {
-        if (!is_dir($this->dataDir) && !@mkdir($this->dataDir, 0755, true) && !is_dir($this->dataDir)) {
+        if (!is_dir($this->dataDir) && !@mkdir($this->dataDir, 0775, true) && !is_dir($this->dataDir)) {
             throw new \RuntimeException(sprintf('Unable to create directory "%s"', $this->dataDir));
         }
 
