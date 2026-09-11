@@ -412,6 +412,17 @@ class GpmService
         try {
             $contents = Response::get($package->zipball_url . $query, []);
         } catch (\Exception $e) {
+            // A refused premium download is worth explaining in the store's
+            // words when it gave any (updates lapsed, key does not cover this
+            // add-on); otherwise say what happened without echoing the
+            // request URL, which carries the licence key.
+            $reason = Licenses::refusalReason($e);
+            if ($reason !== null) {
+                throw new \RuntimeException($reason);
+            }
+            if ($package->premium && $e->getCode() === 401) {
+                throw new \RuntimeException("The licence key for '{$package->slug}' was not accepted by the download server. Check the key in user/data/licenses.yaml.");
+            }
             throw new \RuntimeException($e->getMessage());
         }
 

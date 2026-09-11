@@ -3172,7 +3172,7 @@ paths:
                 license:
                   type: string
                   description: |
-                    License key for premium packages. Format: `XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX`.
+                    License key for premium packages, exactly as the store that sold the package sent it (a Grav Premium key looks like `XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX`, a KahunaCart key like `KC-XXXX-XXXX-XXXX-XXXX`).
                     If omitted, the system checks `user://data/licenses.yaml` for an existing license.
                   example: A1B2C3D4-E5F6A7B8-C9D0E1F2-A3B4C5D6
             example:
