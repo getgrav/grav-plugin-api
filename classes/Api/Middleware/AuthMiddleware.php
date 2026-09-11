@@ -73,11 +73,48 @@ class AuthMiddleware
     ): ServerRequestInterface {
         $request = $request->withAttribute('api_user', $user);
 
+        $scopes = [];
         if ($authenticator instanceof ApiKeyAuthenticator) {
-            $request = $request->withAttribute('api_key_scopes', $authenticator->getAuthenticatedScopes());
+            $scopes = $authenticator->getAuthenticatedScopes();
+            $request = $request->withAttribute('api_key_scopes', $scopes);
+        }
+
+        if ($scopes === []) {
+            $this->setActiveUser($user);
         }
 
         return $request;
+    }
+
+    /**
+     * Make the caller Grav's current user, so core, themes and other plugins
+     * reading `$grav['user']` see who is calling rather than a guest (or, since
+     * /api shares the front-end cookie, whoever is logged in to the public site
+     * in the same browser). Classic admin did the same for its requests. (#36)
+     *
+     * Only the container entry changes. The session is left alone, so a visitor
+     * logged in to the front end keeps their own login.
+     *
+     * JWT and API-key accounts come straight from disk, and core's authorize()
+     * refuses a user without `authenticated` and `authorized`, so both are set
+     * here as a login would set them (a JWT access token is only issued once
+     * 2FA has passed). The account file never stores either flag.
+     *
+     * A key with scopes is skipped on purpose: its owner's ACL is wider than the
+     * key, and anything authorizing against `$grav['user']` bypasses the scope
+     * cap. Core's XSS whitelist in Validation::checkSafety() would, for one,
+     * exempt a narrowly scoped key minted on a super-admin account. To core such
+     * a request stays a guest, as it always was.
+     */
+    private function setActiveUser(\Grav\Common\User\Interfaces\UserInterface $user): void
+    {
+        $user->set('authenticated', true);
+        $user->set('authorized', true);
+
+        // Login defines `user` as a service, and Pimple refuses to replace one
+        // that has already been read, so remove it first.
+        unset($this->grav['user']);
+        $this->grav['user'] = $user;
     }
 
     protected function buildAuthenticatorChain(): void

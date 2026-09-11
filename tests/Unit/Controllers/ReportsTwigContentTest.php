@@ -8,6 +8,8 @@ use Grav\Common\Config\Config;
 use Grav\Common\Grav;
 use Grav\Common\User\Interfaces\UserInterface;
 use Grav\Plugin\Api\Controllers\ReportsController;
+use Grav\Plugin\Api\Exceptions\DemoModeException;
+use Grav\Plugin\Api\Exceptions\ForbiddenException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Tests\Unit\TestHelper;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -162,6 +164,44 @@ class ReportsTwigContentTest extends TestCase
 
         $this->expectException(ValidationException::class);
         $controller->allowlistAdd($request);
+    }
+
+    // -- clearTwigEvents gate (grav-plugin-api#35) ----------------------------
+
+    #[Test]
+    public function clear_twig_events_needs_system_write_not_reports_read(): void
+    {
+        // Clearing the buffer is a write. A key that may only read reports is
+        // stopped by the scope cap before any ACL lookup, even on a super
+        // account, so no live Permissions service is needed.
+        $request = TestHelper::createMockRequest(
+            'DELETE',
+            '/reports/twig-content/events',
+            attributes: ['api_user' => $this->super(), 'api_key_scopes' => ['api.reports.read']],
+        );
+
+        $this->expectException(ForbiddenException::class);
+        $this->expectExceptionMessage('api.system.write');
+        $this->controller()->clearTwigEvents($request);
+    }
+
+    #[Test]
+    public function clear_twig_events_is_write_locked_for_demo_accounts(): void
+    {
+        // Under `api.reports.read` the demo write-lock never ran, because
+        // demoWriteBlocked() skips every permission ending in `.read`.
+        $demo = TestHelper::createMockUser('demo', [
+            'access' => ['api' => ['super' => true, 'demo' => true]],
+            'access.api.demo' => true,
+        ]);
+        $request = TestHelper::createMockRequest(
+            'DELETE',
+            '/reports/twig-content/events',
+            attributes: ['api_user' => $demo],
+        );
+
+        $this->expectException(DemoModeException::class);
+        $this->controller()->clearTwigEvents($request);
     }
 
     private function nonSuper(): UserInterface

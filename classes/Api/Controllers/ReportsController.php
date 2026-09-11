@@ -285,10 +285,16 @@ class ReportsController extends AbstractApiController
     /**
      * DELETE /reports/twig-content/events — clear the diagnostics ring buffer
      * once the operator has dealt with the flagged blocks.
+     *
+     * Clearing is a write to a site-wide record every admin reads, so it takes
+     * the system write permission, the same gate as dismissing a dashboard
+     * notification. Under the report's read permission an account or key that
+     * may only view reports could empty it, and the demo write-lock, which
+     * skips anything ending in `.read`, never applied. (grav-plugin-api#35)
      */
     public function clearTwigEvents(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, 'api.reports.read');
+        $this->requirePermission($request, 'api.system.write');
         $cleared = Security::clearTwigContentEvents();
 
         return ApiResponse::ok(['cleared' => $cleared]);
