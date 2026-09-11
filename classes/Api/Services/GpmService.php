@@ -488,8 +488,10 @@ class GpmService
                             if (method_exists($install, 'allowIncompatibleOverride')) {
                                 $install::allowIncompatibleOverride(true);
                             }
-                            if (method_exists($install, 'allowPendingOverride')) {
-                                $install::allowPendingOverride(true);
+                            // Core names it allowPendingPackageOverride(); the older name never
+                            // existed, so pending plugin updates could not be overridden here.
+                            if (method_exists($install, 'allowPendingPackageOverride')) {
+                                $install::allowPendingPackageOverride(true);
                             }
                             // Recompute so install() reuses an unblocked, cached report.
                             $report = $install->generatePreflightReport();
