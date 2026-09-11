@@ -1,3 +1,11 @@
+# v1.0.31
+## 09/11/2026
+
+1. [](#bugfix)
+    * A licence key from a store other than Grav Premium, such as a KahunaCart `KC-XXXX-XXXX-XXXX-XXXX` key, is no longer refused by the install endpoint's format check. The message for a key that cannot be one at all no longer describes the Grav Premium shape as the only one
+    * When getgrav.org refuses a premium download, the install error in Admin2 now carries the store's explanation when it gave one (an updates window that has ended, a key that does not cover this add-on, with where to renew or buy), and otherwise says the key was not accepted, instead of echoing the download URL with the key inside it
+    * Requires Grav 2.1.0, which is where the key check and the refusal reason live. Older sites keep being served 1.0.30
+
 # v1.0.30
 ## 09/10/2026
 

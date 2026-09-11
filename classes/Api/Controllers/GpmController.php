@@ -255,7 +255,7 @@ class GpmController extends AbstractApiController
         if ($license) {
             if (!Licenses::validate($license)) {
                 throw new ValidationException(
-                    "Invalid license format. Expected: XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX (uppercase hex)."
+                    "That does not look like a licence key. Paste the key exactly as the store sent it."
                 );
             }
             Licenses::set($package, $license);
