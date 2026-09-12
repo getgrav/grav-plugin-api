@@ -1,3 +1,9 @@
+# v1.0.32
+## 09/11/2026
+
+1. [](#bugfix)
+    * Upgrading Grav with the override option now also lets the upgrade go ahead when plugin updates are still pending. The API asked core for a switch under the wrong name, so only the incompatible-plugin block could be overridden
+
 # v1.0.31
 ## 09/11/2026
 
