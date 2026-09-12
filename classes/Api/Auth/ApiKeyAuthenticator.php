@@ -74,6 +74,17 @@ class ApiKeyAuthenticator implements AuthenticatorInterface
             return null;
         }
 
+        // A disabled account must not authenticate through its keys either. The
+        // login endpoints and JwtAuthenticator::userTokenStillValid() refuse it,
+        // but the 1.0.4 kill switch (api_tokens_valid_after) only reaches JWTs,
+        // so a grav_ key outlived the account it belonged to. Checked here, after
+        // the account load and past the verified-key cache, so the state is read
+        // on every request; `!== 'enabled'` mirrors core's UserTrait::authorize().
+        // (#37)
+        if ($user->get('state', 'enabled') !== 'enabled') {
+            return null;
+        }
+
         // Auto-rehash legacy SHA-256 keys to bcrypt
         if (!str_starts_with($keyData['hash'], '$2')) {
             $manager->rehashKey($keyId, $apiKey);

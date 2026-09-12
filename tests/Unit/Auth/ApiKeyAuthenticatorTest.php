@@ -228,6 +228,27 @@ class ApiKeyAuthenticatorTest extends TestCase
     }
 
     #[Test]
+    public function returns_null_when_account_is_disabled(): void
+    {
+        // Key is valid and the account exists, but the account is disabled (#37).
+        $user = TestHelper::createMockUser('grace', ['state' => 'disabled']);
+        $authenticator = $this->buildAuthenticator([
+            'key1' => [
+                'id' => 'key1',
+                'username' => 'grace',
+                'hash' => hash('sha256', self::RAW_KEY),
+                'active' => true,
+            ],
+        ], ['grace' => $user]);
+
+        $request = TestHelper::createMockRequest(
+            headers: ['X-API-Key' => self::RAW_KEY],
+        );
+
+        self::assertNull($authenticator->authenticate($request));
+    }
+
+    #[Test]
     public function header_takes_precedence_over_query_param(): void
     {
         $headerKey = 'grav_header_key_value_123456789';
