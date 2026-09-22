@@ -156,9 +156,9 @@ class ConfigController extends AbstractApiController
      * take over. Body: `{"keys": ["pages.theme", ...]}` or `{"reset": true}`.
      *
      * The active layer is the same write target show()/update() resolve from
-     * X-Config-Environment: base `user/config/<scope>.yaml`, or an environment's
-     * `user/env/<env>/config/<scope>.yaml`. Reverting a key there falls back to
-     * the layer beneath (base → core/plugin defaults; env → base).
+     * X-Config-Environment: base `user/config/<scope>.yaml`, or the configured
+     * environment stream's `<env>/config/<scope>.yaml`. Reverting a key there
+     * falls back to the layer beneath (base → core/plugin defaults; env → base).
      */
     public function revert(ServerRequestInterface $request): ResponseInterface
     {
@@ -288,7 +288,8 @@ class ConfigController extends AbstractApiController
             throw new NotFoundException("Configuration scope '{$scope}' not found.");
         }
 
-        // Write target: X-Config-Environment selects an existing env folder; empty/default = base.
+        // Write target: X-Config-Environment selects an existing Grav
+        // environment; empty/default = base.
         $targetEnv = $this->resolveTargetEnv($request);
 
         // Edit against the baseline for THIS target, not the live (boot-env)
@@ -480,10 +481,10 @@ class ConfigController extends AbstractApiController
      * Resolve the config file path for a given scope.
      *
      * Writes land in base user/config/ unless $targetEnv is a non-empty string
-     * matching an existing user/env/<env>/ folder. We deliberately avoid the
-     * `config://` stream here because its first resolved path can be an env
-     * folder Grav auto-inferred from the hostname — that would create an
-     * unintended user/<host>/ folder on save.
+     * matching an existing environment resolved by EnvironmentService. We use
+     * the dedicated environment:// stream only for the active environment and
+     * never use the merged config:// stream, whose first path can be a lookup
+     * location rather than the explicit write target.
      */
     private function resolveConfigFile(string $scope, ?string $targetEnv = null): ?string
     {
@@ -621,9 +622,9 @@ class ConfigController extends AbstractApiController
     /**
      * Where config writes land.
      *
-     * Base user/config/ by default. When $targetEnv is set, the matching
-     * user/env/<env>/config/ is used — but only if it already exists, we
-     * never implicitly create env folders.
+     * Base user/config/ by default. When $targetEnv is set, EnvironmentService
+     * resolves the matching Grav environment stream — but only if it already
+     * exists; we never implicitly create environment folders.
      */
     private function resolveWriteDir(?string $targetEnv = null): string
     {

@@ -1,3 +1,13 @@
+# v1.0.39
+## 09/22/2026
+
+1. [](#improved)
+    * Page statistics no longer keep a record of individual visitors, and any left by an earlier version or by the old admin is removed the next time a page view is counted. [#44](https://github.com/getgrav/grav-plugin-api/issues/44)
+1. [](#bugfix)
+    * Configuration saves now go to the right environment folder on sites that keep their environments outside `user/env/` (`GRAV_ENVIRONMENT_PATH`, `GRAV_ENVIRONMENTS_PATH` or a custom `setup.php`). [#46](https://github.com/getgrav/grav-plugin-api/pull/46)
+    * Your own visits to the site are left out of the page statistics again when you are signed in to the new admin. [#45](https://github.com/getgrav/grav-plugin-api/issues/45)
+    * Media thumbnails no longer come up blank when you scroll through a folder with a lot of files. [getgrav/grav-plugin-admin2#178](https://github.com/getgrav/grav-plugin-admin2/issues/178)
+
 # v1.0.38
 ## 09/21/2026
 

@@ -51,6 +51,33 @@ namespace Grav\Common\Config {
             }
         }
     }
+
+    if (!class_exists(\Grav\Common\Config\Setup::class, false)) {
+        /**
+         * Minimal setup stub for environment-aware services. Grav exposes the
+         * booted environment as a static value during bootstrap; the tests only
+         * need that value and a small Data-like getter for stream metadata.
+         */
+        class Setup
+        {
+            public static ?string $environment = null;
+
+            public function __construct(private array $items = []) {}
+
+            public function get(string $key, mixed $default = null): mixed
+            {
+                $current = $this->items;
+                foreach (explode('.', $key) as $segment) {
+                    if (!is_array($current) || !array_key_exists($segment, $current)) {
+                        return $default;
+                    }
+                    $current = $current[$segment];
+                }
+
+                return $current;
+            }
+        }
+    }
 }
 
 namespace Grav\Common {

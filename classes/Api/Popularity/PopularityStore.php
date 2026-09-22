@@ -47,32 +47,28 @@ class PopularityStore
     }
 
     /**
-     * Record a single page hit. All four counters update inside one locked
+     * Record a single page hit. All three counters update inside one locked
      * read-modify-write cycle, so a concurrent hit can't tear the file or
      * lose updates.
      */
     public function recordHit(
         string $route,
-        string $ipHash,
         ?int $now = null,
         int $dailyHistory = 30,
         int $monthlyHistory = 12,
-        int $visitorHistory = 20,
     ): void {
         $now ??= time();
         $today = date('Y-m-d', $now);
         $month = date('Y-m', $now);
 
         $this->withLock(function (array $data) use (
-            $route, $ipHash, $now, $today, $month,
-            $dailyHistory, $monthlyHistory, $visitorHistory,
+            $route, $today, $month, $dailyHistory, $monthlyHistory,
         ): array {
             $data['daily'][$today] = ($data['daily'][$today] ?? 0) + 1;
             $data['monthly'][$month] = ($data['monthly'][$month] ?? 0) + 1;
             $data['pages'][$route] = ($data['pages'][$route] ?? 0) + 1;
-            $data['visitors'][$ipHash] = $now;
 
-            return $this->prune($data, $dailyHistory, $monthlyHistory, $visitorHistory);
+            return $this->prune($data, $dailyHistory, $monthlyHistory);
         });
     }
 
@@ -100,14 +96,6 @@ class PopularityStore
         return array_slice($pages, 0, $limit, true);
     }
 
-    public function getRecentVisitors(int $limit = 20): array
-    {
-        $data = $this->read();
-        $visitors = $data['visitors'] ?? [];
-        arsort($visitors);
-        return array_slice($visitors, 0, $limit, true);
-    }
-
     public function flush(): void
     {
         $this->withLock(fn() => $this->emptyData());
@@ -123,7 +111,6 @@ class PopularityStore
         array $data,
         int $dailyHistory,
         int $monthlyHistory,
-        int $visitorHistory,
     ): array {
         $cutDay = date('Y-m-d', strtotime("-{$dailyHistory} days"));
         $data['daily'] = array_filter(
@@ -146,12 +133,10 @@ class PopularityStore
         }
         $data['pages'] = $pages;
 
-        $visitors = $data['visitors'] ?? [];
-        if (count($visitors) > $visitorHistory) {
-            arsort($visitors);
-            $visitors = array_slice($visitors, 0, $visitorHistory, true);
-        }
-        $data['visitors'] = $visitors;
+        // Earlier versions also kept a map of hashed visitor IPs that nothing
+        // ever read (getgrav/grav-plugin-api#44). Drop it on the next write so
+        // no per-visitor data stays on disk.
+        unset($data['visitors']);
 
         return $data;
     }
@@ -251,6 +236,12 @@ class PopularityStore
             if (!is_file($path)) {
                 continue;
             }
+            // Admin-classic's visitor map is plain sha1(ip), which a lookup
+            // table reverses, and nothing reads it. Remove it, don't import it.
+            if ($type === 'visitors') {
+                @unlink($path);
+                continue;
+            }
 
             $raw = @file_get_contents($path);
             $legacy = $raw === false ? null : json_decode($raw, true);
@@ -279,11 +270,6 @@ class PopularityStore
                 case 'totals':
                     foreach ($legacy as $route => $count) {
                         $data['pages'][(string) $route] = (int) $count;
-                    }
-                    break;
-                case 'visitors':
-                    foreach ($legacy as $hash => $ts) {
-                        $data['visitors'][(string) $hash] = (int) $ts;
                     }
                     break;
             }
@@ -317,7 +303,6 @@ class PopularityStore
             'daily' => [],
             'monthly' => [],
             'pages' => [],
-            'visitors' => [],
         ];
     }
 

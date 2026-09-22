@@ -6,7 +6,8 @@ namespace Grav\Plugin\Api\Popularity;
 
 use Grav\Common\Config\Config;
 use Grav\Common\Grav;
-use Grav\Common\Yaml;
+use Grav\Common\User\Interfaces\UserInterface;
+use Grav\Plugin\Api\PermissionResolver;
 
 /**
  * Records page views into PopularityStore. Mirrors the behaviour of
@@ -49,6 +50,20 @@ class PopularityTracker
         'php/',
     ];
 
+    /**
+     * Marker cookie that keeps a browser's own page views out of the stats.
+     *
+     * Admin2 signs in with a JWT held by the SPA, and the API deliberately
+     * leaves the shared front-end session untouched on login, so a front-end
+     * page view from an admin2-only admin arrives as a guest. The API sets this
+     * cookie on the admin's authenticated calls and clears it on logout, which
+     * is how the tracker recognises that browser (getgrav/grav-plugin-api#45).
+     *
+     * It is a hint, not a credential: it grants nothing and only opts the
+     * browser out of counting, the same as Do Not Track, so it is not signed.
+     */
+    public const EXCLUDE_COOKIE = 'grav-popularity-exclude';
+
     private Config $config;
     private PopularityStore $store;
 
@@ -89,9 +104,7 @@ class PopularityTracker
         // Skip views from logged-in admins so an author's own testing and
         // demo visits don't skew the real-visitor numbers. On by default.
         if ($this->config->get('plugins.api.popularity.exclude_admin', true)
-            && isset($grav['user'])
-            && $grav['user']->authenticated
-            && $grav['user']->authorize('admin.login')) {
+            && (!empty($_COOKIE[self::EXCLUDE_COOKIE]) || self::isAdminUser($grav['user'] ?? null))) {
             return;
         }
 
@@ -130,24 +143,14 @@ class PopularityTracker
         }
 
         try {
-            // Keyed HMAC over the visitor IP with a server-private salt.
-            // GDPR Recital 26 / Art. 4(1): plain sha1(ip) is reversible via
-            // a precomputed rainbow table of the ~4.3B IPv4 space (trivial
-            // on a modern GPU), so the hash remains personal data. Keying
-            // with a per-install secret the attacker can't compute against
-            // breaks that re-identification path while preserving stable
-            // bucketing for the unique-visitor counter.
-            $ipHash = hash_hmac('sha256', $ip, $this->getSalt());
             // Pruning happens inside recordHit() under the same lock — every
             // write trims to the configured retention window, so the file
             // can never grow beyond bounded size between hits.
             $this->store->recordHit(
                 $route,
-                $ipHash,
                 null,
                 (int) $this->config->get('plugins.api.popularity.history.daily', 30),
                 (int) $this->config->get('plugins.api.popularity.history.monthly', 12),
-                (int) $this->config->get('plugins.api.popularity.history.visitors', 20),
             );
         } catch (\Throwable) {
             // Tracking must never break the page response — swallow.
@@ -247,59 +250,49 @@ class PopularityTracker
     }
 
     /**
-     * Read the popularity HMAC salt from config, auto-generating + persisting
-     * one on first use. The salt MUST stay stable across requests so the
-     * unique-visitor bucket for a given IP stays the same; regenerating per
-     * request would balloon the visitors map with duplicate entries.
-     *
-     * Stored under plugins.api.popularity.salt in user/config/plugins/api.yaml.
-     * Never shipped with a default — a committed salt would be globally known
-     * and defeat the keyed-hash protection entirely.
+     * Whether a user counts as an admin for `exclude_admin`: an Admin2 account
+     * (`api.access`, or `api.super` granted on its own) or a classic admin
+     * (`admin.login`). All three go through the API's PermissionResolver, the
+     * same lookup the API gates on, so a grant from one of the user's groups
+     * counts. A front-end user must also be fully signed in (past 2FA).
      */
-    private function getSalt(): string
+    public static function isAdminUser(?UserInterface $user): bool
     {
-        $salt = (string) $this->config->get('plugins.api.popularity.salt', '');
-        if ($salt !== '') {
-            return $salt;
+        if ($user === null || !$user->get('authenticated') || !$user->get('authorized', true)) {
+            return false;
+        }
+        if ($user->get('state', 'enabled') !== 'enabled') {
+            return false;
         }
 
-        $salt = bin2hex(random_bytes(32));
-        $this->config->set('plugins.api.popularity.salt', $salt);
+        $resolver = new PermissionResolver();
 
-        // Persist so subsequent requests reuse the same salt. If we can't
-        // write the file (perms, missing config stream), fall through with
-        // the in-memory salt — tracking still works for this request and we
-        // retry on the next hit.
+        return $resolver->resolve($user, 'api.access') === true
+            || $resolver->resolveExact($user, 'api.super') === true
+            || $resolver->resolve($user, 'admin.login') === true;
+    }
+
+    /**
+     * Set or clear the EXCLUDE_COOKIE marker for this browser. Scoped to the
+     * site root so it reaches every front-end page, HttpOnly since nothing
+     * client-side needs it, and it lives as long as an Admin2 sign-in can
+     * (the refresh-token lifetime); any later authenticated call sets it again.
+     */
+    public static function sendExcludeCookie(bool $exclude): void
+    {
+        if (headers_sent()) {
+            return;
+        }
+
         $grav = Grav::instance();
-        $locator = $grav['locator'];
-        $file = $locator->findResource('config://plugins/api.yaml');
-        if (!$file) {
-            $configDir = $locator->findResource('config://', true);
-            if (!$configDir) {
-                if (isset($grav['log'])) {
-                    $grav['log']->warning('api.popularity: could not resolve config:// stream to persist popularity salt; visitor counts may double until salt is configured.');
-                }
-                return $salt;
-            }
-            $file = $configDir . '/plugins/api.yaml';
-        }
+        $lifetime = (int) $grav['config']->get('plugins.api.auth.jwt_refresh_expiry', 604800);
 
-        $dir = dirname($file);
-        if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
-            if (isset($grav['log'])) {
-                $grav['log']->warning(sprintf('api.popularity: could not create %s to persist popularity salt.', $dir));
-            }
-            return $salt;
-        }
-
-        $yaml = Yaml::parse(file_exists($file) ? (string) file_get_contents($file) : '') ?? [];
-        $yaml['popularity']['salt'] = $salt;
-        if (@file_put_contents($file, Yaml::dump($yaml)) === false) {
-            if (isset($grav['log'])) {
-                $grav['log']->warning(sprintf('api.popularity: could not write popularity salt to %s — visitor counts may double until next successful write.', $file));
-            }
-        }
-
-        return $salt;
+        setcookie(self::EXCLUDE_COOKIE, $exclude ? '1' : '', [
+            'expires' => $exclude ? time() + $lifetime : 1,
+            'path' => $grav['uri']->rootUrl(false) ?: '/',
+            'secure' => $grav['uri']->scheme(true) === 'https',
+            'httponly' => true,
+            'samesite' => 'Lax',
+        ]);
     }
 }

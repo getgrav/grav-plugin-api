@@ -54,7 +54,7 @@ curl https://yoursite.com/api/v1/pages \
 
 ## Environments
 
-Grav supports multiple environments (e.g., `localhost`, `staging.mysite.com`, `mysite.com`) with per-environment config overrides stored in `user/env/{environment}/config/`. The API respects this system via the optional `X-Grav-Environment` header.
+Grav supports multiple environments (e.g., `localhost`, `staging.mysite.com`, `mysite.com`) with per-environment config overrides. The default location is `user/env/{environment}/config/`, but Grav can replace it with `GRAV_ENVIRONMENTS_PATH`, `GRAV_ENVIRONMENT_PATH`, or a custom `environment://` stream. The API follows Grav's resolved stream instead of reconstructing the default path. The optional `X-Grav-Environment` header selects the environment Grav loads for the request.
 
 ```bash
 # Explicitly target an environment
@@ -69,7 +69,7 @@ If the header is omitted, the API defaults to Grav's auto-detected environment (
 curl -H "X-API-Key: ..." https://yoursite.com/api/v1/system/environments
 ```
 
-Returns the current environment and all environment-specific overrides found in `user/env/`:
+Returns the current environment and all existing environment-specific overrides discovered through Grav's configured environment paths:
 
 ```json
 {
@@ -316,10 +316,10 @@ curl -X PATCH https://yoursite.com/api/v1/config/plugins/markdown \
 
 **Differential saves.** Config writes persist only the delta against the relevant parent yaml — `system / site / media / security / scheduler / backups` diff against `system/config/<scope>.yaml` (Grav core defaults), `plugins/<name>` diffs against `user/plugins/<name>/<name>.yaml`, and `themes/<name>` diffs against `user/themes/<name>/<name>.yaml`. Defaults come from the raw yaml on disk (not from blueprints, which describe the form and routinely diverge from runtime). Sequential arrays like `languages.supported` are treated atomically — any difference retains the whole new list, avoiding the classic admin-classic bug where shortening a list silently re-merged removed entries.
 
-**Targeting an environment for writes.** The optional `X-Config-Environment` header points writes at an existing env folder under `user/env/<name>/config/`; an empty/missing value writes to base `user/config/`. Env folders are **never** created implicitly — clients must opt in via `POST /system/environments`. A non-empty header that doesn't match an existing folder returns a clear `400`.
+**Targeting an environment for writes.** The optional `X-Config-Environment` header points writes at an existing environment resolved by Grav. For the environment currently loaded by Grav, this is the official `environment://config` stream and therefore also honors `GRAV_ENVIRONMENT_PATH` and `setup.php` stream overrides. For another named environment, Grav's configured common `GRAV_ENVIRONMENTS_PATH` is used when present; the standard `user/env/<name>/config/` and legacy `user/<name>/config/` layouts remain supported. An empty/missing value writes to base `user/config/`. Environment folders are **never** created implicitly — clients must opt in via `POST /system/environments`. A non-empty header that doesn't match an existing configured folder returns a clear `400`.
 
 ```bash
-# Write only to the staging environment overrides
+# Write only to the existing staging environment overrides
 curl -X PATCH https://yoursite.com/api/v1/config/system \
   -H "X-API-Key: ..." \
   -H "X-Config-Environment: staging.example.com" \
@@ -327,7 +327,7 @@ curl -X PATCH https://yoursite.com/api/v1/config/system \
   -d '{"languages": {"default_lang": "fr"}}'
 ```
 
-> `X-Config-Environment` is a **write-target** header (which env folder receives the change). It is distinct from `X-Grav-Environment` (which env to *load* for the request).
+> `X-Config-Environment` is a **write-target** header (which existing environment receives the change). It is distinct from `X-Grav-Environment` (which environment Grav loads for the request). Grav's `environment://` stream is authoritative for the loaded environment; the API never derives an unrelated target from the request host and never creates a target during `PATCH` or `revert`.
 
 **Override metadata.** Every `GET`/`PATCH` config response carries a `meta` block describing which leaf keys the active layer's file actually overrides, and the value each would revert to:
 
@@ -392,8 +392,8 @@ A scope qualifies as custom when it is a flat slug (`^[a-z0-9][a-z0-9_-]*$` — 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/ping` | Keep-alive / health check |
-| `GET` | `/system/environments` | List available environments (current host + `user/env/*` + legacy 1.6 layouts) |
-| `POST` | `/system/environments` | Create a new env folder under `user/env/<name>/config/` |
+| `GET` | `/system/environments` | List available environments (current Grav environment stream + configured common path + legacy 1.6 layouts) |
+| `POST` | `/system/environments` | Create a new environment config folder at Grav's configured environment path |
 | `GET` | `/system/info` | System information |
 | `DELETE` | `/cache` | Clear cache |
 | `GET` | `/system/logs` | Read logs |
@@ -803,10 +803,11 @@ rate_limit:
   requests: 120
   window: 60
   excluded_paths:
-    - /sync/   # default — exempt collab endpoints from the per-user bucket
+    - /sync/         # default — exempt collab endpoints from the per-user bucket
+    - /thumbnails/   # default — exempt media thumbnail images
 ```
 
-`excluded_paths` exempts matching path prefixes (matched from the start of the route path) from the bucket entirely. The only default is `/sync/`: an editor in a shared editing session polls it about 90 times a minute, which would use up the limit on its own. Nothing else is exempt, including the plugin scripts Admin2 loads. Auth and per-route permissions still apply, so the bypass is gated by normal authentication rather than being a free pass.
+`excluded_paths` exempts matching path prefixes (matched from the start of the route path) from the bucket entirely. There are two defaults. `/sync/`: an editor in a shared editing session polls it about 90 times a minute, which would use up the limit on its own. `/thumbnails/`: every tile in a media folder is its own image request, so scrolling a large folder would run the budget dry and leave blank tiles; that route only serves thumbnails an authenticated listing already generated, and it is cached for a year. Nothing else is exempt, including the plugin scripts Admin2 loads. Auth and per-route permissions still apply, so the bypass is gated by normal authentication rather than being a free pass.
 
 ## CORS
 

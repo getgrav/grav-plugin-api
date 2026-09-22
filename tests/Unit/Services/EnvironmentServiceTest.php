@@ -16,6 +16,7 @@ class EnvironmentServiceTest extends TestCase
 {
     private ?string $tmp = null;
     private ?string $savedSetupEnv = null;
+    private string|false $savedEnvironmentsPath = false;
 
     protected function setUp(): void
     {
@@ -27,11 +28,18 @@ class EnvironmentServiceTest extends TestCase
         // booted-env tests set it explicitly. Restore the global afterwards.
         $this->savedSetupEnv = Setup::$environment;
         Setup::$environment = null;
+        $this->savedEnvironmentsPath = getenv('GRAV_ENVIRONMENTS_PATH');
+        putenv('GRAV_ENVIRONMENTS_PATH');
     }
 
     protected function tearDown(): void
     {
         Setup::$environment = $this->savedSetupEnv;
+        if ($this->savedEnvironmentsPath === false) {
+            putenv('GRAV_ENVIRONMENTS_PATH');
+        } else {
+            putenv('GRAV_ENVIRONMENTS_PATH=' . $this->savedEnvironmentsPath);
+        }
         if ($this->tmp !== null) {
             $this->rrmdir($this->tmp);
             $this->tmp = null;
@@ -90,6 +98,90 @@ class EnvironmentServiceTest extends TestCase
         $svc = $this->buildService(uri: $this->fakeUri('staging'));
 
         $this->assertSame('staging', $svc->activeEnvironment());
+    }
+
+    #[Test]
+    public function active_environment_uses_the_environment_stream_for_a_custom_path(): void
+    {
+        $customRoot = $this->tmp . '/custom-environments/development';
+        mkdir($customRoot . '/config', 0777, true);
+        Setup::$environment = 'development';
+        $svc = $this->buildService(
+            uri: $this->fakeUri('development'),
+            environmentRoot: $customRoot,
+        );
+
+        $this->assertSame($customRoot . '/config', $svc->envConfigRoot('development'));
+        $this->assertSame('development', $svc->activeEnvironment());
+    }
+
+    #[Test]
+    public function environment_stream_pointing_at_base_config_is_not_an_environment(): void
+    {
+        Setup::$environment = 'development';
+        $svc = $this->buildService(uri: $this->fakeUri('development'), environmentRoot: $this->tmp . '/user');
+
+        $this->assertNull($svc->envConfigRoot('development'));
+        $this->assertNull($svc->activeEnvironment());
+    }
+
+    #[Test]
+    public function named_environment_uses_gravs_configured_common_environment_path(): void
+    {
+        $customRoot = $this->tmp . '/custom-environments';
+        mkdir($customRoot . '/staging/config', 0777, true);
+        putenv('GRAV_ENVIRONMENTS_PATH=user://custom-environments');
+        Setup::$environment = 'production';
+        $svc = $this->buildService(
+            uri: $this->fakeUri('production'),
+            environmentsRoot: $customRoot,
+        );
+
+        // The active production stream is not reused for staging: the named
+        // target is resolved below the configured common root instead.
+        $this->assertSame($customRoot . DIRECTORY_SEPARATOR . 'staging' . DIRECTORY_SEPARATOR . 'config', $svc->envConfigRoot('staging'));
+    }
+
+    #[Test]
+    public function missing_custom_environment_is_not_created_during_resolution(): void
+    {
+        $customRoot = $this->tmp . '/custom-environments';
+        mkdir($customRoot, 0777, true);
+        putenv('GRAV_ENVIRONMENTS_PATH=user://custom-environments');
+        $svc = $this->buildService(uri: $this->fakeUri('staging'), environmentsRoot: $customRoot);
+
+        $this->assertNull($svc->envConfigRoot('staging'));
+        $this->assertDirectoryDoesNotExist($customRoot . '/staging');
+    }
+
+    #[Test]
+    public function explicit_environment_creation_uses_the_configured_common_path(): void
+    {
+        $customRoot = $this->tmp . '/custom-environments';
+        mkdir($customRoot, 0777, true);
+        putenv('GRAV_ENVIRONMENTS_PATH=user://custom-environments');
+        $svc = $this->buildService(uri: null, environmentsRoot: $customRoot);
+
+        $dir = $svc->createEnvironment('staging');
+
+        $normalize = static fn(string $path): string => str_replace('\\', '/', $path);
+        $this->assertSame($normalize($customRoot . '/staging/config'), $normalize($dir));
+        $this->assertDirectoryExists($dir);
+    }
+
+    #[Test]
+    public function explicit_environment_deletion_uses_the_configured_common_path(): void
+    {
+        $customRoot = $this->tmp . '/custom-environments';
+        mkdir($customRoot . '/staging/config', 0777, true);
+        mkdir($customRoot . '/production/config', 0777, true);
+        putenv('GRAV_ENVIRONMENTS_PATH=user://custom-environments');
+        $svc = $this->buildService(uri: $this->fakeUri('localhost'), environmentsRoot: $customRoot);
+
+        $svc->deleteEnvironment('staging');
+
+        $this->assertDirectoryDoesNotExist($customRoot . '/staging');
+        $this->assertDirectoryExists($customRoot . '/production/config');
     }
 
     #[Test]
@@ -172,11 +264,15 @@ class EnvironmentServiceTest extends TestCase
         $this->assertDirectoryExists($dir);
     }
 
-    private function buildService(mixed $uri): EnvironmentService
+    private function buildService(
+        mixed $uri,
+        ?string $environmentRoot = null,
+        ?string $environmentsRoot = null,
+    ): EnvironmentService
     {
         Grav::resetInstance();
         $grav = Grav::instance();
-        $grav['locator'] = new EnvSvcFakeLocator($this->tmp);
+        $grav['locator'] = new EnvSvcFakeLocator($this->tmp, $environmentRoot, $environmentsRoot);
         if ($uri !== null) {
             $grav['uri'] = $uri;
         }
@@ -211,12 +307,25 @@ class EnvironmentServiceTest extends TestCase
  */
 class EnvSvcFakeLocator
 {
-    public function __construct(private readonly string $root) {}
+    public function __construct(
+        private readonly string $root,
+        private readonly ?string $environmentRoot = null,
+        private readonly ?string $environmentsRoot = null,
+    ) {}
 
     public function findResource(string $uri, bool $absolute = true, bool $first = false): string|false
     {
         if ($uri === 'user://') {
             return is_dir($this->root . '/user') ? $this->root . '/user' : false;
+        }
+        if ($uri === 'environment://config' && $this->environmentRoot !== null) {
+            $path = $this->environmentRoot . '/config';
+            return is_dir($path) ? $path : false;
+        }
+        if ($this->environmentsRoot !== null && str_starts_with($uri, 'user://custom-environments')) {
+            $suffix = substr($uri, strlen('user://custom-environments'));
+            $path = $this->environmentsRoot . str_replace('/', DIRECTORY_SEPARATOR, $suffix);
+            return (file_exists($path) || $first) ? $path : false;
         }
         return false;
     }

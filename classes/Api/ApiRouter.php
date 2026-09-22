@@ -11,6 +11,7 @@ use Grav\Common\Grav;
 use Grav\Common\Processors\ProcessorBase;
 use Grav\Framework\Psr7\Response;
 use Grav\Plugin\Api\Audit\AuditContext;
+use Grav\Plugin\Api\Popularity\PopularityTracker;
 use Grav\Plugin\Api\Controllers\AuditController;
 use Grav\Plugin\Api\Controllers\AuthController;
 use Grav\Plugin\Api\Controllers\CaptchaController;
@@ -283,6 +284,17 @@ class ApiRouter extends ProcessorBase
             // or not auditing is enabled; it's a few array writes, so the
             // context is ready the moment a controller fires an audited event.
             AuditContext::capture($request, $user);
+
+            // Admin2 signs in with a JWT, never the front-end session, so the
+            // admin's own front-end page views reach the popularity tracker as
+            // a guest. Mark the browser instead (getgrav/grav-plugin-api#45).
+            if ($user
+                && $request->getAttribute('api_auth_method') === 'jwt'
+                && empty($_COOKIE[PopularityTracker::EXCLUDE_COOKIE])
+                && $this->config->get('plugins.api.popularity.exclude_admin', true)
+                && PopularityTracker::isAdminUser($user)) {
+                PopularityTracker::sendExcludeCookie(true);
+            }
 
             // Release the PHP session lock for read-only requests. Grav core
             // starts and EXCLUSIVELY locks the session during boot on every

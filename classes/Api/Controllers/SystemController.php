@@ -36,8 +36,9 @@ class SystemController extends AbstractApiController
      *   }
      *
      * `name: ""` represents the base user/config target. Any other entry is an
-     * existing user/env/<name>/ folder that can be selected as a write target.
-     * Legacy user/<host>/config/ layouts (Grav 1.6 fallback) are included too.
+     * existing environment resolved by Grav's environment:// stream or its
+     * configured common environment path. Legacy user/<host>/config/ layouts
+     * (Grav 1.6 fallback) are included too.
      */
     public function environments(ServerRequestInterface $request): ResponseInterface
     {
@@ -70,7 +71,8 @@ class SystemController extends AbstractApiController
      * POST /system/environments — create a new env folder.
      *
      * Body: { "name": "staging.foo.com" }
-     * Creates user/env/<name>/config/ (and user/env/ if missing).
+     * Creates the configured environment's config/ directory (or the standard
+     * user/env/<name>/config/ path when no common path is configured).
      */
     public function createEnvironment(ServerRequestInterface $request): ResponseInterface
     {
@@ -95,7 +97,7 @@ class SystemController extends AbstractApiController
     }
 
     /**
-     * DELETE /system/environments/{name} — remove a user/env/<name>/ folder.
+     * DELETE /system/environments/{name} — remove an environment folder.
      *
      * Refuses to delete the env that Grav resolved for the current request, and
      * refuses to act on legacy user/<name>/ layouts. See EnvironmentService for
