@@ -52,12 +52,18 @@ class RateLimitMiddleware
     /**
      * Whether this request skips the per-user bucket.
      *
-     * Only `plugins.api.rate_limit.excluded_paths` exempts anything, and its sole
-     * default is `/sync/`: an editor in a shared session polls it every second
-     * plus presence and page-saved checks, roughly 90 requests a minute, which
-     * would use up the 120 budget on its own. Nothing else gets a pass; the
-     * plugin scripts admin2 loads are a handful per page, cached with an ETag,
-     * and the client backs off on a 429.
+     * Only `plugins.api.rate_limit.excluded_paths` exempts anything. Its
+     * defaults are `/sync/`, because an editor in a shared session polls it
+     * every second plus presence and page-saved checks, roughly 90 requests a
+     * minute, which would use up the 120 budget on its own; and `/thumbnails/`,
+     * because every tile in a media folder is its own `<img>` request, so
+     * scrolling a few hundred files runs the budget dry and leaves blank tiles
+     * (admin2#178). That route is already public, only reads thumbnails the
+     * authenticated listing generated (a miss is a 404, never a resize), and is
+     * served with a year-long immutable cache, so a request there costs no more
+     * than an ordinary front-end page view, which is not rate limited either.
+     * Nothing else gets a pass; the plugin scripts admin2 loads are a handful
+     * per page, cached with an ETag, and the client backs off on a 429.
      *
      * Entries are path prefixes, matched against the route path after the API
      * base (`/sync/`) or the full request path (`/api/v1/sync/`). They used to be
@@ -69,7 +75,7 @@ class RateLimitMiddleware
         $path = $request->getUri()->getPath();
         $routePath = $this->apiRoutePath($path);
 
-        $excluded = (array) $this->config->get('plugins.api.rate_limit.excluded_paths', ['/sync/']);
+        $excluded = (array) $this->config->get('plugins.api.rate_limit.excluded_paths', ['/sync/', '/thumbnails/']);
         foreach ($excluded as $prefix) {
             if (!is_string($prefix) || $prefix === '') {
                 continue;

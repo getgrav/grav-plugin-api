@@ -803,10 +803,11 @@ rate_limit:
   requests: 120
   window: 60
   excluded_paths:
-    - /sync/   # default — exempt collab endpoints from the per-user bucket
+    - /sync/         # default — exempt collab endpoints from the per-user bucket
+    - /thumbnails/   # default — exempt media thumbnail images
 ```
 
-`excluded_paths` exempts matching path prefixes (matched from the start of the route path) from the bucket entirely. The only default is `/sync/`: an editor in a shared editing session polls it about 90 times a minute, which would use up the limit on its own. Nothing else is exempt, including the plugin scripts Admin2 loads. Auth and per-route permissions still apply, so the bypass is gated by normal authentication rather than being a free pass.
+`excluded_paths` exempts matching path prefixes (matched from the start of the route path) from the bucket entirely. There are two defaults. `/sync/`: an editor in a shared editing session polls it about 90 times a minute, which would use up the limit on its own. `/thumbnails/`: every tile in a media folder is its own image request, so scrolling a large folder would run the budget dry and leave blank tiles; that route only serves thumbnails an authenticated listing already generated, and it is cached for a year. Nothing else is exempt, including the plugin scripts Admin2 loads. Auth and per-route permissions still apply, so the bypass is gated by normal authentication rather than being a free pass.
 
 ## CORS
 
