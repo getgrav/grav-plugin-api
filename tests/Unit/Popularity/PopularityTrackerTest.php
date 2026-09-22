@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Grav\Plugin\Api\Tests\Unit\Popularity;
 
+use Grav\Common\Config\Config;
 use Grav\Plugin\Api\Popularity\PopularityTracker;
+use Grav\Plugin\Api\Tests\Unit\TestHelper;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
@@ -86,5 +88,49 @@ class PopularityTrackerTest extends TestCase
     public function it_matches_user_agents_against_exclusion_patterns(string $agent, array $patterns, bool $expected): void
     {
         $this->assertSame($expected, PopularityTracker::agentMatches($agent, $patterns));
+    }
+
+    /**
+     * @return array<string, array{0: array<string, mixed>, 1: bool}>
+     */
+    public static function adminCases(): array
+    {
+        $signedIn = ['authenticated' => true, 'authorized' => true];
+
+        return [
+            'admin2 api.access'          => [$signedIn + ['access' => ['api' => ['access' => true]]], true],
+            'admin2 api.super alone'     => [$signedIn + ['access' => ['api' => ['super' => true]]], true],
+            'blanket api grant'          => [$signedIn + ['access' => ['api' => true]], true],
+            'classic admin.login'        => [$signedIn + ['access' => ['admin' => ['login' => true]]], true],
+            'admin2 via group'           => [$signedIn + ['groups' => ['staff']], true],
+            'site member only'           => [$signedIn + ['access' => ['site' => ['login' => true]]], false],
+            'api.access revoked'         => [$signedIn + ['access' => ['api' => ['access' => false]]], false],
+            'not signed in'              => [['access' => ['api' => ['access' => true]]], false],
+            'mid 2FA'                    => [['authenticated' => true, 'authorized' => false, 'access' => ['api' => ['access' => true]]], false],
+            'disabled account'           => [$signedIn + ['state' => 'disabled', 'access' => ['api' => ['access' => true]]], false],
+        ];
+    }
+
+    /**
+     * An Admin2-only account holds api.* permissions and never admin.login,
+     * so exclude_admin has to recognise both (getgrav/grav-plugin-api#45).
+     *
+     * @param array<string, mixed> $data
+     */
+    #[Test]
+    #[DataProvider('adminCases')]
+    public function it_recognises_admin2_and_classic_admins(array $data, bool $expected): void
+    {
+        TestHelper::createMockGrav([
+            'config' => new Config(['groups' => ['staff' => ['access' => ['api' => ['access' => true]]]]]),
+        ]);
+
+        $this->assertSame($expected, PopularityTracker::isAdminUser(TestHelper::createMockUser('someone', $data)));
+    }
+
+    #[Test]
+    public function a_guest_is_never_an_admin(): void
+    {
+        $this->assertFalse(PopularityTracker::isAdminUser(null));
     }
 }

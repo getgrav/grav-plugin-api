@@ -175,7 +175,6 @@ popularity:
   history:
     daily: 30
     monthly: 12
-    visitors: 20
   ignore:
     - '/test*'
     - '/modular'

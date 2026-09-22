@@ -12,6 +12,7 @@ use Grav\Plugin\Api\Exceptions\ForbiddenException;
 use Grav\Plugin\Api\Exceptions\TooManyRequestsException;
 use Grav\Plugin\Api\Exceptions\UnauthorizedException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
+use Grav\Plugin\Api\Popularity\PopularityTracker;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Grav\Plugin\Api\Services\PasswordPolicyService;
 use Grav\Plugin\Login\Login;
@@ -241,6 +242,9 @@ class AuthController extends AbstractApiController
         if ($accessToken !== null) {
             $jwt->revokeToken($accessToken);
         }
+
+        // Count this browser's front-end page views again (see ApiRouter).
+        PopularityTracker::sendExcludeCookie(false);
 
         if ($user !== null) {
             $this->fireEvent('onApiUserLogout', [
