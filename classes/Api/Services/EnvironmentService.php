@@ -40,85 +40,62 @@ class EnvironmentService
     /**
      * Absolute path to an env's config dir, or null if it doesn't exist.
      *
-     * The environment:// stream is authoritative for the environment Grav
-     * booted under. This is important for GRAV_ENVIRONMENT_PATH and setup.php
-     * stream overrides, where reconstructing user/env/<name> would point at a
-     * different directory. For a non-active named target, only the explicit
-     * common GRAV_ENVIRONMENTS_PATH is used before the historical fallbacks.
+     * For the environment Grav booted under, the environment:// stream wins, so
+     * GRAV_ENVIRONMENT_PATH and setup.php overrides are honored. Any other name
+     * is looked up the way Grav's Setup would find it: GRAV_ENVIRONMENTS_PATH,
+     * then user/env/<name>, then the legacy user/<name> layout.
      */
     public function envConfigRoot(string $name): ?string
     {
         if (!self::isValidName($name)) return null;
 
-        $current = $this->currentEnvironmentName();
-        if ($current !== null && $current === $name) {
-            $streamRoot = $this->environmentStreamConfigRoot();
-            if ($streamRoot !== null) {
-                return $streamRoot;
-            }
+        $candidates = [];
+        if ($name === $this->currentEnvironmentName()) {
+            $candidates[] = $this->activeStreamConfigRoot();
         }
-
-        $configuredRoot = $this->configuredEnvironmentConfigRoot($name);
-        if ($configuredRoot !== null) {
-            return $configuredRoot;
-        }
-
         $userRoot = $this->userRoot();
-        if ($userRoot === null) return null;
+        foreach ([$this->environmentsRoot(), $userRoot ? $userRoot . '/env' : null, $userRoot] as $root) {
+            if ($root !== null) $candidates[] = $root . '/' . $name . '/config';
+        }
 
-        foreach ([
-            $userRoot . '/env/' . $name . '/config',
-            $userRoot . '/' . $name . '/config',
-        ] as $dir) {
-            if (is_dir($dir)) return $dir;
+        foreach ($candidates as $dir) {
+            if (is_string($dir) && is_dir($dir)) return $dir;
         }
         return null;
     }
 
     /**
-     * List existing env folder names — user/env/* plus legacy user/<host>/
-     * that have a config/ subdir. Sorted, case-insensitive natural order.
+     * List existing env folder names: GRAV_ENVIRONMENTS_PATH/* and user/env/*,
+     * the booted env when its stream resolves, plus legacy user/<host>/ that
+     * have a config/ subdir. Sorted, case-insensitive natural order.
      *
      * @return string[]
      */
     public function listEnvironments(): array
     {
         $names = [];
-        $userRoot = $this->userRoot();
-
-        // A custom common environment root is part of Grav's public setup
-        // contract. Include it in discovery without assuming it lives under
-        // user/env/.
-        $configuredRoot = $this->configuredEnvironmentsRoot();
-        if ($configuredRoot !== null) {
-            $this->appendEnvironmentDirectories($names, $configuredRoot);
-        }
-
         $current = $this->currentEnvironmentName();
-        if ($current !== null && $this->environmentStreamConfigRoot() !== null) {
+        if ($current !== null && $this->activeStreamConfigRoot() !== null) {
             $names[$current] = true;
         }
 
-        if ($userRoot === null) {
-            $names = array_keys($names);
-            sort($names, SORT_NATURAL | SORT_FLAG_CASE);
-            return $names;
-        }
-
-        $envDir = $userRoot . '/env';
-        if (is_dir($envDir)) {
-            foreach (new \DirectoryIterator($envDir) as $item) {
-                if ($item->isDot() || !$item->isDir()) continue;
+        $userRoot = $this->userRoot();
+        foreach ([$this->environmentsRoot(), $userRoot ? $userRoot . '/env' : null] as $root) {
+            if ($root === null || !is_dir($root)) continue;
+            foreach (new \DirectoryIterator($root) as $item) {
+                if ($item->isDot() || !$item->isDir() || !self::isValidName($item->getFilename())) continue;
                 $names[$item->getFilename()] = true;
             }
         }
 
-        foreach (new \DirectoryIterator($userRoot) as $item) {
-            if ($item->isDot() || !$item->isDir()) continue;
-            $n = $item->getFilename();
-            if (in_array($n, self::RESERVED_USER_DIRS, true) || str_starts_with($n, '.')) continue;
-            if (is_dir($item->getPathname() . '/config')) {
-                $names[$n] = true;
+        if ($userRoot !== null) {
+            foreach (new \DirectoryIterator($userRoot) as $item) {
+                if ($item->isDot() || !$item->isDir()) continue;
+                $n = $item->getFilename();
+                if (in_array($n, self::RESERVED_USER_DIRS, true) || str_starts_with($n, '.')) continue;
+                if (is_dir($item->getPathname() . '/config')) {
+                    $names[$n] = true;
+                }
             }
         }
 
@@ -224,7 +201,7 @@ class EnvironmentService
             throw new \RuntimeException('user:// path not resolvable.');
         }
 
-        $environmentsRoot = $this->configuredEnvironmentsRoot() ?? ($userRoot . '/env');
+        $environmentsRoot = $this->environmentsRoot() ?? ($userRoot . '/env');
         $configDir = $environmentsRoot . '/' . $name . '/config';
         if (!mkdir($configDir, 0775, true) && !is_dir($configDir)) {
             throw new \RuntimeException("Failed to create environment directory: {$configDir}");
@@ -270,7 +247,7 @@ class EnvironmentService
         }
 
         $environmentDir = dirname($configDir);
-        if ($this->samePath($environmentDir, $legacyDir)) {
+        if (realpath($environmentDir) === realpath($legacyDir)) {
             throw new \InvalidArgumentException(
                 "Environment '{$name}' uses the legacy user/{$name}/ layout. "
                 . "Remove it manually so unrelated files are not deleted."
@@ -284,7 +261,7 @@ class EnvironmentService
         // outside an authorized tree.
         $real = realpath($environmentDir);
         $allowedRoots = array_filter([
-            $this->configuredEnvironmentsRoot(),
+            $this->environmentsRoot(),
             $userRoot . '/env',
         ]);
         $withinAllowedRoot = false;
@@ -342,139 +319,46 @@ class EnvironmentService
         return $root !== false && is_string($root) ? $root : null;
     }
 
-    /**
-     * The environment name Grav booted with, falling back to the URI only
-     * when the core setup value is unavailable (notably in isolated tests).
-     */
+
+    /** The environment Grav booted with (the Uri only when that is unknown, e.g. in unit tests). */
     private function currentEnvironmentName(): ?string
     {
         return $this->bootedEnvironment() ?? $this->uriEnvironment();
     }
 
     /**
-     * Resolve the active environment through Grav's public stream API.
+     * environment://config for the booted env, or null when it resolves to
+     * nothing or to the base user/config (an override that points the stream
+     * at user:// must not turn base writes into "env" writes).
      */
-    private function environmentStreamConfigRoot(): ?string
+    private function activeStreamConfigRoot(): ?string
     {
-        $locator = $this->grav['locator'] ?? null;
-        if (!is_object($locator) || !method_exists($locator, 'findResource')) {
-            return null;
-        }
+        $path = $this->grav['locator']->findResource('environment://config', true);
+        if (!is_string($path) || !is_dir($path)) return null;
 
-        $path = $locator->findResource('environment://config', true);
-        return is_string($path) && is_dir($path) ? rtrim($path, '/\\') : null;
+        $userRoot = $this->userRoot();
+        if ($userRoot !== null && realpath($path) === realpath($userRoot . '/config')) return null;
+        return rtrim($path, '/\\');
     }
 
     /**
-     * Resolve a named environment below Grav's configured common environment
-     * path. The value is controlled by the server/setup configuration, while
-     * the environment name has already passed the API's strict validation.
+     * Grav's common environments folder (GRAV_ENVIRONMENTS_PATH), resolved the
+     * way Setup::__construct() does: constant first, then the server env; a
+     * stream through the locator, a relative path from GRAV_WEBROOT. Null when
+     * unset or missing on disk. Server config only, never request input.
      */
-    private function configuredEnvironmentConfigRoot(string $name): ?string
+    private function environmentsRoot(): ?string
     {
-        $base = $this->configuredEnvironmentsPath();
-        if ($base === null) {
-            return null;
-        }
+        $path = defined('GRAV_ENVIRONMENTS_PATH') ? GRAV_ENVIRONMENTS_PATH
+            : ($_SERVER['GRAV_ENVIRONMENTS_PATH'] ?? $_ENV['GRAV_ENVIRONMENTS_PATH'] ?? getenv('GRAV_ENVIRONMENTS_PATH'));
+        if (!is_string($path) || ($path = trim($path)) === '') return null;
 
-        if ($this->isStreamUri($base)) {
-            $path = $this->grav['locator']->findResource(
-                rtrim($base, '/\\') . '/' . $name . '/config',
-                true,
-            );
-        } else {
-            $path = rtrim($base, '/\\') . DIRECTORY_SEPARATOR . $name . DIRECTORY_SEPARATOR . 'config';
+        if (str_contains($path, '://')) {
+            $path = $this->grav['locator']->findResource(rtrim($path, '/'), true, true);
+        } elseif (!str_starts_with($path, '/') && !preg_match('/^[a-z]:[\\\\\/]/i', $path)) {
+            $path = (defined('GRAV_WEBROOT') ? GRAV_WEBROOT : GRAV_ROOT) . '/' . $path;
         }
 
         return is_string($path) && is_dir($path) ? rtrim($path, '/\\') : null;
-    }
-
-    /**
-     * Resolve the configured common environment root for discovery/creation.
-     */
-    private function configuredEnvironmentsRoot(): ?string
-    {
-        $base = $this->configuredEnvironmentsPath();
-        if ($base === null) {
-            return null;
-        }
-
-        if ($this->isStreamUri($base)) {
-            $path = $this->grav['locator']->findResource(rtrim($base, '/\\'), true, true);
-        } else {
-            $path = $base;
-        }
-
-        return is_string($path) && is_dir($path) ? rtrim($path, '/\\') : null;
-    }
-
-    /**
-     * Read the public Grav setting without hardcoding a repository-specific
-     * directory. Constants take precedence over process environment values,
-     * matching Grav's bootstrap behavior.
-     */
-    private function configuredEnvironmentsPath(): ?string
-    {
-        $path = defined('GRAV_ENVIRONMENTS_PATH')
-            ? GRAV_ENVIRONMENTS_PATH
-            : (getenv('GRAV_ENVIRONMENTS_PATH') ?: null);
-
-        if (!is_string($path) || trim($path) === '') {
-            return null;
-        }
-
-        if ($this->isStreamUri($path)) {
-            return trim($path);
-        }
-
-        if ($this->isAbsolutePath($path)) {
-            return rtrim($path, '/\\');
-        }
-
-        // Grav documents relative values as paths from the web root. Resolve
-        // them only below that root; never turn a user-supplied environment
-        // name into a filesystem path.
-        $root = defined('GRAV_ROOT')
-            ? GRAV_ROOT
-            : (defined('GRAV_WEBROOT') ? GRAV_WEBROOT : null);
-        if (!is_string($root) || $root === '') {
-            return null;
-        }
-
-        return rtrim($root, '/\\') . DIRECTORY_SEPARATOR . trim($path, '/\\');
-    }
-
-    private static function isStreamUri(string $path): bool
-    {
-        return (bool) preg_match('/^[a-z][a-z0-9+.-]*:\/\//i', $path);
-    }
-
-    private static function isAbsolutePath(string $path): bool
-    {
-        return str_starts_with($path, '/') || (bool) preg_match('/^[a-z]:[\\\\\/]/i', $path);
-    }
-
-    private static function samePath(string $left, string $right): bool
-    {
-        return rtrim(str_replace('\\', '/', $left), '/') === rtrim(str_replace('\\', '/', $right), '/');
-    }
-
-    /**
-     * @param array<string, bool> $names
-     */
-    private function appendEnvironmentDirectories(array &$names, string $root): void
-    {
-        if (!is_dir($root)) {
-            return;
-        }
-
-        foreach (new \DirectoryIterator($root) as $item) {
-            if ($item->isDot() || !$item->isDir() || !self::isValidName($item->getFilename())) {
-                continue;
-            }
-            if (is_dir($item->getPathname() . '/config')) {
-                $names[$item->getFilename()] = true;
-            }
-        }
     }
 }

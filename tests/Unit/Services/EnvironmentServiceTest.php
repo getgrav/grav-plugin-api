@@ -116,6 +116,16 @@ class EnvironmentServiceTest extends TestCase
     }
 
     #[Test]
+    public function environment_stream_pointing_at_base_config_is_not_an_environment(): void
+    {
+        Setup::$environment = 'development';
+        $svc = $this->buildService(uri: $this->fakeUri('development'), environmentRoot: $this->tmp . '/user');
+
+        $this->assertNull($svc->envConfigRoot('development'));
+        $this->assertNull($svc->activeEnvironment());
+    }
+
+    #[Test]
     public function named_environment_uses_gravs_configured_common_environment_path(): void
     {
         $customRoot = $this->tmp . '/custom-environments';

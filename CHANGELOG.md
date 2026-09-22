@@ -1,3 +1,9 @@
+# v1.0.39
+## 09/22/2026
+
+1. [](#bugfix)
+    * Configuration saves now go to the right environment folder on sites that keep their environments outside `user/env/` (`GRAV_ENVIRONMENT_PATH`, `GRAV_ENVIRONMENTS_PATH` or a custom `setup.php`).
+
 # v1.0.38
 ## 09/21/2026
 
@@ -62,7 +68,6 @@
 1. [](#bugfix)
     * The dashboard exposure probe now also tests `.json` files, the format most data in `user/data` is stored in.
     * The dashboard's "last backup" time no longer counts the exposure probe's test file as a backup. It only counts archives Grav's backup tool created.
-    * Configuration reads, patches and reverts now follow Grav's resolved `environment://` stream and configured environment paths, including `GRAV_ENVIRONMENT_PATH`, `GRAV_ENVIRONMENTS_PATH` and custom setup streams, instead of assuming every environment lives under `user/env/`.
 
 # v1.0.36
 ## 09/18/2026
