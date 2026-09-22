@@ -26,6 +26,7 @@ class ConfigDifferEffectiveTest extends TestCase
 {
     private ?string $tmp = null;
     private ConfigDiffer $differ;
+    private string|false $savedEnvironmentsPath = false;
 
     private const SCOPE = 'plugins/translation-service';
 
@@ -35,6 +36,8 @@ class ConfigDifferEffectiveTest extends TestCase
         mkdir($this->tmp . '/user/config/plugins', 0777, true);
         mkdir($this->tmp . '/user/plugins/translation-service', 0777, true);
         mkdir($this->tmp . '/user/env/localhost/config/plugins', 0777, true);
+        $this->savedEnvironmentsPath = getenv('GRAV_ENVIRONMENTS_PATH');
+        putenv('GRAV_ENVIRONMENTS_PATH');
 
         // Plugin's own defaults: kimi key empty by default.
         file_put_contents(
@@ -64,6 +67,11 @@ class ConfigDifferEffectiveTest extends TestCase
             $this->rrmdir($this->tmp);
             $this->tmp = null;
         }
+        if ($this->savedEnvironmentsPath === false) {
+            putenv('GRAV_ENVIRONMENTS_PATH');
+        } else {
+            putenv('GRAV_ENVIRONMENTS_PATH=' . $this->savedEnvironmentsPath);
+        }
         Grav::resetInstance();
     }
 
@@ -84,6 +92,20 @@ class ConfigDifferEffectiveTest extends TestCase
         $effective = $this->differ->effective(self::SCOPE, 'localhost');
 
         $this->assertSame('32433overlay', $effective['kimi']['api_key']);
+        $this->assertSame('kimi-k2.6', $effective['kimi']['model_bulk']);
+    }
+
+    #[Test]
+    public function env_target_reads_an_overlay_from_gravs_custom_environment_root(): void
+    {
+        $customFile = $this->tmp . '/user/custom-envs/staging/config/plugins/translation-service.yaml';
+        mkdir(dirname($customFile), 0777, true);
+        file_put_contents($customFile, "kimi:\n  api_key: 'custom-overlay'\n");
+        putenv('GRAV_ENVIRONMENTS_PATH=user://custom-envs');
+
+        $effective = $this->differ->effective(self::SCOPE, 'staging');
+
+        $this->assertSame('custom-overlay', $effective['kimi']['api_key']);
         $this->assertSame('kimi-k2.6', $effective['kimi']['model_bulk']);
     }
 
@@ -129,6 +151,7 @@ class EffectiveFakeLocator
         $map = [
             'user://'         => $this->root . '/user',
             'user://config'   => $this->root . '/user/config',
+            'user://custom-envs' => $this->root . '/user/custom-envs',
             'system://config' => $this->root . '/system/config',
             'plugins://'      => $this->root . '/user/plugins',
             'themes://'       => $this->root . '/user/themes',

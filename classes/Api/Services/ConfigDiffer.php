@@ -237,7 +237,8 @@ class ConfigDiffer
      * The effective merged config for $scope under $targetEnv, computed purely
      * from YAML files:
      *
-     *   defaults ⊕ user/config ⊕ user/env/<targetEnv>/config (when targetEnv set)
+     *   defaults ⊕ user/config ⊕ Grav's resolved environment config
+     *   (when targetEnv set)
      *
      * then with GRAV_CONFIG__* environment overrides re-applied so the result
      * matches what Grav resolves at runtime. Used as the baseline the admin
@@ -548,8 +549,8 @@ class ConfigDiffer
 
     /**
      * Path to an env overlay file for $scope under $targetEnv, or null if the
-     * env (or file) doesn't exist. Resolves user/env/<env>/config first, then
-     * the legacy user/<env>/config layout — same as EnvironmentService.
+     * environment (or file) doesn't exist. EnvironmentService owns Grav's
+     * stream/configured-path resolution and the legacy fallbacks.
      */
     private function envFilePath(string $scope, string $targetEnv): ?string
     {

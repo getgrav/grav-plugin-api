@@ -22,11 +22,14 @@ use PHPUnit\Framework\TestCase;
 class ConfigControllerResolveTargetEnvTest extends TestCase
 {
     private ?string $tmp = null;
+    private string|false $savedEnvironmentsPath = false;
 
     protected function setUp(): void
     {
         $this->tmp = sys_get_temp_dir() . '/grav-cfgctl-' . bin2hex(random_bytes(4));
         mkdir($this->tmp . '/user/config', 0777, true);
+        $this->savedEnvironmentsPath = getenv('GRAV_ENVIRONMENTS_PATH');
+        putenv('GRAV_ENVIRONMENTS_PATH');
     }
 
     protected function tearDown(): void
@@ -34,6 +37,11 @@ class ConfigControllerResolveTargetEnvTest extends TestCase
         if ($this->tmp !== null) {
             $this->rrmdir($this->tmp);
             $this->tmp = null;
+        }
+        if ($this->savedEnvironmentsPath === false) {
+            putenv('GRAV_ENVIRONMENTS_PATH');
+        } else {
+            putenv('GRAV_ENVIRONMENTS_PATH=' . $this->savedEnvironmentsPath);
         }
         Grav::resetInstance();
     }
@@ -129,11 +137,27 @@ class ConfigControllerResolveTargetEnvTest extends TestCase
         $this->invokeResolveTargetEnv($controller, $request);
     }
 
-    private function buildController(?string $activeEnv): ConfigController
+    #[Test]
+    public function controller_write_target_uses_gravs_custom_environment_path(): void
+    {
+        $customConfig = $this->tmp . '/user/custom-envs/staging/config';
+        mkdir($customConfig, 0777, true);
+        putenv('GRAV_ENVIRONMENTS_PATH=user://custom-envs');
+
+        $controller = $this->buildController(activeEnv: 'localhost', environmentsRoot: $this->tmp . '/user/custom-envs');
+        $ref = new \ReflectionMethod($controller, 'resolveWriteDir');
+
+        $expected = $this->tmp . DIRECTORY_SEPARATOR . 'user' . DIRECTORY_SEPARATOR
+            . 'custom-envs' . DIRECTORY_SEPARATOR . 'staging' . DIRECTORY_SEPARATOR . 'config';
+        $normalize = static fn(string $path): string => str_replace('\\', '/', $path);
+        $this->assertSame($normalize($expected), $normalize($ref->invoke($controller, 'staging')));
+    }
+
+    private function buildController(?string $activeEnv, ?string $environmentsRoot = null): ConfigController
     {
         Grav::resetInstance();
         $grav = Grav::instance();
-        $grav['locator'] = new CfgCtlFakeLocator($this->tmp);
+        $grav['locator'] = new CfgCtlFakeLocator($this->tmp, $environmentsRoot);
         if ($activeEnv !== null) {
             $grav['uri'] = new class ($activeEnv) {
                 public function __construct(private readonly string $env) {}
@@ -168,12 +192,17 @@ class ConfigControllerResolveTargetEnvTest extends TestCase
  */
 class CfgCtlFakeLocator
 {
-    public function __construct(private readonly string $root) {}
+    public function __construct(private readonly string $root, private readonly ?string $environmentsRoot = null) {}
 
     public function findResource(string $uri, bool $absolute = true, bool $first = false): string|false
     {
         if ($uri === 'user://') {
             return is_dir($this->root . '/user') ? $this->root . '/user' : false;
+        }
+        if ($this->environmentsRoot !== null && str_starts_with($uri, 'user://custom-envs')) {
+            $suffix = substr($uri, strlen('user://custom-envs'));
+            $path = $this->environmentsRoot . str_replace('/', DIRECTORY_SEPARATOR, $suffix);
+            return (file_exists($path) || $first) ? $path : false;
         }
         return false;
     }
