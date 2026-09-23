@@ -77,7 +77,7 @@ class UserSerializerTest extends TestCase
 
         self::assertNotNull($url);
         self::assertSame($this->expectedThumbnailUrl($avatarPath), $url);
-        self::assertFileExists($this->thumbnailCachePath($avatarPath));
+        $this->assertThumbnailIsDeferred($avatarPath);
 
         // Metadata-only resolution must still fail for this layout.
         self::assertFileDoesNotExist(GRAV_ROOT . '/portrait.png');
@@ -106,7 +106,7 @@ class UserSerializerTest extends TestCase
 
         self::assertNotNull($url);
         self::assertSame($this->expectedThumbnailUrl($absolutePath), $url);
-        self::assertFileExists($this->thumbnailCachePath($absolutePath));
+        $this->assertThumbnailIsDeferred($absolutePath);
     }
 
     #[Test]
@@ -246,6 +246,20 @@ class UserSerializerTest extends TestCase
         self::assertNotNull($filename, 'fixture image must be thumbnail-eligible');
 
         return '/api/v1/thumbnails/' . $filename;
+    }
+
+    /**
+     * The avatar's thumbnail is not resized while the user is serialized; the
+     * first request for its URL generates it.
+     */
+    private function assertThumbnailIsDeferred(string $sourcePath): void
+    {
+        $cachePath = $this->thumbnailCachePath($sourcePath);
+        self::assertFileDoesNotExist($cachePath);
+
+        $service = new ThumbnailService($this->tempDir . '/cache/api/thumbnails', 200);
+        self::assertSame($cachePath, $service->generatePending(basename($cachePath)));
+        self::assertFileExists($cachePath);
     }
 
     private function thumbnailCachePath(string $sourcePath): string

@@ -49,9 +49,8 @@ class GpmController extends AbstractApiController
         $this->serializer = new PackageSerializer(
             fn (string $value): ?string => $this->resolveTranslationKey($value),
         );
-        $cacheDir = $grav['locator']->findResource('cache://', true, true) . '/api/thumbnails';
-        $this->thumbSmall = new ThumbnailService($cacheDir, 500);
-        $this->thumbLarge = new ThumbnailService($cacheDir, 2000);
+        $this->thumbSmall = ThumbnailService::forGrav($grav, 500);
+        $this->thumbLarge = ThumbnailService::forGrav($grav, 2000);
     }
 
     /**
@@ -1245,7 +1244,7 @@ class GpmController extends AbstractApiController
 
         // Thumbnail (small, capped at 500px for list views)
         foreach (['thumbnail.jpg', 'thumbnail.png'] as $file) {
-            $filename = $this->thumbSmall->ensureThumbnail($path . '/' . $file);
+            $filename = $this->thumbSmall->thumbnailFilename($path . '/' . $file);
             if ($filename) {
                 $result['thumbnail'] = $this->getApiBaseUrl() . '/thumbnails/' . $filename;
                 break;
@@ -1254,7 +1253,7 @@ class GpmController extends AbstractApiController
 
         // Screenshot (large, capped at 2000px for detail/preview)
         foreach (['screenshot.jpg', 'screenshot.png'] as $file) {
-            $filename = $this->thumbLarge->ensureThumbnail($path . '/' . $file);
+            $filename = $this->thumbLarge->thumbnailFilename($path . '/' . $file);
             if ($filename) {
                 $result['screenshot'] = $this->getApiBaseUrl() . '/thumbnails/' . $filename;
                 break;
@@ -1484,6 +1483,16 @@ class GpmController extends AbstractApiController
      */
     public function allCustomFields(ServerRequestInterface $request): ResponseInterface
     {
+        return ApiResponse::create($this->allCustomFieldsData($request));
+    }
+
+    /**
+     * The payload of GET /custom-fields, shared with GET /admin-next/boot.
+     *
+     * @return array<string, array{slug: string, kind: string}>
+     */
+    public function allCustomFieldsData(ServerRequestInterface $request): array
+    {
         $this->requirePermission($request, 'api.access');
 
         $gpm = $this->getGpm();
@@ -1514,7 +1523,7 @@ class GpmController extends AbstractApiController
             }
         }
 
-        return ApiResponse::create($allFields);
+        return $allFields;
     }
 
     /**

@@ -44,8 +44,7 @@ class PagesController extends AbstractApiController
     public function __construct(Grav $grav, Config $config)
     {
         parent::__construct($grav, $config);
-        $cacheDir = $grav['locator']->findResource('cache://') . '/api/thumbnails';
-        $thumbnailService = new ThumbnailService($cacheDir);
+        $thumbnailService = ThumbnailService::forGrav($grav);
         $baseUrl = '/' . trim($config->get('plugins.api.route', '/api'), '/') . '/' . $config->get('plugins.api.version_prefix', 'v1');
         $mediaSerializer = new MediaSerializer($thumbnailService, $baseUrl);
         $this->serializer = new PageSerializer($mediaSerializer);
@@ -112,8 +111,21 @@ class PagesController extends AbstractApiController
         // every page unfiltered (getgrav/grav-plugin-admin2#121). matchesFilters()
         // covers all filter keys and works on any collection/index type.
         if ($filters) {
+            // A folder listing (children_of, or root=true) only tests that
+            // folder's own children, not every page on the site.
+            $source = $collection;
+            $folderParent = $filters['children_of'] ?? (
+                isset($filters['root']) && filter_var($filters['root'], FILTER_VALIDATE_BOOLEAN) ? '/' : null
+            );
+            if (is_string($folderParent)) {
+                $folder = $this->flexFolderChildren($directory, $collection, $folderParent);
+                if ($folder !== null) {
+                    $source = $collection->select($folder['keys']);
+                }
+            }
+
             $filtered = [];
-            foreach ($collection as $page) {
+            foreach ($source as $page) {
                 if ($page instanceof PageInterface && $this->matchesFilters($page, $filters)) {
                     $filtered[$page->getKey()] = $page;
                 }
@@ -1431,18 +1443,28 @@ class PagesController extends AbstractApiController
      */
     public function siteLanguages(ServerRequestInterface $request): ResponseInterface
     {
+        return ApiResponse::create($this->siteLanguagesData($request));
+    }
+
+    /**
+     * The payload of GET /languages, shared with GET /admin-next/boot.
+     *
+     * @return array<string, mixed>
+     */
+    public function siteLanguagesData(ServerRequestInterface $request): array
+    {
         $this->requirePermission($request, self::PERMISSION_READ);
 
         /** @var Language $language */
         $language = $this->grav['language'];
 
         if (!$language->enabled()) {
-            return ApiResponse::create([
+            return [
                 'enabled' => false,
                 'languages' => [],
                 'default' => null,
                 'active' => null,
-            ]);
+            ];
         }
 
         $langs = $language->getLanguages();
@@ -1466,7 +1488,7 @@ class PagesController extends AbstractApiController
             'active' => $language->getActive() ?: $default,
         ];
 
-        return ApiResponse::create($data);
+        return $data;
     }
 
     /**
@@ -2480,13 +2502,25 @@ class PagesController extends AbstractApiController
                 }
             }
 
-            foreach ($directory->getCollection() as $page) {
+            // Read the folder's own children rather than walking every page to
+            // find them (and the folder). When the folder can't be resolved
+            // that way, fall back to the walk.
+            $collection = $directory->getCollection();
+            $folder = $this->flexFolderChildren($directory, $collection, $childRoute);
+            if ($folder !== null) {
+                $parent = $folder['parent'];
+                $source = $collection->select($folder['keys']);
+            } else {
+                $source = $collection;
+            }
+
+            foreach ($source as $page) {
                 if (!$page instanceof PageInterface) {
                     continue;
                 }
                 // Match by rawRoute too: the home page's public route is '/'
                 // while the frontend asks for its structural route (e.g. '/home').
-                if ($page->route() === $childRoute || $page->rawRoute() === $childRoute) {
+                if ($folder === null && ($page->route() === $childRoute || $page->rawRoute() === $childRoute)) {
                     $parent = $page;
                 }
                 // matchesFilters() covers children_of (via isDirectChildOf) *and*
@@ -2575,6 +2609,76 @@ class PagesController extends AbstractApiController
         }
 
         return $items;
+    }
+
+    /**
+     * The Flex pages directly under a folder, read from the folder's own list of
+     * children instead of asking every page on the site for its parent.
+     *
+     * Returns the page whose route or structural route is the folder's (the
+     * one a `sort=default` listing takes its collection ordering from: for `/`
+     * that is the home page, whose public route is `/`) and the children's
+     * keys in the collection's own order, limited to what is in $collection.
+     * Callers still apply every filter to those children, so the result is the
+     * same as a full walk. Null when the folder doesn't resolve by its key to a
+     * page with that route (an alias, a canonical URL, no page at all); the
+     * caller then walks every page, as before.
+     *
+     * @return array{parent: ?PageInterface, keys: list<string>}|null
+     */
+    private function flexFolderChildren(FlexDirectory $directory, iterable $collection, string $parentValue): ?array
+    {
+        if (!method_exists($collection, 'getKeys')) {
+            return null;
+        }
+
+        $parentRoute = '/' . trim($parentValue, '/');
+        if ($parentRoute === '/') {
+            $index = $directory->getIndex();
+            $folder = method_exists($index, 'getRoot') ? $index->getRoot() : null;
+
+            $alias = trim((string) $this->config->get('system.home.alias', '/home'), '/');
+            $parent = $alias !== '' ? $directory->getObject($alias) : null;
+            if (!$parent instanceof PageInterface || $parent->route() !== '/') {
+                return null;
+            }
+        } else {
+            $folder = $directory->getObject(ltrim($parentRoute, '/'));
+            if (!$folder instanceof PageInterface
+                || ($folder->rawRoute() !== $parentRoute && $folder->route() !== $parentRoute)) {
+                return null;
+            }
+            $parent = $folder;
+        }
+
+        if (!$folder instanceof PageInterface || !method_exists($folder, 'getMetaData') || !method_exists($folder, 'getMasterKey')) {
+            return null;
+        }
+
+        $meta = $folder->getMetaData();
+        $master = (string) $folder->getMasterKey();
+        $storageKeys = [];
+        foreach (array_keys((array) ($meta['children'] ?? [])) as $child) {
+            $storageKeys[] = $master !== '' ? $master . '/' . $child : (string) $child;
+        }
+
+        $wanted = [];
+        if ($storageKeys !== []) {
+            foreach ($directory->getIndex($storageKeys, 'storage_key') as $child) {
+                if ($child instanceof PageInterface) {
+                    $wanted[(string) $child->getKey()] = true;
+                }
+            }
+        }
+
+        $keys = [];
+        foreach ($collection->getKeys() as $key) {
+            if (isset($wanted[(string) $key])) {
+                $keys[] = $key;
+            }
+        }
+
+        return ['parent' => $parent, 'keys' => $keys];
     }
 
     /**

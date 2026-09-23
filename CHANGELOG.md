@@ -5,6 +5,7 @@
     * The page editor's previous and next buttons can now find a page's neighbours with one small request instead of downloading every page in the folder.
     * Page lists can be requested without each page's full frontmatter, which roughly halves their size for the admin's tree, list and columns views.
     * A new Response Compression setting gzips large responses for clients that accept it, and is on by default.
+    * The new admin can now load everything it needs when it starts with one request instead of nine, which matters most right after a cache clear.
 1. [](#improved)
     * Large responses such as the page list and the translation strings are now sent compressed, about a fifth of their old size over the network.
     * Opening a folder in the page tree now reads only that folder's pages instead of the whole site.
@@ -17,10 +18,14 @@
     * Enabling or disabling a plugin, or switching themes, is now reflected straight away in which translation wins.
     * Saving a page, autosave included, now only refreshes the page list on Grav 2.2 and later, instead of clearing the whole cache and making the next page load start from scratch.
     * Page search now also matches a page's route, so searching for a folder such as `docs/rentals` finds every page inside it.
+    * Opening a page or folder full of photos no longer waits while every thumbnail is resized; each thumbnail is now made the first time it is shown.
+    * On sites using Flex pages, opening a folder in the page tree now reads only that folder's pages instead of the whole site.
+    * On sites using Flex pages, page lists no longer read every page's file from disk again on each request, and editors without full access no longer pay for that twice.
 1. [](#bugfix)
     * Searching pages now works on sites that don't use Flex pages, where every search used to return every page.
     * Page search now also narrows the tree and columns views when they list a page's children in their natural order.
     * Signing out can no longer be quietly undone by another request that was running at the same moment, and the list of signed-out tokens is no longer rewritten on every request.
+    * The API no longer answers every request with an error on a new site whose cache folder is still empty when rate limiting is turned off.
 
 # v1.0.39
 ## 09/22/2026

@@ -471,14 +471,24 @@ class AuthController extends AbstractApiController
      */
     public function me(ServerRequestInterface $request): ResponseInterface
     {
+        return ApiResponse::create($this->meData($request));
+    }
+
+    /**
+     * The payload of GET /me, shared with GET /admin-next/boot.
+     *
+     * @return array<string, mixed>
+     */
+    public function meData(ServerRequestInterface $request): array
+    {
         $this->requirePermission($request, 'api.access');
 
         $user = $this->getUser($request);
 
-        return ApiResponse::create($this->buildUserProfile($user) + [
+        return $this->buildUserProfile($user) + [
             'grav_version' => GRAV_VERSION,
             'admin_version' => $this->getAdminPluginVersion(),
-        ]);
+        ];
     }
 
     private function getAdminPluginVersion(): ?string
