@@ -79,14 +79,14 @@ class PagesController extends AbstractApiController
         $sorting = $this->getSorting($request, self::ALLOWED_SORT_FIELDS);
         $pagination = $this->getPagination($request);
         $query = $request->getQueryParams();
-        $search = $query['search'] ?? null;
+        $search = self::searchTerm($query);
 
         $sortField = $sorting['sort'] ?? 'date';
         $sortOrder = $sorting['sort'] ? $sorting['order'] : 'desc';
 
         // 'default' sort with children_of: use native page ordering
         if ($sortField === 'default' && isset($filters['children_of'])) {
-            return $this->indexViaDefaultSort($request, $filters['children_of'], $filters, $pagination);
+            return $this->indexViaDefaultSort($request, $filters['children_of'], $filters, $pagination, $search);
         }
         if ($sortField === 'default') {
             $sortField = 'order';
@@ -97,7 +97,7 @@ class PagesController extends AbstractApiController
         $collection = $directory->getCollection();
 
         // Apply search
-        if ($search && $search !== '') {
+        if ($search !== null) {
             $collection = $collection->search($search);
         }
 
@@ -185,12 +185,13 @@ class PagesController extends AbstractApiController
         $filters = $this->getFilters($request, self::ALLOWED_FILTERS);
         $sorting = $this->getSorting($request, self::ALLOWED_SORT_FIELDS);
         $pagination = $this->getPagination($request);
+        $search = self::searchTerm($request->getQueryParams());
 
         $sortField = $sorting['sort'] ?? 'date';
         $sortOrder = $sorting['sort'] ? $sorting['order'] : 'desc';
 
         if ($sortField === 'default' && isset($filters['children_of'])) {
-            return $this->indexViaDefaultSort($request, $filters['children_of'], $filters, $pagination);
+            return $this->indexViaDefaultSort($request, $filters['children_of'], $filters, $pagination, $search);
         }
         if ($sortField === 'default') {
             $sortField = 'order';
@@ -198,7 +199,7 @@ class PagesController extends AbstractApiController
         }
 
         $pages = $this->grav['pages'];
-        $allPages = $this->collectAndFilterPages($pages->instances(), $filters);
+        $allPages = $this->collectAndFilterPages($pages->instances(), $filters, $search);
         $allPages = $this->sortPages($allPages, $sortField, $sortOrder);
 
         $total = count($allPages);
@@ -2224,12 +2225,13 @@ class PagesController extends AbstractApiController
     }
 
     /**
-     * Collect all page instances and apply filters.
+     * Collect all page instances and apply filters, plus the free-text search
+     * when one is given.
      *
      * @param iterable<string, PageInterface> $instances
      * @return list<PageInterface>
      */
-    private function collectAndFilterPages(iterable $instances, array $filters): array
+    private function collectAndFilterPages(iterable $instances, array $filters, ?string $search = null): array
     {
         $pages = [];
 
@@ -2247,10 +2249,52 @@ class PagesController extends AbstractApiController
                 continue;
             }
 
+            if ($search !== null && !self::matchesSearch($page, $search)) {
+                continue;
+            }
+
             $pages[] = $page;
         }
 
         return $pages;
+    }
+
+    /**
+     * The `search` query parameter, trimmed, or null when there is none.
+     *
+     * @param array<string, mixed> $query
+     */
+    private static function searchTerm(array $query): ?string
+    {
+        $search = $query['search'] ?? null;
+        if (!is_string($search)) {
+            return null;
+        }
+        $search = trim($search);
+
+        return $search === '' ? null : $search;
+    }
+
+    /**
+     * Free-text page search for sites without Flex pages.
+     *
+     * Mirrors what the Flex pages directory does with `?search=` (its
+     * `data.search` config in `system/blueprints/flex/pages.yaml`): a
+     * case-insensitive substring match on the title, the menu label, the slug
+     * and the route (the Flex config's `key` entry). Both the public route and
+     * the raw one (`/home` for a hidden home page) are tested. Without this the
+     * regular-pages path ignored `search` and returned every page.
+     */
+    private static function matchesSearch(PageInterface $page, string $search): bool
+    {
+        foreach ([$page->title(), $page->menu(), $page->slug(), $page->route(), $page->rawRoute()] as $value) {
+            // What Utils::contains($value, $search, false) does, which Flex uses.
+            if (is_string($value) && $value !== '' && mb_stripos($value, $search) !== false) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -2341,7 +2385,7 @@ class PagesController extends AbstractApiController
             || $parentRoute === $parent->route();
     }
 
-    private function indexViaDefaultSort(ServerRequestInterface $request, string $parentRoute, array $filters, array $pagination): ResponseInterface
+    private function indexViaDefaultSort(ServerRequestInterface $request, string $parentRoute, array $filters, array $pagination, ?string $search = null): ResponseInterface
     {
         // Collect direct children and find parent using Flex or Pages service
         $directory = $this->getFlexDirectory('pages');
@@ -2350,6 +2394,18 @@ class PagesController extends AbstractApiController
 
         $items = [];
         if ($directory) {
+            // The search narrows the children, not the parent lookup below, so
+            // take the matching keys from Flex's own search up front.
+            $searchKeys = null;
+            if ($search !== null) {
+                $searchKeys = [];
+                foreach ($directory->getCollection()->search($search) as $match) {
+                    if ($match instanceof PageInterface) {
+                        $searchKeys[(string) $match->getKey()] = true;
+                    }
+                }
+            }
+
             foreach ($directory->getCollection() as $page) {
                 if (!$page instanceof PageInterface) {
                     continue;
@@ -2364,14 +2420,17 @@ class PagesController extends AbstractApiController
                 // isDirectChildOf here silently dropped those boolean filters on
                 // the default-sort path used by the tree and columns views —
                 // the same class of bug as getgrav/grav-plugin-admin2#121.
-                if ($this->matchesFilters($page, $filters)) {
+                if (
+                    $this->matchesFilters($page, $filters)
+                    && ($searchKeys === null || isset($searchKeys[(string) $page->getKey()]))
+                ) {
                     $items[] = $page;
                 }
             }
         } else {
             $this->enablePages();
             $parent = $this->grav['pages']->find($childRoute);
-            $allPages = $this->collectAndFilterPages($this->grav['pages']->instances(), $filters);
+            $allPages = $this->collectAndFilterPages($this->grav['pages']->instances(), $filters, $search);
             $items = $allPages;
         }
 
@@ -2697,6 +2756,16 @@ class PagesController extends AbstractApiController
      */
     private function clearPagesCache(): void
     {
+        // Grav 2.2+ can rebuild just the pages index on the next request.
+        // A standard clear also drops compiled config, languages and Twig,
+        // so every save (autosave included) left the next request fully cold.
+        $pages = $this->grav['pages'];
+        if (method_exists($pages, 'markChanged')) {
+            $pages->markChanged();
+
+            return;
+        }
+
         $this->grav['cache']->clearCache('standard');
     }
 

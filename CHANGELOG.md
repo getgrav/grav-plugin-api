@@ -1,3 +1,17 @@
+# v1.0.40
+## 09/22/2026
+
+1. [](#improved)
+    * The admin's translations, sidebar and blueprint forms load about twice as fast, because the list of language files is remembered between requests instead of being read again from every plugin each time.
+    * The admin's translation strings are no longer downloaded again when nothing has changed; the browser gets a quick "not changed" reply instead.
+    * The dashboard no longer stalls for a second or two after a cache clear while it downloads the package list. Update counts show as unknown until the next update check.
+    * Enabling or disabling a plugin, or switching themes, is now reflected straight away in which translation wins.
+    * Saving a page, autosave included, now only refreshes the page list on Grav 2.2 and later, instead of clearing the whole cache and making the next page load start from scratch.
+    * Page search now also matches a page's route, so searching for a folder such as `docs/rentals` finds every page inside it.
+1. [](#bugfix)
+    * Searching pages now works on sites that don't use Flex pages, where every search used to return every page.
+    * Page search now also narrows the tree and columns views when they list a page's children in their natural order.
+
 # v1.0.39
 ## 09/22/2026
 

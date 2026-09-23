@@ -245,6 +245,8 @@ namespace Grav\Common\Page\Interfaces {
             public function order($var = null): ?int;
             public function path($var = null): ?string;
             public function title($var = null): string;
+            // Declared on the real PageContentInterface; the page search matches it.
+            public function menu($var = null);
             public function isModule(): bool;
             public function children(): \Traversable;
             public function published(): bool;

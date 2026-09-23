@@ -208,7 +208,7 @@ class ApiPlugin extends Plugin
         }
 
         try {
-            $sources = new TranslationSourceIndex($this->grav);
+            $sources = TranslationSourceIndex::shared($this->grav);
             (new TranslationOverrideStore($this->grav, $sources))->applyRuntime();
         } catch (\Throwable $e) {
             // A malformed override file must never take the site down.

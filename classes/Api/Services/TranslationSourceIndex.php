@@ -42,6 +42,15 @@ use Grav\Common\Yaml;
  *
  * Results are cached per language against a fingerprint of every scanned file's
  * mtime, so an edit to any language file invalidates the entry immediately.
+ *
+ * The provider list and the language file inventory are cached too, keyed on
+ * {@see metaFingerprint()}: a stat-only signature of every extension's
+ * blueprints and language files, the enabled flags, the active theme and the
+ * core and site language folders. Without it every request re-parsed every
+ * plugin's `blueprints.yaml` and `languages.yaml`, which was about half the
+ * server time of `/translations`, `/sidebar/items` and every blueprint
+ * endpoint. Use {@see shared()} so one request builds that state once, however
+ * many controllers, traits and language codes ask for it.
  */
 final class TranslationSourceIndex
 {
@@ -67,19 +76,53 @@ final class TranslationSourceIndex
      * The fingerprint only covers the *files*, so without this a code change
      * would keep serving entries built by the previous logic.
      */
-    private const CACHE_VERSION = 1;
+    private const CACHE_VERSION = 2;
+
+    /** @var \WeakMap<Grav, self>|null */
+    private static ?\WeakMap $shared = null;
 
     /** @var array<string, array<string, array{value: string, owner: string, providers: array<int, string>}>> */
     private array $indexCache = [];
 
-    /** @var array<string, array{id: string, kind: string, slug: string, label: string, enabled: bool, path: string}>|null */
+    /**
+     * Providers without their display label, which only the translations editor
+     * reads and which costs a blueprints.yaml parse per extension to build.
+     *
+     * @var array<string, array{id: string, kind: string, slug: string, enabled: bool, path: string}>|null
+     */
     private ?array $providerCache = null;
+
+    /** @var array<string, string>|null provider id => display label */
+    private ?array $labelCache = null;
 
     /** @var array<string, array<int, array{provider: string, file: string, lang_key: string|null}>>|null */
     private ?array $fileMapCache = null;
 
+    private ?string $metaFingerprint = null;
+
+    /** @var array<string, string> lang => fingerprint of that language's files */
+    private array $languageFingerprints = [];
+
+    /** @var array<string, array<string, string>> stream => slug => absolute path */
+    private array $extensionDirs = [];
+
     public function __construct(private readonly Grav $grav)
     {
+    }
+
+    /**
+     * The request-wide instance for a Grav container.
+     *
+     * Everything this class memoizes is per request, so separate instances only
+     * repeat the same work: the translations endpoint used to build one per
+     * language code in the chain, and the label resolver one per label. Keyed
+     * weakly on the container so a reset container (tests) gets a fresh one.
+     */
+    public static function shared(Grav $grav): self
+    {
+        self::$shared ??= new \WeakMap();
+
+        return self::$shared[$grav] ??= new self($grav);
     }
 
     /**
@@ -89,10 +132,123 @@ final class TranslationSourceIndex
      */
     public function providers(): array
     {
-        if ($this->providerCache !== null) {
-            return $this->providerCache;
+        $labels = $this->labels();
+        $providers = [];
+        foreach ($this->providerIndex() as $id => $provider) {
+            $providers[$id] = [
+                'id' => $provider['id'],
+                'kind' => $provider['kind'],
+                'slug' => $provider['slug'],
+                'label' => $labels[$id] ?? $provider['slug'],
+                'enabled' => $provider['enabled'],
+                'path' => $provider['path'],
+            ];
         }
 
+        return $providers;
+    }
+
+    /**
+     * Whether a provider counts as enabled: an enabled plugin, the active theme,
+     * or core and the site's own overrides. Unknown providers count as enabled,
+     * so a key is never dropped on a guess.
+     */
+    public function isProviderEnabled(string $providerId): bool
+    {
+        return $this->providerIndex()[$providerId]['enabled'] ?? true;
+    }
+
+    /**
+     * Stat-only signature of everything the provider list and the file
+     * inventory are built from: each extension's folder, `blueprints.yaml`,
+     * `languages/` folder and `languages.yaml` mtimes, its enabled flag, the
+     * active theme, and the core and site language folders. A folder's mtime
+     * moves when a file inside it is added, removed or renamed, which is what
+     * changes the inventory; edits to existing files are covered per language
+     * by {@see languageFingerprint()}.
+     */
+    public function metaFingerprint(): string
+    {
+        if ($this->metaFingerprint !== null) {
+            return $this->metaFingerprint;
+        }
+
+        $config = $this->grav['config'];
+        $parts = [self::CACHE_VERSION, 'theme=' . (string) $config->get('system.pages.theme', '')];
+
+        foreach (['plugins://', 'themes://'] as $stream) {
+            foreach ($this->scanExtensionDirs($stream) as $slug => $dir) {
+                $parts[] = $stream . $slug . '=' . $dir
+                    . ':' . (@filemtime("{$dir}/blueprints.yaml") ?: 0)
+                    . ':' . (@filemtime("{$dir}/languages") ?: 0)
+                    . ':' . (@filemtime("{$dir}/languages.yaml") ?: 0)
+                    . ':' . (int) (bool) $config->get("plugins.{$slug}.enabled", false);
+            }
+        }
+
+        foreach (['system://languages', 'user://languages'] as $stream) {
+            foreach ((array) $this->grav['locator']->findResources($stream) as $path) {
+                $parts[] = $stream . '=' . $path . ':' . (is_dir($path) ? (@filemtime($path) ?: 0) : 'none');
+            }
+        }
+
+        return $this->metaFingerprint = md5(implode('|', $parts));
+    }
+
+    /**
+     * Signature of one language: the provider inventory plus the mtime of every
+     * file that ships strings in it. Changes whenever any string in that
+     * language can have changed, so it is safe to key derived results on it.
+     */
+    public function languageFingerprint(string $lang): string
+    {
+        return $this->languageFingerprints[$lang] ??= md5(
+            self::CACHE_VERSION . '|' . $lang . '|' . $this->metaFingerprint() . '|' . $this->fingerprint($this->fileMap()[$lang] ?? [])
+        );
+    }
+
+    /**
+     * Providers without labels, from the Grav cache when the fingerprint still
+     * matches.
+     *
+     * @return array<string, array{id: string, kind: string, slug: string, enabled: bool, path: string}>
+     */
+    private function providerIndex(): array
+    {
+        if ($this->providerCache === null) {
+            $this->loadMeta();
+        }
+
+        return $this->providerCache;
+    }
+
+    /**
+     * Fill the provider list and the file inventory, from the cache or by
+     * walking the extension folders.
+     */
+    private function loadMeta(): void
+    {
+        $cache = $this->grav['cache'];
+        $cacheKey = 'api-i18n-meta-' . $this->metaFingerprint();
+        $cached = $cache->fetch($cacheKey);
+        if (is_array($cached) && is_array($cached['providers'] ?? null) && is_array($cached['files'] ?? null)) {
+            $this->providerCache = $cached['providers'];
+            $this->fileMapCache = $cached['files'];
+
+            return;
+        }
+
+        $this->providerCache = $this->buildProviders();
+        $this->fileMapCache = $this->buildFileMap($this->providerCache);
+
+        $cache->save($cacheKey, ['providers' => $this->providerCache, 'files' => $this->fileMapCache], self::CACHE_TTL);
+    }
+
+    /**
+     * @return array<string, array{id: string, kind: string, slug: string, enabled: bool, path: string}>
+     */
+    private function buildProviders(): array
+    {
         $locator = $this->grav['locator'];
         $config = $this->grav['config'];
         $providers = [];
@@ -103,7 +259,6 @@ final class TranslationSourceIndex
                     'id' => self::PROVIDER_SYSTEM,
                     'kind' => self::KIND_SYSTEM,
                     'slug' => 'core',
-                    'label' => 'Grav Core',
                     'enabled' => true,
                     'path' => $path,
                 ];
@@ -119,7 +274,6 @@ final class TranslationSourceIndex
                 'id' => "plugin:{$slug}",
                 'kind' => self::KIND_PLUGIN,
                 'slug' => $slug,
-                'label' => $this->extensionLabel($dir, $slug),
                 'enabled' => (bool) $config->get("plugins.{$slug}.enabled", false),
                 'path' => $dir,
             ];
@@ -134,7 +288,6 @@ final class TranslationSourceIndex
                 'id' => "theme:{$slug}",
                 'kind' => self::KIND_THEME,
                 'slug' => $slug,
-                'label' => $this->extensionLabel($dir, $slug),
                 'enabled' => $slug === $activeTheme,
                 'path' => $dir,
             ];
@@ -146,7 +299,6 @@ final class TranslationSourceIndex
                     'id' => self::PROVIDER_USER,
                     'kind' => self::KIND_USER,
                     'slug' => 'overrides',
-                    'label' => 'This Site',
                     'enabled' => true,
                     'path' => $path,
                 ];
@@ -154,8 +306,40 @@ final class TranslationSourceIndex
             }
         }
 
-        $this->providerCache = $providers;
         return $providers;
+    }
+
+    /**
+     * Display label per provider. Only the translations editor shows these, so
+     * they are resolved on first use and cached apart from the provider list.
+     *
+     * @return array<string, string>
+     */
+    private function labels(): array
+    {
+        if ($this->labelCache !== null) {
+            return $this->labelCache;
+        }
+
+        $cache = $this->grav['cache'];
+        $cacheKey = 'api-i18n-labels-' . $this->metaFingerprint();
+        $cached = $cache->fetch($cacheKey);
+        if (is_array($cached)) {
+            return $this->labelCache = $cached;
+        }
+
+        $labels = [];
+        foreach ($this->providerIndex() as $id => $provider) {
+            $labels[$id] = match ($provider['kind']) {
+                self::KIND_SYSTEM => 'Grav Core',
+                self::KIND_USER => 'This Site',
+                default => $this->extensionLabel($provider['path'], $provider['slug']),
+            };
+        }
+
+        $cache->save($cacheKey, $labels, self::CACHE_TTL);
+
+        return $this->labelCache = $labels;
     }
 
     /**
@@ -196,14 +380,17 @@ final class TranslationSourceIndex
             return $this->indexCache[$lang] = [];
         }
 
+        // Keyed on the provider inventory as well as the files: the sort below
+        // ranks by enabled state, so enabling a plugin or switching theme changes
+        // which source wins even though no language file moved.
         $cache = $this->grav['cache'];
-        $cacheKey = 'api-i18n-index-' . md5(self::CACHE_VERSION . '|' . $lang . '|' . $this->fingerprint($sources));
+        $cacheKey = 'api-i18n-index-' . $this->languageFingerprint($lang);
         $cached = $cache->fetch($cacheKey);
         if (is_array($cached)) {
             return $this->indexCache[$lang] = $cached;
         }
 
-        $providers = $this->providers();
+        $providers = $this->providerIndex();
         $index = [];
 
         // Sort sources so that higher-precedence ones are applied last, and a
@@ -358,7 +545,13 @@ final class TranslationSourceIndex
     {
         $this->indexCache = [];
         $this->providerCache = null;
+        $this->labelCache = null;
         $this->fileMapCache = null;
+        $this->metaFingerprint = null;
+        $this->languageFingerprints = [];
+        $this->extensionDirs = [];
+        // A write earlier in this request must be visible to the mtime checks.
+        clearstatcache();
     }
 
     /**
@@ -371,13 +564,22 @@ final class TranslationSourceIndex
      */
     private function fileMap(): array
     {
-        if ($this->fileMapCache !== null) {
-            return $this->fileMapCache;
+        if ($this->fileMapCache === null) {
+            $this->loadMeta();
         }
 
+        return $this->fileMapCache;
+    }
+
+    /**
+     * @param array<string, array{id: string, kind: string, slug: string, enabled: bool, path: string}> $providers
+     * @return array<string, array<int, array{provider: string, file: string, lang_key: string|null}>>
+     */
+    private function buildFileMap(array $providers): array
+    {
         $map = [];
 
-        foreach ($this->providers() as $id => $provider) {
+        foreach ($providers as $id => $provider) {
             $base = $provider['path'];
             // The system and user providers point at the languages folder itself;
             // plugins and themes point at the extension root.
@@ -409,7 +611,7 @@ final class TranslationSourceIndex
             }
         }
 
-        return $this->fileMapCache = $map;
+        return $map;
     }
 
     /**
@@ -474,6 +676,10 @@ final class TranslationSourceIndex
      */
     private function scanExtensionDirs(string $stream): array
     {
+        if (isset($this->extensionDirs[$stream])) {
+            return $this->extensionDirs[$stream];
+        }
+
         $dirs = [];
         foreach ((array) $this->grav['locator']->findResources($stream) as $path) {
             if (!is_dir($path)) {
@@ -489,7 +695,7 @@ final class TranslationSourceIndex
         }
         ksort($dirs);
 
-        return $dirs;
+        return $this->extensionDirs[$stream] = $dirs;
     }
 
     private function hasLanguageFiles(string $dir): bool

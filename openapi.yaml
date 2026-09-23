@@ -1182,9 +1182,13 @@ paths:
         - name: search
           in: query
           description: |
-            Free-text search over the page index. Only honored when the Flex
-            pages directory is available; ignored on the regular pages
-            backend.
+            Free-text search: a case-insensitive substring match on each
+            page's title, menu label, slug and route, so a query such as
+            `docs/` finds every page under that folder. Works the same with or without
+            the Flex pages directory, combines with every other filter
+            (including `children_of` and `parent`), and the pagination totals
+            count only matching pages. Leading and trailing whitespace is
+            ignored, and a blank value means no search.
           schema:
             type: string
         - name: locate
@@ -7815,9 +7819,13 @@ paths:
       summary: Get statistics snapshot
       description: |
         Return a summary of site statistics suitable for rendering a
-        dashboard overview, including available GPM updates (the update
-        counts fall back to zero when GPM cannot be reached). Requires
-        `api.system.read`.
+        dashboard overview, including available GPM updates. The update
+        figures come only from the repository data GPM already has on disk;
+        this endpoint never contacts the package server. When that data is
+        missing or expired (for example right after a cache clear),
+        `plugins.updatable`, `themes.updatable`, `themes.active_updatable` and
+        `grav.updatable` are `null`, meaning unknown. `GET /gpm/updates`
+        refreshes the data. Requires `api.system.read`.
       responses:
         "200":
           description: Dashboard stats returned.
@@ -8968,6 +8976,15 @@ paths:
         English (`en-US`), so the map is complete for any language. The admin
         UI language is not limited to the site's configured content
         languages.
+
+        Supports conditional GET. Every 200 carries `ETag: "<checksum>"`, the
+        same value as the body's `checksum`, and `Cache-Control: no-cache,
+        private`. Send it back in `If-None-Match` (quoted, unquoted or with a
+        `W/` prefix all match) and, while nothing has changed, the answer is an
+        empty 304 carrying the same `ETag`. The server checks this against a
+        fingerprint of the language files, so a 304 does not rebuild the
+        dictionary. A `prefix` request has its own checksum and ETag, for the
+        filtered set.
       security: []
       parameters:
         - name: lang
@@ -8991,9 +9008,27 @@ paths:
             Only return keys that start with this prefix followed by a dot
             (case-insensitive), e.g. `PLUGIN_ADMIN` matches `PLUGIN_ADMIN.*`.
           example: PLUGIN_ADMIN
+        - name: If-None-Match
+          in: header
+          required: false
+          description: The `ETag` (or `checksum`) from an earlier response. When it still matches, the response is an empty 304.
+          schema:
+            type: string
+          example: '"ca482ce9db905019b7f2be290f018553"'
       responses:
         "200":
           description: Translation strings.
+          headers:
+            ETag:
+              description: The body's `checksum`, quoted.
+              schema:
+                type: string
+              example: '"ca482ce9db905019b7f2be290f018553"'
+            Cache-Control:
+              description: Always `no-cache, private`, so clients store the response and revalidate it.
+              schema:
+                type: string
+              example: no-cache, private
           content:
             application/json:
               schema:
@@ -9018,7 +9053,7 @@ paths:
                         example: 1868
                       checksum:
                         type: string
-                        description: MD5 hash for cache invalidation.
+                        description: MD5 hash of `strings`, for cache invalidation. Also the response's `ETag`.
                         example: ca482ce9db905019b7f2be290f018553
                       strings:
                         type: object
@@ -9028,6 +9063,18 @@ paths:
                         example:
                           PLUGIN_ADMIN.TITLE: Title
                           PLUGIN_ADMIN.CONTENT: Content
+        "304":
+          description: The strings have not changed since the ETag sent in `If-None-Match`. No body.
+          headers:
+            ETag:
+              description: The current checksum, quoted.
+              schema:
+                type: string
+              example: '"ca482ce9db905019b7f2be290f018553"'
+            Cache-Control:
+              schema:
+                type: string
+              example: no-cache, private
 
 # =============================================================================
 # Components
@@ -14228,7 +14275,8 @@ components:
               example: 10
             updatable:
               type: integer
-              description: Plugins with an update available in GPM.
+              nullable: true
+              description: Plugins with an update available in GPM, or null when the GPM repository data has not been fetched yet (unknown).
               example: 2
         themes:
           type: object
@@ -14238,17 +14286,21 @@ components:
               example: 2
             updatable:
               type: integer
+              nullable: true
+              description: Themes with an update available in GPM, or null when unknown.
               example: 0
             active_updatable:
               type: boolean
-              description: Whether the active theme has an update available.
+              nullable: true
+              description: Whether the active theme has an update available, or null when unknown.
               example: false
         grav:
           type: object
           properties:
             updatable:
               type: boolean
-              description: Whether a Grav core update is available.
+              nullable: true
+              description: Whether a Grav core update is available, or null when unknown.
               example: false
         media:
           type: object

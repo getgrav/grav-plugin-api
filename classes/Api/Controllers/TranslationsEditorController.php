@@ -809,7 +809,7 @@ class TranslationsEditorController extends AbstractApiController
 
     private function sourceIndex(): TranslationSourceIndex
     {
-        return $this->sources ??= new TranslationSourceIndex($this->grav);
+        return $this->sources ??= TranslationSourceIndex::shared($this->grav);
     }
 
     private function store(): TranslationOverrideStore
