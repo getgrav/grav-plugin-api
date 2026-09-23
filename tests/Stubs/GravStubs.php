@@ -258,6 +258,11 @@ namespace Grav\Common\Page\Interfaces {
             public function header($var = null);
             public function parent(?PageInterface $var = null): ?PageInterface;
             public function language($var = null);
+            // Read by PageSerializer for every list row.
+            public function folder($var = null);
+            public function taxonomy($var = null);
+            public function date($var = null);
+            public function modified($var = null);
         }
     }
 }

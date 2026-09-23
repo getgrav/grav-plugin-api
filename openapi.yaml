@@ -78,6 +78,24 @@ info:
     - `X-RateLimit-Remaining` -- requests remaining
     - `X-RateLimit-Reset` -- UTC epoch when the window resets
 
+    ## Compression
+
+    JSON responses larger than 8 KB are gzipped when the request's
+    `Accept-Encoding` allows it, and every JSON response carries
+    `Vary: Accept-Encoding`. Smaller bodies, `304` and `204` responses, `HEAD`
+    requests, downloads (`Content-Disposition`) and hosts where PHP already
+    compresses its output (`zlib.output_compression`) are sent as they are.
+    Set `plugins.api.compression: off` to turn it off.
+
+    ## Sessions
+
+    Requests that carry `X-API-Token`, `X-API-Key` or `Authorization: Bearer`
+    run without a PHP session: no session cookie is read or sent, and no
+    `Expires` / `Pragma` headers from PHP's session cache limiter are added.
+    Requests signed in by the session cookie alone keep their session, and so
+    do the SSO `start` and `callback` routes. `plugins.api.protect_frontend_session: false`
+    restores the old behaviour.
+
     ## Optimistic Concurrency (ETags)
 
     Single-resource GET responses include an `ETag` header. For PATCH requests,
@@ -1101,6 +1119,11 @@ paths:
         published state, template, routable/visible flags, and parent route.
         Results can be sorted by date, title, slug, modified time, or order.
 
+        `children_of` and `root=true` read the parent folder's own children
+        rather than every page in the site. Pages that tie on the sort key
+        (the same date, or a folder whose collection order has no key of its
+        own) keep the folder's order.
+
         The listing uses a lightweight serialization that excludes content,
         media, and children for performance. Every row carries a `permissions`
         object with the caller's effective per-page capabilities; rows are never
@@ -1210,6 +1233,19 @@ paths:
           schema:
             type: boolean
             default: false
+        - name: fields
+          in: query
+          description: |
+            `summary` returns the same rows without the `header` key (the
+            page's full frontmatter), which is about half of a large listing.
+            Every other key, the filters, the sorting and the pagination are
+            unchanged, and `title`, `menu`, `published` and `visible` still
+            honour the frontmatter. Without this parameter, or with any other
+            value, rows include `header` as before.
+          schema:
+            type: string
+            enum: [summary]
+          example: summary
       responses:
         "200":
           description: Paginated list of pages.
@@ -2421,6 +2457,169 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /pages/{route}/neighbors:
+    get:
+      operationId: getPageNeighbors
+      tags: [Pages]
+      summary: Get a page's parent, siblings and first child
+      description: |
+        Where a page sits among its siblings, for page-to-page navigation:
+        its parent, the previous and next sibling, its first child, its
+        zero-based position and the number of siblings.
+
+        Siblings are the parent's children in exactly the order
+        `GET /pages?children_of=<parent>&sort=default&order=asc` lists them
+        (`children_of=/` for a top-level page), and `first_child` is the first
+        row of the same listing for the page's own children. Every row is
+        serialized exactly like a `GET /pages?fields=summary` row, including
+        `permissions`. Only the parent's and the page's own children are read,
+        never the whole site.
+
+        `parent` is null for a top-level page, `prev` for the first sibling,
+        `next` for the last and `first_child` when the page has no children.
+        A page that its parent's listing leaves out (a folder with no content
+        file) gets `index: -1` and null `prev` and `next`.
+
+        Requires `api.pages.read`, and the page's own rules must allow
+        reading it. An unknown route is a 404.
+      parameters:
+        - $ref: "#/components/parameters/pageRoute"
+        - $ref: "#/components/parameters/lang"
+        - name: translations
+          in: query
+          description: When `true`, each row also carries the translation fields, as on `GET /pages`.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: The page's neighbours.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    required: [parent, prev, next, first_child, index, total]
+                    properties:
+                      parent:
+                        type: object
+                        description: The parent page, or null for a top-level page.
+                        allOf:
+                          - $ref: "#/components/schemas/PageSummary"
+                        nullable: true
+                      prev:
+                        type: object
+                        description: The previous sibling, or null for the first one.
+                        allOf:
+                          - $ref: "#/components/schemas/PageSummary"
+                        nullable: true
+                      next:
+                        type: object
+                        description: The next sibling, or null for the last one.
+                        allOf:
+                          - $ref: "#/components/schemas/PageSummary"
+                        nullable: true
+                      first_child:
+                        type: object
+                        description: The first child in default order, or null when the page has none.
+                        allOf:
+                          - $ref: "#/components/schemas/PageSummary"
+                        nullable: true
+                      index:
+                        type: integer
+                        description: Zero-based position among the siblings; -1 when the page is not listed among them.
+                        example: 3
+                      total:
+                        type: integer
+                        description: Number of siblings, the page included.
+                        example: 12
+              example:
+                data:
+                  parent:
+                    route: /blog
+                    raw_route: /blog
+                    parent_route: /
+                    slug: blog
+                    folder: 03.blog
+                    title: Blog
+                    menu: Blog
+                    template: blog
+                    language: null
+                    taxonomy: {}
+                    published: true
+                    visible: true
+                    routable: true
+                    date: "2026-03-20T12:00:00+00:00"
+                    modified: "2026-03-22T09:30:00+00:00"
+                    order: 3
+                    has_children: true
+                  prev:
+                    route: /blog/first-post
+                    raw_route: /blog/first-post
+                    parent_route: /blog
+                    slug: first-post
+                    folder: 01.first-post
+                    title: First Post
+                    menu: First Post
+                    template: item
+                    language: null
+                    taxonomy: {}
+                    published: true
+                    visible: true
+                    routable: true
+                    date: "2026-03-20T12:00:00+00:00"
+                    modified: "2026-03-22T09:30:00+00:00"
+                    order: 1
+                    has_children: false
+                  next:
+                    route: /blog/third-post
+                    raw_route: /blog/third-post
+                    parent_route: /blog
+                    slug: third-post
+                    folder: 03.third-post
+                    title: Third Post
+                    menu: Third Post
+                    template: item
+                    language: null
+                    taxonomy: {}
+                    published: true
+                    visible: true
+                    routable: true
+                    date: "2026-03-20T12:00:00+00:00"
+                    modified: "2026-03-22T09:30:00+00:00"
+                    order: 3
+                    has_children: true
+                  first_child:
+                    route: /blog/second-post/gallery
+                    raw_route: /blog/second-post/gallery
+                    parent_route: /blog/second-post
+                    slug: gallery
+                    folder: 01.gallery
+                    title: Gallery
+                    menu: Gallery
+                    template: default
+                    language: null
+                    taxonomy: {}
+                    published: true
+                    visible: true
+                    routable: true
+                    date: "2026-03-20T12:00:00+00:00"
+                    modified: "2026-03-22T09:30:00+00:00"
+                    order: 1
+                    has_children: false
+                  index: 1
+                  total: 3
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
@@ -7136,6 +7335,19 @@ paths:
         their own reports via the `onApiGenerateReports` event, optionally
         specifying a web component for custom rendering. Requires
         `api.reports.read`.
+
+        The whole-site scans behind the built-in reports (the XSS check, the
+        Twig leak check and the YAML linter) are cached until page content,
+        configuration, the active language or theme, the Grav version, or a
+        config, blueprint or environment YAML file changes. The recent Twig
+        block events and reports added by plugins are always current.
+      parameters:
+        - name: refresh
+          in: query
+          description: When `true`, run the built-in scans again instead of using the cached result.
+          schema:
+            type: boolean
+            default: false
       responses:
         "200":
           description: Reports returned.
@@ -12717,6 +12929,7 @@ components:
         header:
           type: object
           additionalProperties: true
+          description: The page's frontmatter. Left out when the list is requested with `fields=summary`.
         taxonomy:
           type: object
           additionalProperties:
@@ -12822,7 +13035,6 @@ components:
         - slug
         - title
         - template
-        - header
         - taxonomy
         - published
         - visible

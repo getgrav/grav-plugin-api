@@ -54,6 +54,7 @@ use Grav\Plugin\Api\Middleware\JsonBodyParserMiddleware;
 use Grav\Plugin\Api\Middleware\MethodOverrideMiddleware;
 use Grav\Plugin\Api\Middleware\RateLimitMiddleware;
 use Grav\Plugin\Api\Response\ErrorResponse;
+use Grav\Plugin\Api\Response\ResponseCompressor;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
@@ -372,9 +373,37 @@ class ApiRouter extends ProcessorBase
         // same browser (admin2#79, #88).
         $this->protectSharedSession();
 
+        $response = $this->compressResponse($request, $response);
+
         $this->stopTimer();
 
         return $response;
+    }
+
+    /**
+     * Gzip a large JSON response when the client accepts it (plugins.api.compression).
+     *
+     * Grav's shutdown handler, on a host without fastcgi_finish_request() and
+     * with system.cache.gzip or allow_webserver_gzip on, sends its own
+     * `Content-Encoding: identity` after the body is written, which would
+     * mislabel a gzipped body. Compression is skipped in that one setup.
+     */
+    protected function compressResponse(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        $shutdownRewritesEncoding = !function_exists('fastcgi_finish_request')
+            && $this->config->get('system.debugger.shutdown.close_connection', true)
+            && ($this->config->get('system.cache.gzip') || $this->config->get('system.cache.allow_webserver_gzip'));
+
+        try {
+            return (new ResponseCompressor(
+                $this->config->get('plugins.api.compression', 'auto'),
+                (bool) $shutdownRewritesEncoding,
+            ))->compress($request, $response);
+        } catch (Throwable $e) {
+            $this->container['log']->warning('API: response compression skipped: ' . $e->getMessage());
+
+            return $response;
+        }
     }
 
     /**
@@ -711,6 +740,7 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('POST', '/pages/{route:.+}/sync', [PagesController::class, 'sync']);
         $r->addRoute('POST', '/pages/{route:.+}/preview-token', [PagesController::class, 'previewToken']);
         $r->addRoute('GET', '/pages/{route:.+}/compare', [PagesController::class, 'compare']);
+        $r->addRoute('GET', '/pages/{route:.+}/neighbors', [PagesController::class, 'neighbors']);
         $r->addRoute('POST', '/pages/{route:.+}/reorder', [PagesController::class, 'reorder']);
         $r->addRoute('GET', '/pages/{route:.+}/media', [MediaController::class, 'pageMedia']);
         $r->addRoute('POST', '/pages/{route:.+}/media', [MediaController::class, 'uploadPageMedia']);

@@ -151,6 +151,13 @@ class PageSerializer implements SerializerInterface
             'has_children' => count($resource->children()) > 0,
         ];
 
+        // Page lists with `fields=summary` leave the full frontmatter out. It is
+        // still read above, because published, visible, title and menu come
+        // from it.
+        if (!($options['include_header'] ?? true)) {
+            unset($data['header']);
+        }
+
         if ($includeTranslations) {
             $data['translated_languages'] = $resource->translatedLanguages();
             $data['untranslated_languages'] = $resource->untranslatedLanguages();

@@ -1789,6 +1789,70 @@
           }
         },
         {
+          "id": "openapi:getPageNeighbors",
+          "name": "Get a page's parent, siblings and first child",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Generated from openapi.yaml by tests/newman/sync-collection.php; the Newman suite skips it.",
+                  "if (pm.variables.get('newman_suite')) { pm.execution.skipRequest(); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "API Key authentication"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/pages/:route/neighbors",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "pages",
+                ":route",
+                "neighbors"
+              ],
+              "query": [
+                {
+                  "key": "lang",
+                  "value": "",
+                  "description": "Two-letter language code. When provided, the request operates on\nthe page translation for that language. If omitted, the default\nsite language is used.\n",
+                  "disabled": true
+                },
+                {
+                  "key": "translations",
+                  "value": "false",
+                  "description": "When `true`, each row also carries the translation fields, as on `GET /pages`.",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "route",
+                  "value": "{{page_route}}",
+                  "description": "The page route without leading slash (e.g. `blog/my-post`). Supports\nnested routes with `/` separators.\n"
+                }
+              ]
+            },
+            "description": "Where a page sits among its siblings, for page-to-page navigation:\nits parent, the previous and next sibling, its first child, its\nzero-based position and the number of siblings.\n\nSiblings are the parent's children in exactly the order\n`GET /pages?children_of=<parent>&sort=default&order=asc` lists them\n(`children_of=/` for a top-level page), and `first_child` is the first\nrow of the same listing for the page's own children. Every row is\nserialized exactly like a `GET /pages?fields=summary` row, including\n`permissions`. Only the parent's and the page's own children are read,\nnever the whole site.\n\n`parent` is null for a top-level page, `prev` for the first sibling,\n`next` for the last and `first_child` when the page has no children.\nA page that its parent's listing leaves out (a folder with no content\nfile) gets `index: -1` and null `prev` and `next`.\n\nRequires `api.pages.read`, and the page's own rules must allow\nreading it. An unknown route is a 404."
+          }
+        },
+        {
           "id": "openapi:syncPageTranslation",
           "name": "Overwrite a translation from another language",
           "event": [

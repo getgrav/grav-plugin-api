@@ -1,7 +1,16 @@
 # v1.0.40
 ## 09/22/2026
 
+1. [](#new)
+    * The page editor's previous and next buttons can now find a page's neighbours with one small request instead of downloading every page in the folder.
+    * Page lists can be requested without each page's full frontmatter, which roughly halves their size for the admin's tree, list and columns views.
+    * A new Response Compression setting gzips large responses for clients that accept it, and is on by default.
 1. [](#improved)
+    * Large responses such as the page list and the translation strings are now sent compressed, about a fifth of their old size over the network.
+    * Opening a folder in the page tree now reads only that folder's pages instead of the whole site.
+    * Pages in a folder that sort the same, such as modules with no order of their own, now keep the folder's order in the admin instead of an arbitrary one.
+    * The Reports screen opens almost instantly on a second visit, because its site-wide scans are remembered until a page, a setting or a YAML file changes.
+    * Calls made with an API key or token and no site cookie, such as scripts and the MCP server, no longer start a PHP session, so they skip the session file and stop sending headers that prevented the browser from caching the translations.
     * The admin's translations, sidebar and blueprint forms load about twice as fast, because the list of language files is remembered between requests instead of being read again from every plugin each time.
     * The admin's translation strings are no longer downloaded again when nothing has changed; the browser gets a quick "not changed" reply instead.
     * The dashboard no longer stalls for a second or two after a cache clear while it downloads the package list. Update counts show as unknown until the next update check.
@@ -11,6 +20,7 @@
 1. [](#bugfix)
     * Searching pages now works on sites that don't use Flex pages, where every search used to return every page.
     * Page search now also narrows the tree and columns views when they list a page's children in their natural order.
+    * Signing out can no longer be quietly undone by another request that was running at the same moment, and the list of signed-out tokens is no longer rewritten on every request.
 
 # v1.0.39
 ## 09/22/2026
