@@ -4,7 +4,11 @@ declare(strict_types=1);
 
 namespace Grav\Plugin\Api\Controllers;
 
+use Doctrine\Common\Cache\FilesystemCache;
 use Grav\Common\GPM\GPM;
+use Grav\Common\GPM\Remote\GravCore;
+use Grav\Common\GPM\Remote\Plugins as RemotePlugins;
+use Grav\Common\GPM\Remote\Themes as RemoteThemes;
 use Grav\Common\HTTP\Response;
 use Grav\Common\User\DataUser\User as DataUser;
 use Grav\Plugin\Api\Exceptions\ValidationException;
@@ -285,23 +289,13 @@ class DashboardController extends AbstractApiController
         // Active theme
         $activeTheme = $this->grav['config']->get('system.pages.theme');
 
-        // Available-update counts for the sidebar badges. Read from Grav's cached
-        // GPM data (new GPM(false)) so this stays a fast, network-free lookup — an
-        // empty/never-checked cache simply reports zero updates. Wrapped so a GPM
-        // hiccup can never take down the dashboard.
-        $pluginUpdates = 0;
-        $themeUpdates = 0;
-        $gravUpdatable = false;
-        $activeThemeUpdatable = false;
-        try {
-            $counts = self::extractUpdateCounts(new GPM(false), is_string($activeTheme) ? $activeTheme : null);
-            $pluginUpdates = $counts['plugins'];
-            $themeUpdates = $counts['themes'];
-            $gravUpdatable = $counts['grav'];
-            $activeThemeUpdatable = $counts['active_theme'];
-        } catch (\Throwable $e) {
-            $this->grav['log']->warning('[api] Dashboard stats could not read GPM update counts: ' . $e->getMessage());
-        }
+        // Available-update counts for the sidebar badges, or null for "unknown,
+        // not checked yet". See gpmUpdateCounts(): this never goes to the network.
+        $counts = $this->gpmUpdateCounts(is_string($activeTheme) ? $activeTheme : null);
+        $pluginUpdates = $counts['plugins'] ?? null;
+        $themeUpdates = $counts['themes'] ?? null;
+        $gravUpdatable = $counts['grav'] ?? null;
+        $activeThemeUpdatable = $counts['active_theme'] ?? null;
 
         // Count media files. The recursive walk is O(total files) and runs on a
         // dashboard endpoint, so the tally is cached for a few minutes — a
@@ -388,6 +382,111 @@ class DashboardController extends AbstractApiController
         ];
 
         return ApiResponse::create($data);
+    }
+
+    /**
+     * Available-update counts from the repository data GPM already has on disk,
+     * or null when there is none to read.
+     *
+     * `new GPM(false)` is not the network-free lookup it looks like: when a
+     * repository file is missing or past its 24 hour lifetime, which includes
+     * straight after every cache clear, it downloads plugins.json and
+     * themes.json (about 2.5 MB each) inside this request. That was the 1 to 2
+     * second dashboard spike. So the cached repository entries are checked
+     * first, and if any is missing or expired the counts are reported as
+     * unknown; `/gpm/updates` or the scheduler refreshes them and the next call
+     * reads them.
+     *
+     * Even with the files present, counting means decoding both repositories
+     * and every installed blueprint, so the result is kept in the Grav cache,
+     * keyed on the repository files and the installed packages' blueprints.
+     *
+     * @return array{plugins: int, themes: int, grav: bool, active_theme: bool}|null
+     */
+    private function gpmUpdateCounts(?string $activeTheme): ?array
+    {
+        try {
+            $gpmDir = $this->grav['locator']->findResource('cache://gpm', true, true);
+            if (!is_string($gpmDir) || !is_dir($gpmDir)) {
+                return null;
+            }
+
+            $channel = (string) $this->grav['config']->get('system.gpm.releases', 'stable');
+            $query = '?v=' . GRAV_VERSION . '&php=' . PHP_VERSION . '&' . $channel . '=1';
+            $repositories = new FilesystemCache($gpmDir);
+            foreach ([RemotePlugins::class, RemoteThemes::class, GravCore::class] as $class) {
+                $url = self::remoteRepositoryUrl($class);
+                if ($url === null || !$repositories->contains(md5($url . $query))) {
+                    return null;
+                }
+            }
+
+            $cache = $this->grav['cache'];
+            $cacheKey = 'api-dashboard-gpm-counts-' . $this->gpmCountsFingerprint($gpmDir, $query, $activeTheme);
+            $cached = $cache->fetch($cacheKey);
+            if (is_array($cached) && isset($cached['plugins'], $cached['themes'], $cached['grav'], $cached['active_theme'])) {
+                return $cached;
+            }
+
+            $counts = self::extractUpdateCounts(new GPM(false), $activeTheme);
+            $cache->save($cacheKey, $counts, 86400);
+
+            return $counts;
+        } catch (\Throwable $e) {
+            // A GPM hiccup must never take down the dashboard.
+            $this->grav['log']->warning('[api] Dashboard stats could not read GPM update counts: ' . $e->getMessage());
+
+            return null;
+        }
+    }
+
+    /**
+     * The repository URL a GPM remote collection reads, from the class's own
+     * default so it cannot drift from core.
+     *
+     * @param class-string $class
+     */
+    private static function remoteRepositoryUrl(string $class): ?string
+    {
+        try {
+            $url = (new \ReflectionProperty($class, 'repository'))->getDefaultValue();
+        } catch (\ReflectionException) {
+            return null;
+        }
+
+        return is_string($url) && $url !== '' ? $url : null;
+    }
+
+    /**
+     * Stat-only signature of what the update counts depend on: the GPM
+     * repository files (their mtime moves on every save), the Grav and PHP
+     * versions and release channel baked into the repository query, the active
+     * theme, and each installed plugin's and theme's `blueprints.yaml`, which
+     * is where its version lives.
+     */
+    private function gpmCountsFingerprint(string $gpmDir, string $query, ?string $activeTheme): string
+    {
+        $parts = [$query, (string) $activeTheme];
+
+        $files = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($gpmDir, \FilesystemIterator::SKIP_DOTS)
+        );
+        foreach ($files as $file) {
+            if ($file->isFile()) {
+                $parts[] = $file->getPathname() . ':' . $file->getMTime() . ':' . $file->getSize();
+            }
+        }
+
+        foreach (['plugins://', 'themes://'] as $stream) {
+            foreach ((array) $this->grav['locator']->findResources($stream) as $root) {
+                foreach (glob($root . '/*/blueprints.yaml') ?: [] as $blueprint) {
+                    $parts[] = $blueprint . ':' . (@filemtime($blueprint) ?: 0);
+                }
+            }
+        }
+        sort($parts);
+
+        return md5(implode('|', $parts));
     }
 
     /**

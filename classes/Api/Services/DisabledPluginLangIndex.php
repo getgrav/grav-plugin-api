@@ -26,18 +26,39 @@ use Grav\Common\Grav;
  * standalone walk this replaced only ever looked at plugins, so a switched-away
  * theme's strings still reached the SPA.
  *
- * The result is cached per-language for the request lifecycle since the
- * underlying YAML files don't change mid-request.
+ * The result is memoized per language for the request, and persisted in the
+ * Grav cache against {@see TranslationSourceIndex::languageFingerprint()}, so a
+ * warm request answers without loading the attribution index at all.
  */
 final class DisabledPluginLangIndex
 {
+    private const CACHE_TTL = 604800;
+
+    /** @var \WeakMap<Grav, self>|null */
+    private static ?\WeakMap $shared = null;
+
     /** @var array<string, array<int, string>> */
     private array $cache = [];
 
-    private ?TranslationSourceIndex $sources = null;
+    /** @var array<string, array<string, int>> lang => flipped key list, for isset lookups */
+    private array $lookup = [];
 
-    public function __construct(private readonly Grav $grav)
+    private ?TranslationSourceIndex $sources;
+
+    public function __construct(private readonly Grav $grav, ?TranslationSourceIndex $sources = null)
     {
+        $this->sources = $sources;
+    }
+
+    /**
+     * The request-wide instance for a Grav container, sharing the request-wide
+     * {@see TranslationSourceIndex}.
+     */
+    public static function shared(Grav $grav): self
+    {
+        self::$shared ??= new \WeakMap();
+
+        return self::$shared[$grav] ??= new self($grav, TranslationSourceIndex::shared($grav));
     }
 
     /**
@@ -50,18 +71,25 @@ final class DisabledPluginLangIndex
         }
 
         $index = $this->sources();
-        $providers = $index->providers();
+        $cache = $this->grav['cache'];
+        $cacheKey = 'api-i18n-disabled-' . $index->languageFingerprint($lang);
+        $cached = $cache->fetch($cacheKey);
+        if (is_array($cached)) {
+            return $this->cache[$lang] = $cached;
+        }
 
         $result = [];
         foreach ($index->index($lang) as $key => $entry) {
             foreach ($entry['providers'] as $providerId) {
-                if ($providers[$providerId]['enabled'] ?? true) {
+                if ($index->isProviderEnabled($providerId)) {
                     // At least one enabled source ships it; not our problem.
                     continue 2;
                 }
             }
             $result[] = $key;
         }
+
+        $cache->save($cacheKey, $result, self::CACHE_TTL);
 
         return $this->cache[$lang] = $result;
     }
@@ -71,7 +99,9 @@ final class DisabledPluginLangIndex
      */
     public function isDisabledOnly(string $key, string $lang): bool
     {
-        return in_array($key, $this->disabledOnlyKeys($lang), true);
+        $this->lookup[$lang] ??= array_flip($this->disabledOnlyKeys($lang));
+
+        return isset($this->lookup[$lang][$key]);
     }
 
     private function sources(): TranslationSourceIndex

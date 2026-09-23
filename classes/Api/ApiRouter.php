@@ -14,6 +14,7 @@ use Grav\Plugin\Api\Audit\AuditContext;
 use Grav\Plugin\Api\Popularity\PopularityTracker;
 use Grav\Plugin\Api\Controllers\AuditController;
 use Grav\Plugin\Api\Controllers\AuthController;
+use Grav\Plugin\Api\Controllers\BootController;
 use Grav\Plugin\Api\Controllers\CaptchaController;
 use Grav\Plugin\Api\Controllers\BlueprintController;
 use Grav\Plugin\Api\Controllers\BlueprintFilesController;
@@ -54,6 +55,7 @@ use Grav\Plugin\Api\Middleware\JsonBodyParserMiddleware;
 use Grav\Plugin\Api\Middleware\MethodOverrideMiddleware;
 use Grav\Plugin\Api\Middleware\RateLimitMiddleware;
 use Grav\Plugin\Api\Response\ErrorResponse;
+use Grav\Plugin\Api\Response\ResponseCompressor;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
@@ -372,9 +374,37 @@ class ApiRouter extends ProcessorBase
         // same browser (admin2#79, #88).
         $this->protectSharedSession();
 
+        $response = $this->compressResponse($request, $response);
+
         $this->stopTimer();
 
         return $response;
+    }
+
+    /**
+     * Gzip a large JSON response when the client accepts it (plugins.api.compression).
+     *
+     * Grav's shutdown handler, on a host without fastcgi_finish_request() and
+     * with system.cache.gzip or allow_webserver_gzip on, sends its own
+     * `Content-Encoding: identity` after the body is written, which would
+     * mislabel a gzipped body. Compression is skipped in that one setup.
+     */
+    protected function compressResponse(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        $shutdownRewritesEncoding = !function_exists('fastcgi_finish_request')
+            && $this->config->get('system.debugger.shutdown.close_connection', true)
+            && ($this->config->get('system.cache.gzip') || $this->config->get('system.cache.allow_webserver_gzip'));
+
+        try {
+            return (new ResponseCompressor(
+                $this->config->get('plugins.api.compression', 'auto'),
+                (bool) $shutdownRewritesEncoding,
+            ))->compress($request, $response);
+        } catch (Throwable $e) {
+            $this->container['log']->warning('API: response compression skipped: ' . $e->getMessage());
+
+            return $response;
+        }
     }
 
     /**
@@ -575,6 +605,13 @@ class ApiRouter extends ProcessorBase
         $cacheFile = $cacheDir . '/route.' . $this->routeCacheFingerprint() . '.cache';
         $cacheDisabled = $this->config->get('system.debugger.enabled', false);
 
+        // After a cache clear nothing else may have recreated cache://api yet
+        // (the rate limiter does, but only when it's on), and FastRoute's
+        // cache write then failed every request with a 500.
+        if (!$cacheDisabled && !is_dir($cacheDir) && !@mkdir($cacheDir, 0775, true) && !is_dir($cacheDir)) {
+            $cacheDisabled = true;
+        }
+
         return cachedDispatcher(function (RouteCollector $r) {
             $this->registerCoreRoutes($r);
             $this->registerPluginRoutes($r);
@@ -711,6 +748,7 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('POST', '/pages/{route:.+}/sync', [PagesController::class, 'sync']);
         $r->addRoute('POST', '/pages/{route:.+}/preview-token', [PagesController::class, 'previewToken']);
         $r->addRoute('GET', '/pages/{route:.+}/compare', [PagesController::class, 'compare']);
+        $r->addRoute('GET', '/pages/{route:.+}/neighbors', [PagesController::class, 'neighbors']);
         $r->addRoute('POST', '/pages/{route:.+}/reorder', [PagesController::class, 'reorder']);
         $r->addRoute('GET', '/pages/{route:.+}/media', [MediaController::class, 'pageMedia']);
         $r->addRoute('POST', '/pages/{route:.+}/media', [MediaController::class, 'uploadPageMedia']);
@@ -855,6 +893,11 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('GET', '/dashboard/widgets', [DashboardWidgetController::class, 'widgets']);
         $r->addRoute('PATCH', '/dashboard/layout', [DashboardWidgetController::class, 'saveUserLayout']);
         $r->addRoute('PATCH', '/dashboard/site-layout', [DashboardWidgetController::class, 'saveSiteLayout']);
+
+        // Admin-next boot: preferences, me, menubar, sidebar, floating widgets,
+        // context panels, custom fields, languages and the translations
+        // checksum in one request.
+        $r->addRoute('GET', '/admin-next/boot', [BootController::class, 'show']);
 
         // Admin-next UI preferences (site defaults + per-user overrides + branding)
         $r->addRoute('GET', '/admin-next/preferences', [PreferencesController::class, 'show']);

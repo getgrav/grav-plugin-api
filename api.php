@@ -72,15 +72,100 @@ class ApiPlugin extends Plugin
      * is planted even on a cross-origin iframe. This must run before the session
      * starts, so it hooks PluginsLoadedEvent rather than onPluginsInitialized
      * (which fires a processor later, after the session is already up).
+     *
+     * The same switch covers API calls that authenticate with a token
+     * (`X-API-Token`, `X-API-Key` or `Authorization: Bearer`). Token auth never
+     * reads the session, so starting one only created a session file for
+     * cookieless callers, sent `Expires: 1981` / `Pragma: no-cache` on every
+     * response (which also defeated the conditional GET on /translations) and
+     * took the session lock. A caller that also sends this site's session cookie
+     * (Admin-Next does) keeps its session, as does a cookie-only caller. The SSO hand-off
+     * parks state in the session, so it is left alone.
      */
     public function onPluginsLoaded(): void
     {
-        if (
-            isset($_GET['admin_preview'])
-            && $this->config->get('plugins.api.protect_frontend_session', true)
-        ) {
+        if (!$this->config->get('plugins.api.protect_frontend_session', true)) {
+            return;
+        }
+
+        if (isset($_GET['admin_preview']) || $this->isTokenAuthenticatedApiRequest()) {
             $this->config->set('system.session.initialize', false);
         }
+    }
+
+    /**
+     * Whether this request targets the API and carries a token credential.
+     *
+     * Runs before Grav's Uri is initialised, so the path comes from the raw
+     * request and the site's base path from the front controller's location.
+     */
+    protected function isTokenAuthenticatedApiRequest(): bool
+    {
+        $route = $this->config->get('plugins.api.route');
+        if (!$route) {
+            return false;
+        }
+
+        try {
+            $request = $this->grav['request'];
+            $hasToken = $request->getHeaderLine('X-API-Token') !== ''
+                || $request->getHeaderLine('X-API-Key') !== ''
+                || stripos($request->getHeaderLine('Authorization'), 'Bearer ') === 0;
+            $path = $request->getUri()->getPath();
+        } catch (\Throwable) {
+            return false;
+        }
+
+        // Admin-Next sends its token alongside the site's session cookie. That
+        // session keeps a front-end login alive and backs the token, so only
+        // cookieless callers (scripts, MCP, curl) go without one.
+        if (!$hasToken || $this->requestHasSessionCookie()) {
+            return false;
+        }
+
+        $scriptDir = str_replace('\\', '/', dirname((string) ($_SERVER['SCRIPT_NAME'] ?? '')));
+        $gravBase = rtrim($scriptDir, '/.');
+        if ($gravBase !== '' && str_starts_with($path, $gravBase . '/')) {
+            $path = substr($path, strlen($gravBase));
+        }
+
+        $apiBase = '/' . trim((string) $route, '/') . '/' . trim((string) $this->config->get('plugins.api.version_prefix', 'v1'), '/');
+        if ($path !== $apiBase && !str_starts_with($path, $apiBase . '/')) {
+            return false;
+        }
+
+        // The SSO hand-off keeps its CSRF state in the session between the
+        // two browser navigations (see ApiRouter::isStatefulSessionRoute()).
+        $apiPath = substr($path, strlen($apiBase));
+
+        return !preg_match('#^/auth/sso/[^/]+/(start|callback)/?$#', $apiPath);
+    }
+
+    /**
+     * Whether the request carries one of this site's session cookies.
+     *
+     * Matches on the uniqueness suffix core appends to every session name
+     * (SessionServiceProvider), so a custom `system.session.name` prefix still
+     * matches without building the session service this early.
+     */
+    protected function requestHasSessionCookie(): bool
+    {
+        if (!$_COOKIE) {
+            return false;
+        }
+
+        $uniqueness = $this->config->get('system.session.uniqueness', 'path') === 'path'
+            ? substr(md5(GRAV_ROOT), 0, 7)
+            : md5(\Grav\Common\Security::getNonceKey());
+
+        foreach (array_keys($_COOKIE) as $name) {
+            $name = (string) $name;
+            if (str_ends_with($name, '-' . $uniqueness) || str_ends_with($name, '-' . $uniqueness . '-admin')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -208,7 +293,7 @@ class ApiPlugin extends Plugin
         }
 
         try {
-            $sources = new TranslationSourceIndex($this->grav);
+            $sources = TranslationSourceIndex::shared($this->grav);
             (new TranslationOverrideStore($this->grav, $sources))->applyRuntime();
         } catch (\Throwable $e) {
             // A malformed override file must never take the site down.

@@ -28,16 +28,19 @@ class ReportsController extends AbstractApiController
     {
         $this->requirePermission($request, self::PERMISSION_READ);
 
+        $refresh = filter_var($request->getQueryParams()['refresh'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        $scans = $this->builtInScans($refresh);
+
         $reports = [];
 
         // Built-in: Grav Security Check (XSS scan)
-        $reports[] = $this->securityReport();
+        $reports[] = $scans['security'];
 
         // Built-in: Twig in Content (gate/sandbox state, leaking pages, blocks)
-        $reports[] = $this->twigContentReport();
+        $reports[] = $this->twigContentReport($scans['twig_leaks']);
 
         // Built-in: YAML Linter
-        $reports[] = $this->yamlLinterReport();
+        $reports[] = $scans['yaml'];
 
         // Fire event for plugins to add their own reports
         $event = new Event(['reports' => $reports]);
@@ -45,6 +48,110 @@ class ReportsController extends AbstractApiController
         $reports = $event['reports'];
 
         return ApiResponse::create($reports);
+    }
+
+    /** Bump when the cached scan payload changes structure. */
+    private const SCAN_CACHE_VERSION = 1;
+
+    /**
+     * The three whole-site scans behind the built-in reports: the XSS check and
+     * the Twig leak check read every page, and the YAML linter parses every
+     * page's frontmatter plus the config and blueprint files. Together they
+     * were 300-450 ms per visit to the Reports screen.
+     *
+     * The result is cached against everything it is computed from: the pages
+     * cache id (which changes when page content changes), the config checksum
+     * (security settings, the Twig gate), the active language and theme, the
+     * Grav version, and a stat of the config, blueprint and environment YAML
+     * the linter reads outside the pages tree. The recent Twig block events
+     * and reports added by plugins are always live. `refresh=true` rebuilds.
+     *
+     * @return array{security: array, twig_leaks: array, yaml: array}
+     */
+    private function builtInScans(bool $refresh = false): array
+    {
+        /** @var Pages $pages */
+        $pages = $this->grav['pages'];
+        $pages->enablePages();
+
+        $cache = $this->grav['cache'];
+        $pagesId = method_exists($pages, 'getPagesCacheId') ? $pages->getPagesCacheId() : null;
+        $key = null;
+        if ($pagesId) {
+            $key = 'api-reports-' . md5(json_encode([
+                self::SCAN_CACHE_VERSION,
+                $pagesId,
+                $this->config->checksum(),
+                $this->grav['language']->getActive(),
+                (string) $this->config->get('system.pages.theme'),
+                \defined('GRAV_VERSION') ? GRAV_VERSION : '',
+                $this->lintedFilesFingerprint(),
+            ]));
+
+            if (!$refresh) {
+                $cached = $cache->fetch($key);
+                if (is_array($cached) && isset($cached['security'], $cached['twig_leaks'], $cached['yaml'])) {
+                    return $cached;
+                }
+            }
+        }
+
+        $scans = [
+            'security' => $this->securityReport(),
+            'twig_leaks' => Security::detectTwigLeaksFromPages($pages),
+            'yaml' => $this->yamlLinterReport(),
+        ];
+
+        if ($key !== null) {
+            $cache->save($key, $scans, 86400);
+        }
+
+        return $scans;
+    }
+
+    /**
+     * Name, size and modification time of every YAML and Markdown file the
+     * linter reads outside the pages tree (config, blueprints, the active
+     * theme's blueprints and each environment's config), which the pages
+     * cache id doesn't see. About 1 ms of stat calls on a typical site.
+     */
+    private function lintedFilesFingerprint(): string
+    {
+        $locator = $this->grav['locator'];
+
+        $dirs = array_merge(
+            (array) $locator->findResources('config://'),
+            (array) $locator->findResources('blueprints://'),
+        );
+        $theme = (string) $this->config->get('system.pages.theme');
+        if ($theme !== '') {
+            $themeBlueprints = $locator->findResource('themes://' . $theme . '/blueprints');
+            if (is_string($themeBlueprints)) {
+                $dirs[] = $themeBlueprints;
+            }
+        }
+        $userPath = GRAV_ROOT . '/' . GRAV_USER_PATH;
+        foreach (array_merge(glob($userPath . '/*/config', GLOB_ONLYDIR) ?: [], glob($userPath . '/env/*/config', GLOB_ONLYDIR) ?: []) as $dir) {
+            $dirs[] = $dir;
+        }
+
+        $hash = hash_init('md5');
+        foreach (array_unique($dirs) as $dir) {
+            if (!is_string($dir) || !is_dir($dir)) {
+                continue;
+            }
+            $files = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(
+                $dir,
+                \FilesystemIterator::SKIP_DOTS | \FilesystemIterator::FOLLOW_SYMLINKS
+            ));
+            foreach ($files as $file) {
+                if (preg_match('/\.(md|yaml)$/i', $file->getFilename())) {
+                    hash_update($hash, $file->getPathname() . '|' . $file->getMTime() . '|' . $file->getSize() . "\n");
+                }
+            }
+        }
+
+        return hash_final($hash);
     }
 
     /**
@@ -105,7 +212,7 @@ class ReportsController extends AbstractApiController
      * Phase 1 diagnostics ring buffer. Each sandbox-block row carries an
      * `allowlist` descriptor the UI turns into a one-click "Add to allowlist".
      */
-    private function twigContentReport(): array
+    private function twigContentReport(array $leaks): array
     {
         $config = $this->grav['config'];
         $gate        = (bool) $config->get('security.twig_content.process_enabled', false);
@@ -119,11 +226,6 @@ class ReportsController extends AbstractApiController
         $globalRequest      = $config->get('system.pages.process.twig') === true;
         $frontmatterRequest = (bool) $config->get('system.pages.frontmatter.process_twig', false);
 
-        /** @var Pages $pages */
-        $pages = $this->grav['pages'];
-        $pages->enablePages();
-
-        $leaks  = Security::detectTwigLeaksFromPages($pages);
         $events = Security::recentTwigContentEvents();
 
         $items = [];

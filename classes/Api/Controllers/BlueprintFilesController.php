@@ -154,8 +154,7 @@ class BlueprintFilesController extends AbstractApiController
     private function serializer(): MediaSerializer
     {
         if (!$this->serializer) {
-            $cacheDir = $this->grav['locator']->findResource('cache://') . '/api/thumbnails';
-            $thumb = new ThumbnailService($cacheDir);
+            $thumb = ThumbnailService::forGrav($this->grav);
             $this->serializer = new MediaSerializer($thumb, $this->getApiBaseUrl());
         }
         return $this->serializer;

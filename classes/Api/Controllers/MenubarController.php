@@ -57,6 +57,16 @@ class MenubarController extends AbstractApiController
      */
     public function items(ServerRequestInterface $request): ResponseInterface
     {
+        return ApiResponse::create($this->itemsData($request));
+    }
+
+    /**
+     * The payload of GET /menubar/items, shared with GET /admin-next/boot.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function itemsData(ServerRequestInterface $request): array
+    {
         $this->requirePermission($request, 'api.access');
 
         $user = $this->getUser($request);
@@ -72,7 +82,7 @@ class MenubarController extends AbstractApiController
             $filtered[] = $item;
         }
 
-        return ApiResponse::create($filtered);
+        return $filtered;
     }
 
     /**

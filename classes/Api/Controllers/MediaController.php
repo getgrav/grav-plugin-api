@@ -1097,10 +1097,14 @@ class MediaController extends AbstractApiController
             throw new NotFoundException('Thumbnail not found.');
         }
 
-        $cacheDir = $this->grav['locator']->findResource('cache://') . '/api/thumbnails';
-        $cachePath = $cacheDir . '/' . basename($file);
+        // Only thumbnail filenames (hash.ext) are served. A thumbnail a listing
+        // deferred is generated here on its first request, from the source and
+        // size that listing recorded; nothing else can be generated.
+        $service = $this->getThumbnailService();
+        $name = basename($file);
+        $cachePath = $service->cachedPath($name) ?? $service->generatePending($name);
 
-        if (!file_exists($cachePath)) {
+        if ($cachePath === null) {
             throw new NotFoundException('Thumbnail not found.');
         }
 
@@ -2186,11 +2190,12 @@ class MediaController extends AbstractApiController
                 ];
             }
 
-            // Generate thumbnail. The mime is already known, so pass it through
-            // to skip the service's own magic-byte sniff.
+            // Thumbnail URL; the image is resized on the first request for it.
+            // The mime is already known, so pass it through to skip the
+            // service's own magic-byte sniff.
             try {
                 $thumbnailService = $this->getThumbnailService();
-                $thumbFilename = $thumbnailService->ensureThumbnail($filePath, $mime);
+                $thumbFilename = $thumbnailService->thumbnailFilename($filePath, $mime);
                 if ($thumbFilename) {
                     $data['thumbnail_url'] = $this->getApiBaseUrl() . '/thumbnails/' . $thumbFilename;
                 }

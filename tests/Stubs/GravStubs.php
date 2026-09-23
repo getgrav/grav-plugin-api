@@ -245,6 +245,8 @@ namespace Grav\Common\Page\Interfaces {
             public function order($var = null): ?int;
             public function path($var = null): ?string;
             public function title($var = null): string;
+            // Declared on the real PageContentInterface; the page search matches it.
+            public function menu($var = null);
             public function isModule(): bool;
             public function children(): \Traversable;
             public function published(): bool;
@@ -256,6 +258,11 @@ namespace Grav\Common\Page\Interfaces {
             public function header($var = null);
             public function parent(?PageInterface $var = null): ?PageInterface;
             public function language($var = null);
+            // Read by PageSerializer for every list row.
+            public function folder($var = null);
+            public function taxonomy($var = null);
+            public function date($var = null);
+            public function modified($var = null);
         }
     }
 }

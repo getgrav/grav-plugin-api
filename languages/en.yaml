@@ -47,3 +47,9 @@ PLUGIN_API:
   GROUPS_HELP: "Assign user to groups for permission inheritance"
   ACCESS_LEVELS: "Access Levels"
   AVATAR_HASH: "Enter a unique identifier for your multiavatar"
+
+  # Response compression
+  COMPRESSION: "Response Compression"
+  COMPRESSION_HELP: "Gzip large JSON responses (over 8 KB) for clients that accept it, which cuts page lists and translation downloads to a fraction of their size. Automatic leaves the output alone when PHP already compresses it. Choose Off to leave compression to the web server."
+  COMPRESSION_AUTO: "Automatic"
+  COMPRESSION_OFF: "Off"

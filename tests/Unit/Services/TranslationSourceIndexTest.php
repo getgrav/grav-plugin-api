@@ -194,15 +194,85 @@ class TranslationSourceIndexTest extends TestCase
         $this->assertSame('value', $index['GOOD']['value']);
     }
 
+    #[Test]
+    public function the_inventory_is_cached_and_labels_are_only_built_when_asked_for(): void
+    {
+        $this->writeSystem('en', ['SITE' => ['TITLE' => 'Core Title']]);
+        $this->writePlugin('login', 'en', ['PLUGIN_LOGIN' => ['BTN' => 'Sign in']], enabled: true);
+        $cache = new I18nMemoryCache();
+
+        $this->index(cache: $cache)->index('en');
+
+        $this->assertCount(1, $cache->keysStartingWith('api-i18n-meta-'));
+        $this->assertSame([], $cache->keysStartingWith('api-i18n-labels-'), 'building the index needs no labels');
+
+        // A second request reads the inventory back instead of walking again.
+        $cached = $cache->saved[$cache->keysStartingWith('api-i18n-meta-')[0]];
+        $this->assertSame(['id', 'kind', 'slug', 'enabled', 'path'], array_keys($cached['providers']['plugin:login']));
+
+        $providers = $this->index(cache: $cache)->providers();
+        $this->assertSame('Login', $providers['plugin:login']['label']);
+        $this->assertSame('Grav Core', $providers['system:core']['label']);
+        $this->assertSame(['id', 'kind', 'slug', 'label', 'enabled', 'path'], array_keys($providers['plugin:login']));
+        $this->assertCount(1, $cache->keysStartingWith('api-i18n-labels-'));
+    }
+
+    #[Test]
+    public function enabling_a_plugin_is_not_hidden_by_a_cached_index(): void
+    {
+        // The precedence sort ranks by enabled state, so a cached index keyed on
+        // file mtimes alone kept the old winner after a plugin was switched on.
+        $this->writePlugin('alpha', 'en', ['SHARED' => 'from alpha'], enabled: true);
+        $this->writePlugin('beta', 'en', ['SHARED' => 'from beta'], enabled: false);
+        $cache = new I18nMemoryCache();
+
+        $this->assertSame('from alpha', $this->index(cache: $cache)->index('en')['SHARED']['value']);
+
+        $this->enabledPlugins = ['alpha' => false, 'beta' => true];
+
+        $this->assertSame('from beta', $this->index(cache: $cache)->index('en')['SHARED']['value']);
+    }
+
+    #[Test]
+    public function a_new_language_file_changes_the_fingerprints(): void
+    {
+        $this->writePlugin('login', 'en', ['PLUGIN_LOGIN' => ['BTN' => 'Sign in']], enabled: true);
+        $before = $this->index();
+        $meta = $before->metaFingerprint();
+        $lang = $before->languageFingerprint('fr');
+
+        // A folder's mtime has one-second resolution; make the change visible.
+        file_put_contents($this->tmp . '/user/plugins/login/languages/fr.yaml', "PLUGIN_LOGIN:\n  BTN: Connexion\n");
+        touch($this->tmp . '/user/plugins/login/languages', time() + 5);
+        clearstatcache();
+
+        $after = $this->index();
+        $this->assertNotSame($meta, $after->metaFingerprint());
+        $this->assertNotSame($lang, $after->languageFingerprint('fr'));
+        $this->assertSame('Connexion', $after->index('fr')['PLUGIN_LOGIN.BTN']['value']);
+    }
+
+    #[Test]
+    public function shared_hands_out_one_instance_per_container(): void
+    {
+        $this->index();
+        $grav = Grav::instance();
+
+        $this->assertSame(TranslationSourceIndex::shared($grav), TranslationSourceIndex::shared($grav));
+
+        Grav::resetInstance();
+        $this->assertNotSame(TranslationSourceIndex::shared($grav), TranslationSourceIndex::shared(Grav::instance()));
+    }
+
     // ─── fixture helpers ──────────────────────────────────────────────
 
-    private function index(?string $activeTheme = null): TranslationSourceIndex
+    private function index(?string $activeTheme = null, ?object $cache = null): TranslationSourceIndex
     {
         Grav::resetInstance();
         $grav = Grav::instance();
         $grav['locator'] = new I18nFakeLocator($this->tmp);
         $grav['config'] = new I18nFakeConfig($this->enabledPlugins, $activeTheme ?? $this->activeTheme);
-        $grav['cache'] = new I18nFakeCache();
+        $grav['cache'] = $cache ?? new I18nFakeCache();
 
         return new TranslationSourceIndex($grav);
     }

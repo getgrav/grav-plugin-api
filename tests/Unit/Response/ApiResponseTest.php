@@ -197,4 +197,19 @@ class ApiResponseTest extends TestCase
 
         $this->assertSame('/api/v1/users?page=2&per_page=50', $body['links']['next']);
     }
+
+    #[Test]
+    public function parts_response_keeps_data_and_errors_as_objects(): void
+    {
+        $empty = ApiResponse::parts([], []);
+        self::assertSame('{"data":{},"errors":{}}', (string) $empty->getBody());
+        self::assertSame('application/json', $empty->getHeaderLine('Content-Type'));
+
+        $mixed = ApiResponse::parts(['me' => ['username' => 'a'], 'widgets' => []], ['languages' => ['status' => 403, 'title' => 'Forbidden']]);
+        self::assertSame(
+            '{"data":{"me":{"username":"a"},"widgets":[]},"errors":{"languages":{"status":403,"title":"Forbidden"}}}',
+            (string) $mixed->getBody(),
+        );
+        self::assertSame(200, $mixed->getStatusCode());
+    }
 }

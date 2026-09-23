@@ -40,6 +40,16 @@ class ContextPanelController extends AbstractApiController
      */
     public function items(ServerRequestInterface $request): ResponseInterface
     {
+        return ApiResponse::create($this->itemsData($request));
+    }
+
+    /**
+     * The payload of GET /context-panels, shared with GET /admin-next/boot.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function itemsData(ServerRequestInterface $request): array
+    {
         $this->requirePermission($request, 'api.access');
 
         $user = $this->getUser($request);
@@ -59,6 +69,6 @@ class ContextPanelController extends AbstractApiController
         // usort is stable, so equal priorities keep registration order.
         usort($filtered, fn($a, $b) => ($b['priority'] ?? 0) <=> ($a['priority'] ?? 0));
 
-        return ApiResponse::create($filtered);
+        return $filtered;
     }
 }

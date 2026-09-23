@@ -1,7 +1,7 @@
 name: API
 slug: api
 type: plugin
-version: 1.0.39
+version: 1.0.40
 description: RESTful API for Grav CMS. Provides headless access to pages, media, configuration, users, and system management.
 icon: plug
 author:
@@ -104,6 +104,17 @@ form:
               validate:
                 type: bool
 
+            compression:
+              type: select
+              label: PLUGIN_API.COMPRESSION
+              help: PLUGIN_API.COMPRESSION_HELP
+              default: auto
+              options:
+                auto: PLUGIN_API.COMPRESSION_AUTO
+                'off': PLUGIN_API.COMPRESSION_OFF
+              validate:
+                type: string
+
         tab_authentication:
           type: tab
           title: Authentication
@@ -199,7 +210,7 @@ form:
             protect_frontend_session:
               type: toggle
               label: Protect Front-end Session
-              help: "When a token- or key-authenticated API call arrives without its own session cookie, don't let it plant a new front-end session cookie. This stops the API from booting a visitor who is logged in to the public site in the same browser. Recommended on."
+              help: "Keep API calls from touching the public site's session. Calls made with a token or API key and no session cookie skip the PHP session entirely, and any other call that arrives without its own session cookie never plants a new one. This stops the API from booting a visitor who is logged in to the public site in the same browser. Recommended on."
               highlight: 1
               default: 1
               options:

@@ -11,6 +11,7 @@ use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Grav\Plugin\Api\Services\DisabledPluginLangIndex;
 use Grav\Plugin\Api\Services\EnvironmentService;
+use Grav\Plugin\Api\Services\TranslationSourceIndex;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -22,6 +23,17 @@ class SystemController extends AbstractApiController
      * request for `en` or `en-US` skips the backfill instead of merging with itself.
      */
     private const FALLBACK_LANG = 'en-US';
+
+    /**
+     * Bump when the way the translations dictionary is built changes, so cached
+     * dictionaries and ETags from the previous logic are not served.
+     */
+    private const TRANSLATIONS_CACHE_VERSION = 1;
+
+    private const TRANSLATIONS_CACHE_TTL = 604800;
+
+    /** @var array<string, string> translationsFingerprint() per language and prefix, for this request. */
+    private array $translationsFingerprints = [];
 
     /**
      * GET /system/environments — list writable environment targets.
@@ -726,30 +738,131 @@ class SystemController extends AbstractApiController
      *
      * Returns a flat key-value object of all translation strings for efficient
      * client-side caching. Optionally filter by prefix (e.g., ?prefix=PLUGIN_ADMIN).
+     *
+     * Answers conditional GETs. The ETag is the body's `checksum`, and the
+     * checksum for a given set of source files is remembered under a stat-only
+     * fingerprint of them, so a client that already holds the current strings
+     * gets an empty 304 without the dictionary being built at all. The built
+     * dictionary is cached under the same fingerprint, so a full response after
+     * a cache hit skips the build too.
      */
     public function translations(ServerRequestInterface $request): ResponseInterface
     {
         // No auth required — translation strings are not sensitive
 
-        $lang = $this->getRouteParam($request, 'lang');
+        $lang = $this->resolveTranslationsLanguage($this->getRouteParam($request, 'lang'));
         $prefix = $request->getQueryParams()['prefix'] ?? null;
+        $prefix = is_string($prefix) && $prefix ? $prefix : null;
+        $ifNoneMatch = $request->getHeaderLine('If-None-Match');
 
-        /** @var \Grav\Common\Language\Language $language */
-        $language = $this->grav['language'];
+        // Fast path: the checksum for these exact source files is known, and the
+        // client already has it. No dictionary is built or even read.
+        $knownChecksum = $this->knownTranslationsChecksum($lang, $prefix);
+        if ($knownChecksum !== null && $this->translationsEtagMatches($ifNoneMatch, $knownChecksum)) {
+            return $this->translationsNotModified($knownChecksum);
+        }
 
-        // Validate language code shape only — admin UI languages are a
-        // different concept from site content languages, so we DO NOT gate
-        // on $language->getLanguages() (which lists languages configured in
-        // system.yaml for site content). Any plugin shipping a `languages/
-        // <lang>.yaml` should be loadable here, even if the site itself only
-        // serves English content.
+        ['checksum' => $checksum, 'strings' => $translations] = $this->translationsDictionary($lang, $prefix, $knownChecksum);
+
+        if ($this->translationsEtagMatches($ifNoneMatch, $checksum)) {
+            return $this->translationsNotModified($checksum);
+        }
+
+        return ApiResponse::create([
+            'lang' => $lang,
+            'dir' => LanguageCodes::getOrientation(self::primarySubtag($lang)),
+            'count' => count($translations),
+            'checksum' => $checksum,
+            'strings' => $translations,
+        ])
+            ->withHeader('ETag', '"' . $checksum . '"')
+            ->withHeader('Cache-Control', 'no-cache, private');
+    }
+
+    /**
+     * The language code GET /translations/{lang} answers for a requested code.
+     *
+     * Only the shape is validated: admin UI languages are a different concept
+     * from site content languages, so this does NOT gate on
+     * $language->getLanguages() (the languages system.yaml serves content in).
+     * Any plugin shipping a `languages/<lang>.yaml` is loadable, even if the
+     * site itself only serves English. A missing or malformed code falls back
+     * to the site default, and legacy short codes are coerced to their BCP 47
+     * form so `en` resolves to admin2's `en-US.yaml`.
+     */
+    public function resolveTranslationsLanguage(mixed $lang): string
+    {
         if (!is_string($lang) || !preg_match('/^[a-zA-Z]{2,3}(-[a-zA-Z]{2,4})?$/', $lang)) {
+            /** @var \Grav\Common\Language\Language $language */
+            $language = $this->grav['language'];
             $lang = $language->getDefault() ?: 'en-US';
         }
-        // Coerce legacy short codes to their BCP 47 canonical form so a request
-        // for `/translations/en` resolves to admin2's `en-US.yaml`.
-        $lang = self::normalizeLangCode($lang);
 
+        return self::normalizeLangCode($lang);
+    }
+
+    /**
+     * The checksum GET /translations/{lang} sends as its ETag for a resolved
+     * language (see resolveTranslationsLanguage()), shared with
+     * GET /admin-next/boot. The remembered checksum answers without reading the
+     * dictionary; otherwise the dictionary is loaded or built, which also
+     * primes the cache the next /translations call reads.
+     */
+    public function translationsChecksum(string $lang, ?string $prefix = null): string
+    {
+        $known = $this->knownTranslationsChecksum($lang, $prefix);
+
+        return $known ?? $this->translationsDictionary($lang, $prefix, null)['checksum'];
+    }
+
+    /**
+     * The checksum remembered for these exact source files, or null.
+     */
+    private function knownTranslationsChecksum(string $lang, ?string $prefix): ?string
+    {
+        $known = $this->grav['cache']->fetch('api-translations-etag-' . $this->translationsFingerprint($lang, $prefix));
+
+        return is_string($known) ? $known : null;
+    }
+
+    /**
+     * The dictionary and its checksum, from the cache or freshly built. The
+     * remembered checksum is updated when it differs from the dictionary's.
+     *
+     * @return array{checksum: string, strings: array<string, string>}
+     */
+    private function translationsDictionary(string $lang, ?string $prefix, ?string $knownChecksum): array
+    {
+        $cache = $this->grav['cache'];
+        $fingerprint = $this->translationsFingerprint($lang, $prefix);
+        $etagKey = 'api-translations-etag-' . $fingerprint;
+        $dictKey = 'api-translations-dict-' . $fingerprint;
+
+        $cached = $cache->fetch($dictKey);
+        if (is_array($cached) && is_string($cached['checksum'] ?? null) && is_array($cached['strings'] ?? null)) {
+            $checksum = $cached['checksum'];
+            $translations = $cached['strings'];
+        } else {
+            $translations = $this->buildTranslationsForRequest($lang, $prefix);
+            // Include a checksum for cache invalidation
+            $checksum = md5(json_encode($translations));
+            $cache->save($dictKey, ['checksum' => $checksum, 'strings' => $translations], self::TRANSLATIONS_CACHE_TTL);
+        }
+        if ($knownChecksum !== $checksum) {
+            $cache->save($etagKey, $checksum, self::TRANSLATIONS_CACHE_TTL);
+        }
+
+        return ['checksum' => $checksum, 'strings' => $translations];
+    }
+
+    /**
+     * The translations dictionary for a language, English-backfilled and
+     * optionally narrowed to one key prefix.
+     *
+     * @return array<string, string>
+     */
+    private function buildTranslationsForRequest(string $lang, ?string $prefix): array
+    {
         $translations = $this->buildTranslationChain($lang);
 
         // Backfill gaps from English. `flattenByLang()` returns the requested
@@ -781,25 +894,75 @@ class SystemController extends AbstractApiController
         }
 
         // Filter by prefix if requested
-        if ($prefix && is_array($translations)) {
+        if ($prefix !== null) {
             $prefixLower = strtolower($prefix) . '.';
             $translations = array_filter(
                 $translations,
-                fn($key) => str_starts_with(strtolower($key), $prefixLower),
+                fn($key) => str_starts_with(strtolower((string) $key), $prefixLower),
                 ARRAY_FILTER_USE_KEY
             );
         }
 
-        // Include a checksum for cache invalidation
-        $checksum = md5(json_encode($translations));
+        return $translations;
+    }
 
-        return ApiResponse::create([
-            'lang' => $lang,
-            'dir' => LanguageCodes::getOrientation(self::primarySubtag($lang)),
-            'count' => count($translations),
-            'checksum' => $checksum,
-            'strings' => $translations,
-        ]);
+    /**
+     * Stat-only signature of everything a translations response is built from:
+     * the language and prefix asked for, the provider inventory (extensions,
+     * enabled flags, active theme), the mtime of every language file in the
+     * requested chain and the English fallback chain (which covers this site's
+     * `user/languages` overrides), the compiled language checksum, and whether
+     * runtime overrides are on. Computing it reads no YAML.
+     */
+    private function translationsFingerprint(string $lang, ?string $prefix): string
+    {
+        return $this->translationsFingerprints[$lang . '|' . strtolower((string) $prefix)] ??= $this->computeTranslationsFingerprint($lang, $prefix);
+    }
+
+    private function computeTranslationsFingerprint(string $lang, ?string $prefix): string
+    {
+        $sources = TranslationSourceIndex::shared($this->grav);
+
+        $parts = [
+            self::TRANSLATIONS_CACHE_VERSION,
+            $lang,
+            $prefix === null ? '' : strtolower($prefix),
+            $sources->metaFingerprint(),
+            (int) (bool) $this->config->get('plugins.api.translation_overrides', true),
+        ];
+
+        $codes = self::translationChainFor($lang);
+        if ($lang !== self::FALLBACK_LANG) {
+            $codes = array_merge($codes, self::translationChainFor(self::FALLBACK_LANG));
+        }
+        foreach (array_unique($codes) as $code) {
+            $parts[] = $code . '=' . $sources->languageFingerprint($code);
+        }
+
+        $languages = $this->grav['languages'] ?? null;
+        if (is_object($languages) && method_exists($languages, 'checksum')) {
+            $parts[] = (string) $languages->checksum();
+        }
+
+        return md5(implode('|', $parts));
+    }
+
+    /**
+     * If-None-Match test for the translations ETag. The header may carry the
+     * value quoted, unquoted or weak (`W/`), and a compressing proxy may have
+     * appended a transport suffix; all of those match.
+     */
+    private function translationsEtagMatches(string $ifNoneMatch, string $checksum): bool
+    {
+        return $this->etagMatches($ifNoneMatch, '"' . $checksum . '"');
+    }
+
+    private function translationsNotModified(string $checksum): ResponseInterface
+    {
+        return new \Grav\Framework\Psr7\Response(304, [
+            'ETag' => '"' . $checksum . '"',
+            'Cache-Control' => 'no-cache, private',
+        ], '');
     }
 
     /**
@@ -974,7 +1137,7 @@ class SystemController extends AbstractApiController
         // would still influence what admin2 renders. The service walks each
         // plugin's lang yaml to determine provenance and returns keys unique to
         // disabled plugins. Keys also shipped by enabled sources stay.
-        $disabledIndex = new DisabledPluginLangIndex($this->grav);
+        $disabledIndex = DisabledPluginLangIndex::shared($this->grav);
         foreach ($disabledIndex->disabledOnlyKeys($lang) as $key) {
             unset($translations[$key]);
         }

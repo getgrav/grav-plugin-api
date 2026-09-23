@@ -31,6 +31,16 @@ class PreferencesController extends AbstractApiController
 
     public function show(ServerRequestInterface $request): ResponseInterface
     {
+        return $this->respondWithEtag($this->showData($request));
+    }
+
+    /**
+     * The payload of GET /admin-next/preferences, shared with GET /admin-next/boot.
+     *
+     * @return array<string, mixed>
+     */
+    public function showData(ServerRequestInterface $request): array
+    {
         $this->requirePermission($request, 'api.access');
 
         $user = $this->getUser($request);
@@ -38,7 +48,7 @@ class PreferencesController extends AbstractApiController
         $payload = $resolver->resolve($user, $this->canEditSite($user));
         $payload['branding_urls'] = $this->resolveBrandingUrls($payload['branding'] ?? [], $resolver);
 
-        return $this->respondWithEtag($payload);
+        return $payload;
     }
 
     public function saveUser(ServerRequestInterface $request): ResponseInterface
