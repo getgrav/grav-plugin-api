@@ -26,6 +26,7 @@
     * Page search now also narrows the tree and columns views when they list a page's children in their natural order.
     * Signing out can no longer be quietly undone by another request that was running at the same moment, and the list of signed-out tokens is no longer rewritten on every request.
     * The API no longer answers every request with an error on a new site whose cache folder is still empty when rate limiting is turned off.
+    * Password fields that switch the site's password rules off with `password_policy: false`, such as a payment provider's secret key, no longer show the password requirements hint in the new admin.
 
 # v1.0.39
 ## 09/22/2026
