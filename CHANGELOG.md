@@ -1,3 +1,9 @@
+# v1.0.40
+## 09/22/2026
+
+1. [](#bugfix)
+    * Password fields that switch the site's password rules off with `password_policy: false`, such as a payment provider's secret key, no longer show the password requirements hint in the new admin.
+
 # v1.0.39
 ## 09/22/2026
 
