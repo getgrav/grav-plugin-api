@@ -1,5 +1,5 @@
 # v1.0.40
-## 09/22/2026
+## 09/23/2026
 
 1. [](#new)
     * The page editor's previous and next buttons can now find a page's neighbours with one small request instead of downloading every page in the folder.
