@@ -249,6 +249,10 @@ class PagesController extends AbstractApiController
                 'children_depth' => max(1, (int) ($query['children_depth'] ?? 1)),
                 'include_media' => true,
                 'include_translations' => filter_var($query['translations'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                // Every nested child passes the same read check as the page
+                // itself, so ?children=true can't return a child the caller
+                // would get a 403 for on its own route (#47).
+                'child_filter' => fn (PageInterface $child): bool => $this->canReadPage($request, $child),
             ];
 
             $data = $this->serializer->serialize($page, $options);
@@ -278,6 +282,10 @@ class PagesController extends AbstractApiController
      *
      * A page that its parent's listing leaves out (a folder with no content
      * file) gets `index: -1` and no previous or next sibling.
+     *
+     * Pages the caller can't read on their own route are left out before any
+     * of that is worked out: the parent comes back null, prev/next are the
+     * nearest readable siblings, and index/total count only readable ones.
      */
     public function neighbors(ServerRequestInterface $request): ResponseInterface
     {
@@ -296,7 +304,19 @@ class PagesController extends AbstractApiController
             }
             $parentRoute = $parent !== null ? (string) $parent->rawRoute() : '/';
 
-            $siblings = $this->defaultOrderedChildren(['children_of' => $parentRoute]);
+            // Only pages the caller could open on their own route count: a
+            // read grant on this one page doesn't reveal the pages around it,
+            // and prev/next skip past a hidden sibling instead of stopping (#48).
+            $readable = fn (array $pages): array => array_values(array_filter(
+                $pages,
+                fn (PageInterface $candidate): bool => $this->canReadPage($request, $candidate),
+            ));
+
+            if ($parent !== null && !$this->canReadPage($request, $parent)) {
+                $parent = null;
+            }
+
+            $siblings = $readable($this->defaultOrderedChildren(['children_of' => $parentRoute]));
             $index = -1;
             foreach ($siblings as $position => $sibling) {
                 if ($sibling->path() === $page->path()) {
@@ -305,7 +325,7 @@ class PagesController extends AbstractApiController
                 }
             }
 
-            $children = $this->defaultOrderedChildren(['children_of' => (string) $page->rawRoute()]);
+            $children = $readable($this->defaultOrderedChildren(['children_of' => (string) $page->rawRoute()]));
 
             return ApiResponse::create([
                 'parent' => $this->summaryRow($request, $parent),
@@ -971,6 +991,11 @@ class PagesController extends AbstractApiController
 
             // If a specific language is requested, delete only that language file
             if ($lang && $this->isMultiLangEnabled()) {
+                // Removing the last translation removes the whole folder.
+                if (count($page->translatedLanguages()) <= 1) {
+                    $this->assertDescendantsNotDenied($request, $page, 'delete');
+                }
+
                 $this->fireEvent('onApiBeforePageDelete', ['page' => $page, 'lang' => $lang]);
 
                 $this->deleteLanguageFile($page, $lang, $includeChildren);
@@ -989,6 +1014,8 @@ class PagesController extends AbstractApiController
                     'This page has children. Use ?children=true to confirm deletion of the page and all its children.'
                 );
             }
+
+            $this->assertDescendantsNotDenied($request, $page, 'delete');
 
             $this->fireEvent('onApiBeforePageDelete', ['page' => $page]);
 
@@ -1161,6 +1188,8 @@ class PagesController extends AbstractApiController
         if (is_dir($destPath)) {
             throw new ValidationException("A page already exists at route: {$destRoute}");
         }
+
+        $this->assertDescendantsNotDenied($request, $page, 'read');
 
         $sourcePath = $page->path();
         Folder::copy($sourcePath, $destPath);
@@ -1843,6 +1872,11 @@ class PagesController extends AbstractApiController
         foreach ($pages as $route => $page) {
             try {
                 $this->assertPageNotDenied($request, $page, ...$pageActions);
+                // Delete and copy take the whole folder, so every page below
+                // this one has to allow the same action.
+                if ($operation === 'delete' || $operation === 'copy') {
+                    $this->assertDescendantsNotDenied($request, $page, ...$pageActions);
+                }
                 match ($operation) {
                     'publish' => $this->batchPublish($page, $route, true),
                     'unpublish' => $this->batchPublish($page, $route, false),
@@ -3384,6 +3418,40 @@ class PagesController extends AbstractApiController
             }
         }
         return $data;
+    }
+
+    /**
+     * Whether the caller may read this page on its own route, the same check
+     * show() runs. Used to filter nested children.
+     */
+    private function canReadPage(ServerRequestInterface $request, PageInterface $page): bool
+    {
+        try {
+            $this->authorizePageAction($request, $page, 'read', self::PERMISSION_READ);
+            return true;
+        } catch (ForbiddenException) {
+            return false;
+        }
+    }
+
+    /**
+     * Refuse a folder-level operation (delete, copy) when any page below this
+     * one denies the action. The parent was already authorized, but the
+     * operation takes the whole subtree with it, so a child's own rule would
+     * otherwise be skipped (#47).
+     */
+    private function assertDescendantsNotDenied(ServerRequestInterface $request, PageInterface $page, string ...$actions): void
+    {
+        foreach ($page->children() as $child) {
+            try {
+                $this->assertPageNotDenied($request, $child, ...$actions);
+            } catch (ForbiddenException) {
+                throw new ForbiddenException(
+                    "Page permissions deny '{$actions[0]}' on {$child->rawRoute()}, which is inside this page."
+                );
+            }
+            $this->assertDescendantsNotDenied($request, $child, ...$actions);
+        }
     }
 
     /**

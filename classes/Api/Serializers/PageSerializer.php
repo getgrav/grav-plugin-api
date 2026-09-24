@@ -344,6 +344,11 @@ class PageSerializer implements SerializerInterface
 
     /**
      * Recursively serialize children pages up to the specified depth.
+     *
+     * `child_filter` (callable(PageInterface): bool) decides which children the
+     * caller may see. A child it rejects is left out together with its own
+     * subtree, so a page the caller can't read never comes back nested under
+     * one they can (grav-plugin-api#47).
      */
     private function serializeChildren(PageInterface $page, array $options, int $depth): array
     {
@@ -351,10 +356,14 @@ class PageSerializer implements SerializerInterface
             'include_children' => $depth > 1,
             'children_depth' => $depth - 1,
         ]);
+        $filter = $options['child_filter'] ?? null;
 
         $result = [];
 
         foreach ($page->children() as $child) {
+            if (is_callable($filter) && !$filter($child)) {
+                continue;
+            }
             $result[] = $this->serialize($child, $childOptions);
         }
 
