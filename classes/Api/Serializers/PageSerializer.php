@@ -12,6 +12,7 @@ use Grav\Common\Markdown\ParsedownExtra;
 use Grav\Common\Page\Interfaces\PageInterface;
 use Grav\Common\Page\Markdown\Excerpts;
 use Grav\Common\Utils;
+use Grav\Plugin\Api\Services\FrontmatterReader;
 
 class PageSerializer implements SerializerInterface
 {
@@ -35,53 +36,17 @@ class PageSerializer implements SerializerInterface
         // Flex-indexed PageObject instances expose EMPTY headers during
         // listing (the index only materializes summary fields). That makes
         // $resource->published() / visible() fall back to Grav's default
-        // "true" even when the frontmatter explicitly says false. Swap in the
-        // fully-loaded legacy Page so every downstream field reads correctly.
-        // Flex-indexed PageObject instances expose EMPTY headers during
-        // listing (the index only materializes summary fields). Read the
-        // frontmatter directly from the .md file so published/visible and
+        // "true" even when the frontmatter explicitly says false. Read the
+        // frontmatter from the .md file instead, so published/visible and
         // everything else in the header are accurate regardless of which
-        // controller path we came through.
+        // controller path we came through. FrontmatterReader parses each file
+        // once and remembers it until the file changes.
         if (empty($headerArr) && $resource instanceof \Grav\Framework\Flex\Pages\FlexPageObject) {
-            $path = method_exists($resource, 'path') ? $resource->path() : null;
-            $template = $resource->template();
-            if ($path && $template) {
-                $candidates = [];
-                // Prefer the page's own language, then the active language,
-                // then the untyped default, then any matching {template}*.md.
-                $pageLang = $resource->language();
-                if ($pageLang) {
-                    $candidates[] = $path . '/' . $template . '.' . $pageLang . '.md';
-                }
-                $grav = \Grav\Common\Grav::instance();
-                $lang = $grav['language'] ?? null;
-                if ($lang && method_exists($lang, 'getLanguage')) {
-                    $active = $lang->getLanguage();
-                    if ($active) {
-                        $candidates[] = $path . '/' . $template . '.' . $active . '.md';
-                    }
-                }
-                $candidates[] = $path . '/' . $template . '.md';
-                foreach ($candidates as $file) {
-                    if (is_file($file)) {
-                        $parsed = $this->parseFrontmatter($file);
-                        if (!empty($parsed)) {
-                            $headerArr = $parsed;
-                            break;
-                        }
-                    }
-                }
-                // Fallback: glob for any {template}*.md file in the directory
-                if (empty($headerArr)) {
-                    foreach (glob($path . '/' . $template . '*.md') ?: [] as $file) {
-                        $parsed = $this->parseFrontmatter($file);
-                        if (!empty($parsed)) {
-                            $headerArr = $parsed;
-                            break;
-                        }
-                    }
-                }
-            }
+            // Prefer the page's own language, then the active language, then
+            // the untyped default, then any matching {template}*.md.
+            $lang = \Grav\Common\Grav::instance()['language'] ?? null;
+            $active = $lang && method_exists($lang, 'getLanguage') ? $lang->getLanguage() : null;
+            $headerArr = FrontmatterReader::forPage($resource, is_string($active) && $active !== '' ? $active : null);
         }
 
         // For flex-indexed PageObject listings the in-memory header is empty
@@ -150,6 +115,13 @@ class PageSerializer implements SerializerInterface
             'order' => $resource->order(),
             'has_children' => count($resource->children()) > 0,
         ];
+
+        // Page lists with `fields=summary` leave the full frontmatter out. It is
+        // still read above, because published, visible, title and menu come
+        // from it.
+        if (!($options['include_header'] ?? true)) {
+            unset($data['header']);
+        }
 
         if ($includeTranslations) {
             $data['translated_languages'] = $resource->translatedLanguages();
@@ -318,28 +290,6 @@ class PageSerializer implements SerializerInterface
             return (bool) Grav::instance()['config']->get('system.pages.publish_dates', true);
         } catch (\Throwable) {
             return true;
-        }
-    }
-
-    /**
-     * Parse the YAML frontmatter from a Grav .md file. Returns the header
-     * array, or empty array if there's no frontmatter / on parse failure.
-     */
-    private function parseFrontmatter(string $file): array
-    {
-        $contents = @file_get_contents($file);
-        if ($contents === false) {
-            return [];
-        }
-        // Grav frontmatter: content between leading `---\n` and the next `---\n`.
-        if (!preg_match('/^---\r?\n(.*?)\r?\n---\r?\n/s', $contents, $m)) {
-            return [];
-        }
-        try {
-            $parsed = \Symfony\Component\Yaml\Yaml::parse($m[1]);
-            return is_array($parsed) ? $parsed : [];
-        } catch (\Throwable) {
-            return [];
         }
     }
 

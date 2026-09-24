@@ -835,6 +835,10 @@ abstract class AbstractApiController
      * The read-side counterpart of validateEtag(): that one guards a write with
      * If-Match, this one answers a conditional GET with a 304. Both are here so
      * every endpoint that caches gets the same parsing.
+     *
+     * Both sides go through normalizeEtag(), so a quoted, unquoted or weak value
+     * matches, and so does one a compressing front-end suffixed with `-gzip`
+     * and the like (a client echoes back whatever ETag it was sent).
      */
     protected function etagMatches(string $ifNoneMatch, string $etag): bool
     {
@@ -845,12 +849,12 @@ abstract class AbstractApiController
         if ($ifNoneMatch === '*') {
             return true;
         }
+        $etag = $this->normalizeEtag($etag);
+        if ($etag === '') {
+            return false;
+        }
         foreach (explode(',', $ifNoneMatch) as $candidate) {
-            $candidate = trim($candidate);
-            if (str_starts_with($candidate, 'W/')) {
-                $candidate = substr($candidate, 2);
-            }
-            if ($candidate === $etag) {
+            if ($this->normalizeEtag($candidate) === $etag) {
                 return true;
             }
         }

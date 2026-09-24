@@ -78,6 +78,24 @@ info:
     - `X-RateLimit-Remaining` -- requests remaining
     - `X-RateLimit-Reset` -- UTC epoch when the window resets
 
+    ## Compression
+
+    JSON responses larger than 8 KB are gzipped when the request's
+    `Accept-Encoding` allows it, and every JSON response carries
+    `Vary: Accept-Encoding`. Smaller bodies, `304` and `204` responses, `HEAD`
+    requests, downloads (`Content-Disposition`) and hosts where PHP already
+    compresses its output (`zlib.output_compression`) are sent as they are.
+    Set `plugins.api.compression: off` to turn it off.
+
+    ## Sessions
+
+    Requests that carry `X-API-Token`, `X-API-Key` or `Authorization: Bearer`
+    run without a PHP session: no session cookie is read or sent, and no
+    `Expires` / `Pragma` headers from PHP's session cache limiter are added.
+    Requests signed in by the session cookie alone keep their session, and so
+    do the SSO `start` and `callback` routes. `plugins.api.protect_frontend_session: false`
+    restores the old behaviour.
+
     ## Optimistic Concurrency (ETags)
 
     Single-resource GET responses include an `ETag` header. For PATCH requests,
@@ -1101,6 +1119,11 @@ paths:
         published state, template, routable/visible flags, and parent route.
         Results can be sorted by date, title, slug, modified time, or order.
 
+        `children_of` and `root=true` read the parent folder's own children
+        rather than every page in the site. Pages that tie on the sort key
+        (the same date, or a folder whose collection order has no key of its
+        own) keep the folder's order.
+
         The listing uses a lightweight serialization that excludes content,
         media, and children for performance. Every row carries a `permissions`
         object with the caller's effective per-page capabilities; rows are never
@@ -1182,9 +1205,13 @@ paths:
         - name: search
           in: query
           description: |
-            Free-text search over the page index. Only honored when the Flex
-            pages directory is available; ignored on the regular pages
-            backend.
+            Free-text search: a case-insensitive substring match on each
+            page's title, menu label, slug and route, so a query such as
+            `docs/` finds every page under that folder. Works the same with or without
+            the Flex pages directory, combines with every other filter
+            (including `children_of` and `parent`), and the pagination totals
+            count only matching pages. Leading and trailing whitespace is
+            ignored, and a blank value means no search.
           schema:
             type: string
         - name: locate
@@ -1206,6 +1233,19 @@ paths:
           schema:
             type: boolean
             default: false
+        - name: fields
+          in: query
+          description: |
+            `summary` returns the same rows without the `header` key (the
+            page's full frontmatter), which is about half of a large listing.
+            Every other key, the filters, the sorting and the pagination are
+            unchanged, and `title`, `menu`, `published` and `visible` still
+            honour the frontmatter. Without this parameter, or with any other
+            value, rows include `header` as before.
+          schema:
+            type: string
+            enum: [summary]
+          example: summary
       responses:
         "200":
           description: Paginated list of pages.
@@ -2417,6 +2457,169 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /pages/{route}/neighbors:
+    get:
+      operationId: getPageNeighbors
+      tags: [Pages]
+      summary: Get a page's parent, siblings and first child
+      description: |
+        Where a page sits among its siblings, for page-to-page navigation:
+        its parent, the previous and next sibling, its first child, its
+        zero-based position and the number of siblings.
+
+        Siblings are the parent's children in exactly the order
+        `GET /pages?children_of=<parent>&sort=default&order=asc` lists them
+        (`children_of=/` for a top-level page), and `first_child` is the first
+        row of the same listing for the page's own children. Every row is
+        serialized exactly like a `GET /pages?fields=summary` row, including
+        `permissions`. Only the parent's and the page's own children are read,
+        never the whole site.
+
+        `parent` is null for a top-level page, `prev` for the first sibling,
+        `next` for the last and `first_child` when the page has no children.
+        A page that its parent's listing leaves out (a folder with no content
+        file) gets `index: -1` and null `prev` and `next`.
+
+        Requires `api.pages.read`, and the page's own rules must allow
+        reading it. An unknown route is a 404.
+      parameters:
+        - $ref: "#/components/parameters/pageRoute"
+        - $ref: "#/components/parameters/lang"
+        - name: translations
+          in: query
+          description: When `true`, each row also carries the translation fields, as on `GET /pages`.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: The page's neighbours.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    required: [parent, prev, next, first_child, index, total]
+                    properties:
+                      parent:
+                        type: object
+                        description: The parent page, or null for a top-level page.
+                        allOf:
+                          - $ref: "#/components/schemas/PageSummary"
+                        nullable: true
+                      prev:
+                        type: object
+                        description: The previous sibling, or null for the first one.
+                        allOf:
+                          - $ref: "#/components/schemas/PageSummary"
+                        nullable: true
+                      next:
+                        type: object
+                        description: The next sibling, or null for the last one.
+                        allOf:
+                          - $ref: "#/components/schemas/PageSummary"
+                        nullable: true
+                      first_child:
+                        type: object
+                        description: The first child in default order, or null when the page has none.
+                        allOf:
+                          - $ref: "#/components/schemas/PageSummary"
+                        nullable: true
+                      index:
+                        type: integer
+                        description: Zero-based position among the siblings; -1 when the page is not listed among them.
+                        example: 3
+                      total:
+                        type: integer
+                        description: Number of siblings, the page included.
+                        example: 12
+              example:
+                data:
+                  parent:
+                    route: /blog
+                    raw_route: /blog
+                    parent_route: /
+                    slug: blog
+                    folder: 03.blog
+                    title: Blog
+                    menu: Blog
+                    template: blog
+                    language: null
+                    taxonomy: {}
+                    published: true
+                    visible: true
+                    routable: true
+                    date: "2026-03-20T12:00:00+00:00"
+                    modified: "2026-03-22T09:30:00+00:00"
+                    order: 3
+                    has_children: true
+                  prev:
+                    route: /blog/first-post
+                    raw_route: /blog/first-post
+                    parent_route: /blog
+                    slug: first-post
+                    folder: 01.first-post
+                    title: First Post
+                    menu: First Post
+                    template: item
+                    language: null
+                    taxonomy: {}
+                    published: true
+                    visible: true
+                    routable: true
+                    date: "2026-03-20T12:00:00+00:00"
+                    modified: "2026-03-22T09:30:00+00:00"
+                    order: 1
+                    has_children: false
+                  next:
+                    route: /blog/third-post
+                    raw_route: /blog/third-post
+                    parent_route: /blog
+                    slug: third-post
+                    folder: 03.third-post
+                    title: Third Post
+                    menu: Third Post
+                    template: item
+                    language: null
+                    taxonomy: {}
+                    published: true
+                    visible: true
+                    routable: true
+                    date: "2026-03-20T12:00:00+00:00"
+                    modified: "2026-03-22T09:30:00+00:00"
+                    order: 3
+                    has_children: true
+                  first_child:
+                    route: /blog/second-post/gallery
+                    raw_route: /blog/second-post/gallery
+                    parent_route: /blog/second-post
+                    slug: gallery
+                    folder: 01.gallery
+                    title: Gallery
+                    menu: Gallery
+                    template: default
+                    language: null
+                    taxonomy: {}
+                    published: true
+                    visible: true
+                    routable: true
+                    date: "2026-03-20T12:00:00+00:00"
+                    modified: "2026-03-22T09:30:00+00:00"
+                    order: 1
+                    has_children: false
+                  index: 1
+                  total: 3
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
@@ -7132,6 +7335,19 @@ paths:
         their own reports via the `onApiGenerateReports` event, optionally
         specifying a web component for custom rendering. Requires
         `api.reports.read`.
+
+        The whole-site scans behind the built-in reports (the XSS check, the
+        Twig leak check and the YAML linter) are cached until page content,
+        configuration, the active language or theme, the Grav version, or a
+        config, blueprint or environment YAML file changes. The recent Twig
+        block events and reports added by plugins are always current.
+      parameters:
+        - name: refresh
+          in: query
+          description: When `true`, run the built-in scans again instead of using the cached result.
+          schema:
+            type: boolean
+            default: false
       responses:
         "200":
           description: Reports returned.
@@ -7815,9 +8031,13 @@ paths:
       summary: Get statistics snapshot
       description: |
         Return a summary of site statistics suitable for rendering a
-        dashboard overview, including available GPM updates (the update
-        counts fall back to zero when GPM cannot be reached). Requires
-        `api.system.read`.
+        dashboard overview, including available GPM updates. The update
+        figures come only from the repository data GPM already has on disk;
+        this endpoint never contacts the package server. When that data is
+        missing or expired (for example right after a cache clear),
+        `plugins.updatable`, `themes.updatable`, `themes.active_updatable` and
+        `grav.updatable` are `null`, meaning unknown. `GET /gpm/updates`
+        refreshes the data. Requires `api.system.read`.
       responses:
         "200":
           description: Dashboard stats returned.
@@ -8904,18 +9124,15 @@ paths:
       tags: [Thumbnails]
       summary: Serve cached thumbnail
       description: |
-        Serve a cached thumbnail image. This endpoint is public and does not
-        require authentication. The `file` parameter is the hashed filename
-        generated by the thumbnail cache system, as found in a media item's
-        `thumbnail_url` or a user's `avatar_url`. Only the last path segment
-        is used. Thumbnails are never generated here: a file that is not
-        already cached returns 404.
+        Serve a thumbnail image. This endpoint is public and does not require authentication. The `file` parameter is the hashed filename found in a media item's `thumbnail_url`, a user's `avatar_url` or a theme's `thumbnail`/`screenshot`. Only the last path segment is used, and only names of the form `<32 hex characters>.<jpg|png|gif|webp|avif>` are served.
+
+        Listings hand out these URLs without resizing anything. The first request for a URL generates the thumbnail, from the source image and at the size the listing recorded for that exact filename, and every later request is served from the cache. Nothing else can be generated here: a filename no listing handed out, or one whose source image has changed or gone since (its hash no longer matches), returns 404, and so does a source that can't be decoded.
       security: []
       parameters:
         - name: file
           in: path
           required: true
-          description: Cached thumbnail filename (an MD5 hash plus the output extension).
+          description: Thumbnail filename (an MD5 hash plus the output extension).
           schema:
             type: string
           example: 3f2a9c1e4b5d6a7f8e9d0c1b2a394857.jpg
@@ -8968,6 +9185,15 @@ paths:
         English (`en-US`), so the map is complete for any language. The admin
         UI language is not limited to the site's configured content
         languages.
+
+        Supports conditional GET. Every 200 carries `ETag: "<checksum>"`, the
+        same value as the body's `checksum`, and `Cache-Control: no-cache,
+        private`. Send it back in `If-None-Match` (quoted, unquoted or with a
+        `W/` prefix all match) and, while nothing has changed, the answer is an
+        empty 304 carrying the same `ETag`. The server checks this against a
+        fingerprint of the language files, so a 304 does not rebuild the
+        dictionary. A `prefix` request has its own checksum and ETag, for the
+        filtered set.
       security: []
       parameters:
         - name: lang
@@ -8991,9 +9217,27 @@ paths:
             Only return keys that start with this prefix followed by a dot
             (case-insensitive), e.g. `PLUGIN_ADMIN` matches `PLUGIN_ADMIN.*`.
           example: PLUGIN_ADMIN
+        - name: If-None-Match
+          in: header
+          required: false
+          description: The `ETag` (or `checksum`) from an earlier response. When it still matches, the response is an empty 304.
+          schema:
+            type: string
+          example: '"ca482ce9db905019b7f2be290f018553"'
       responses:
         "200":
           description: Translation strings.
+          headers:
+            ETag:
+              description: The body's `checksum`, quoted.
+              schema:
+                type: string
+              example: '"ca482ce9db905019b7f2be290f018553"'
+            Cache-Control:
+              description: Always `no-cache, private`, so clients store the response and revalidate it.
+              schema:
+                type: string
+              example: no-cache, private
           content:
             application/json:
               schema:
@@ -9018,7 +9262,7 @@ paths:
                         example: 1868
                       checksum:
                         type: string
-                        description: MD5 hash for cache invalidation.
+                        description: MD5 hash of `strings`, for cache invalidation. Also the response's `ETag`.
                         example: ca482ce9db905019b7f2be290f018553
                       strings:
                         type: object
@@ -9028,6 +9272,18 @@ paths:
                         example:
                           PLUGIN_ADMIN.TITLE: Title
                           PLUGIN_ADMIN.CONTENT: Content
+        "304":
+          description: The strings have not changed since the ETag sent in `If-None-Match`. No body.
+          headers:
+            ETag:
+              description: The current checksum, quoted.
+              schema:
+                type: string
+              example: '"ca482ce9db905019b7f2be290f018553"'
+            Cache-Control:
+              schema:
+                type: string
+              example: no-cache, private
 
 # =============================================================================
 # Components
@@ -10740,6 +10996,75 @@ paths:
   # ---------------------------------------------------------------------------
   # admin-next
   # ---------------------------------------------------------------------------
+  /admin-next/boot:
+    get:
+      operationId: getAdminNextBoot
+      tags: [Admin Next]
+      summary: Everything Admin Next loads at startup, in one request
+      description: |
+        Returns, in one response, what Admin Next otherwise fetches with nine requests when it starts. Each member of `data` is exactly the `data` of its own endpoint, produced by the same code with the same permission check:
+
+        | Part | Same as |
+        | --- | --- |
+        | `preferences` | `GET /admin-next/preferences` |
+        | `me` | `GET /me` |
+        | `menubar` | `GET /menubar/items` |
+        | `sidebar` | `GET /sidebar/items` |
+        | `floating_widgets` | `GET /floating-widgets` |
+        | `context_panels` | `GET /context-panels` |
+        | `custom_fields` | `GET /custom-fields` |
+        | `languages` | `GET /languages` |
+        | `translations` | the `lang` and `checksum` of `GET /translations/{lang}` (the checksum is the ETag that endpoint sends), without the strings |
+
+        A part the caller may not read, or one that fails, is left out of `data` and reported under the same key in `errors` with the status and title its own endpoint would have answered with (for example `languages` needs `api.pages.read`). One failing part never fails the response. `errors` is always present, as an empty object when every part succeeded.
+
+        The translations checksum is for `?lang=` when given, otherwise the caller's admin language (`preferences.effective.adminLanguage`), resolved exactly as `/translations/{lang}` resolves its path parameter: a malformed code falls back to the site default, and short codes are expanded (`en` becomes `en-US`). A client that already holds that dictionary with the same checksum can skip `/translations` entirely; otherwise it fetches `/translations/{lang}` as before.
+
+        Requires `api.access`.
+      parameters:
+        - name: lang
+          in: query
+          required: false
+          description: Admin UI language to report the translations checksum for.
+          schema:
+            type: string
+          example: fr
+      responses:
+        "200":
+          description: Boot payload returned. Parts that failed are listed in `errors`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminNextBoot"
+              example:
+                data:
+                  preferences:
+                    effective:
+                      adminLanguage: en
+                  me:
+                    username: admin
+                    super_admin: true
+                    access:
+                      api.super: true
+                  menubar: []
+                  sidebar: []
+                  floating_widgets: []
+                  context_panels: []
+                  custom_fields: {}
+                  translations:
+                    lang: en-US
+                    checksum: 05e89a7f31f11d80a4860d431c6f0c7b
+                errors:
+                  languages:
+                    status: 403
+                    title: Forbidden
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   /admin-next/preferences:
     get:
       operationId: getAdminNextPreferences
@@ -12670,6 +12995,7 @@ components:
         header:
           type: object
           additionalProperties: true
+          description: The page's frontmatter. Left out when the list is requested with `fields=summary`.
         taxonomy:
           type: object
           additionalProperties:
@@ -12775,7 +13101,6 @@ components:
         - slug
         - title
         - template
-        - header
         - taxonomy
         - published
         - visible
@@ -14228,7 +14553,8 @@ components:
               example: 10
             updatable:
               type: integer
-              description: Plugins with an update available in GPM.
+              nullable: true
+              description: Plugins with an update available in GPM, or null when the GPM repository data has not been fetched yet (unknown).
               example: 2
         themes:
           type: object
@@ -14238,17 +14564,21 @@ components:
               example: 2
             updatable:
               type: integer
+              nullable: true
+              description: Themes with an update available in GPM, or null when unknown.
               example: 0
             active_updatable:
               type: boolean
-              description: Whether the active theme has an update available.
+              nullable: true
+              description: Whether the active theme has an update available, or null when unknown.
               example: false
         grav:
           type: object
           properties:
             updatable:
               type: boolean
-              description: Whether a Grav core update is available.
+              nullable: true
+              description: Whether a Grav core update is available, or null when unknown.
               example: false
         media:
           type: object
@@ -15183,6 +15513,75 @@ components:
         favicon:
           type: string
           example: ""
+
+    AdminNextBoot:
+      type: object
+      description: Response of `GET /admin-next/boot`. Every member of `data` is optional; a part that is missing is listed in `errors`.
+      required: [data, errors]
+      properties:
+        data:
+          type: object
+          properties:
+            preferences:
+              $ref: "#/components/schemas/PreferencesPayload"
+            me:
+              allOf:
+                - $ref: "#/components/schemas/AuthUserProfile"
+                - type: object
+                  properties:
+                    grav_version:
+                      type: string
+                    admin_version:
+                      type: string
+                      nullable: true
+            menubar:
+              type: array
+              items:
+                $ref: "#/components/schemas/MenubarItem"
+            sidebar:
+              type: array
+              items:
+                $ref: "#/components/schemas/SidebarItem"
+            floating_widgets:
+              type: array
+              items:
+                $ref: "#/components/schemas/FloatingWidget"
+            context_panels:
+              type: array
+              items:
+                $ref: "#/components/schemas/ContextPanel"
+            custom_fields:
+              type: object
+              additionalProperties:
+                $ref: "#/components/schemas/CustomFieldProvider"
+            languages:
+              $ref: "#/components/schemas/LanguageInfo"
+            translations:
+              type: object
+              required: [lang, checksum]
+              properties:
+                lang:
+                  type: string
+                  description: The language the checksum is for, as `/translations/{lang}` resolves it.
+                  example: en-US
+                checksum:
+                  type: string
+                  description: The checksum `GET /translations/{lang}` returns in its body and sends as its ETag.
+                  example: 05e89a7f31f11d80a4860d431c6f0c7b
+        errors:
+          type: object
+          description: Parts that were left out of `data`, keyed by part name.
+          additionalProperties:
+            type: object
+            required: [status, title]
+            properties:
+              status:
+                type: integer
+                description: The status the part's own endpoint would have answered with.
+                example: 403
+              title:
+                type: string
+                example: Forbidden
 
     PreferencesPayload:
       type: object

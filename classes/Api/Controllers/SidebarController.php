@@ -47,6 +47,16 @@ class SidebarController extends AbstractApiController
      */
     public function items(ServerRequestInterface $request): ResponseInterface
     {
+        return ApiResponse::create($this->itemsData($request));
+    }
+
+    /**
+     * The payload of GET /sidebar/items, shared with GET /admin-next/boot.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function itemsData(ServerRequestInterface $request): array
+    {
         $this->requirePermission($request, 'api.access');
         $this->primeAdminLanguages($request);
 
@@ -68,6 +78,6 @@ class SidebarController extends AbstractApiController
 
         usort($filtered, fn($a, $b) => ($b['priority'] ?? 0) <=> ($a['priority'] ?? 0));
 
-        return ApiResponse::create($filtered);
+        return $filtered;
     }
 }

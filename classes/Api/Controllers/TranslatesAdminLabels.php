@@ -48,7 +48,7 @@ trait TranslatesAdminLabels
 
     private function disabledLangIndex(): DisabledPluginLangIndex
     {
-        return $this->disabledLangIndex ??= new DisabledPluginLangIndex($this->grav);
+        return $this->disabledLangIndex ??= DisabledPluginLangIndex::shared($this->grav);
     }
 
     /**
@@ -240,7 +240,7 @@ trait TranslatesAdminLabels
     private function valueFromLanguageFiles(string $value, ?array $languages): ?string
     {
         try {
-            $index = new TranslationSourceIndex($this->grav);
+            $index = TranslationSourceIndex::shared($this->grav);
 
             foreach ($languages ?? ['en'] as $code) {
                 $entry = $index->index($code)[$value] ?? null;

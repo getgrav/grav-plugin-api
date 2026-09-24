@@ -78,6 +78,11 @@ cors:
   max_age: 86400
   credentials: false
 
+# Gzip JSON responses over 8 KB when the client accepts gzip: auto | off.
+# Skipped automatically when PHP (zlib.output_compression) or an earlier layer
+# already compresses the output.
+compression: auto
+
 rate_limit:
   enabled: true
   requests: 120

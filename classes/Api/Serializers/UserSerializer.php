@@ -70,10 +70,8 @@ class UserSerializer implements SerializerInterface
 
     private static function thumbnailUrl(string $filePath): ?string
     {
-        $locator = \Grav\Common\Grav::instance()['locator'];
-        $cacheDir = $locator->findResource('cache://', true, true) . '/api/thumbnails';
-        $thumbService = new \Grav\Plugin\Api\Services\ThumbnailService($cacheDir, 200);
-        $filename = $thumbService->ensureThumbnail($filePath);
+        $thumbService = \Grav\Plugin\Api\Services\ThumbnailService::forGrav(\Grav\Common\Grav::instance(), 200);
+        $filename = $thumbService->thumbnailFilename($filePath);
         if (!$filename) {
             return null;
         }

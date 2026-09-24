@@ -1418,7 +1418,7 @@ class BlueprintController extends AbstractApiController
                 // reached the browser at all (grav-admin-next#18).
                 'sublabel', 'sublabelclasses', 'labelclasses', 'outerclasses',
                 'display_label', 'autocomplete', 'autofocus', 'novalidate',
-                'disabled', 'readonly', 'toggleable', 'highlight',
+                'disabled', 'readonly', 'toggleable', 'highlight', 'password_policy',
                 'minlength', 'maxlength', 'min', 'max', 'step',
                 'rows', 'cols', 'multiple', 'yaml',
                 'markdown', 'prepend', 'append', 'underline',

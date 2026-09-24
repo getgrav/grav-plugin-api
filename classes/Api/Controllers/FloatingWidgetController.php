@@ -45,6 +45,16 @@ class FloatingWidgetController extends AbstractApiController
      */
     public function items(ServerRequestInterface $request): ResponseInterface
     {
+        return ApiResponse::create($this->itemsData($request));
+    }
+
+    /**
+     * The payload of GET /floating-widgets, shared with GET /admin-next/boot.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function itemsData(ServerRequestInterface $request): array
+    {
         $this->requirePermission($request, 'api.access');
 
         $user = $this->getUser($request);
@@ -71,7 +81,7 @@ class FloatingWidgetController extends AbstractApiController
             $filtered[] = $widget;
         }
 
-        return ApiResponse::create($filtered);
+        return $filtered;
     }
 
     /**

@@ -44,8 +44,7 @@ class PagesController extends AbstractApiController
     public function __construct(Grav $grav, Config $config)
     {
         parent::__construct($grav, $config);
-        $cacheDir = $grav['locator']->findResource('cache://') . '/api/thumbnails';
-        $thumbnailService = new ThumbnailService($cacheDir);
+        $thumbnailService = ThumbnailService::forGrav($grav);
         $baseUrl = '/' . trim($config->get('plugins.api.route', '/api'), '/') . '/' . $config->get('plugins.api.version_prefix', 'v1');
         $mediaSerializer = new MediaSerializer($thumbnailService, $baseUrl);
         $this->serializer = new PageSerializer($mediaSerializer);
@@ -79,14 +78,14 @@ class PagesController extends AbstractApiController
         $sorting = $this->getSorting($request, self::ALLOWED_SORT_FIELDS);
         $pagination = $this->getPagination($request);
         $query = $request->getQueryParams();
-        $search = $query['search'] ?? null;
+        $search = self::searchTerm($query);
 
         $sortField = $sorting['sort'] ?? 'date';
         $sortOrder = $sorting['sort'] ? $sorting['order'] : 'desc';
 
         // 'default' sort with children_of: use native page ordering
         if ($sortField === 'default' && isset($filters['children_of'])) {
-            return $this->indexViaDefaultSort($request, $filters['children_of'], $filters, $pagination);
+            return $this->indexViaDefaultSort($request, $filters['children_of'], $filters, $pagination, $search);
         }
         if ($sortField === 'default') {
             $sortField = 'order';
@@ -97,7 +96,7 @@ class PagesController extends AbstractApiController
         $collection = $directory->getCollection();
 
         // Apply search
-        if ($search && $search !== '') {
+        if ($search !== null) {
             $collection = $collection->search($search);
         }
 
@@ -112,8 +111,21 @@ class PagesController extends AbstractApiController
         // every page unfiltered (getgrav/grav-plugin-admin2#121). matchesFilters()
         // covers all filter keys and works on any collection/index type.
         if ($filters) {
+            // A folder listing (children_of, or root=true) only tests that
+            // folder's own children, not every page on the site.
+            $source = $collection;
+            $folderParent = $filters['children_of'] ?? (
+                isset($filters['root']) && filter_var($filters['root'], FILTER_VALIDATE_BOOLEAN) ? '/' : null
+            );
+            if (is_string($folderParent)) {
+                $folder = $this->flexFolderChildren($directory, $collection, $folderParent);
+                if ($folder !== null) {
+                    $source = $collection->select($folder['keys']);
+                }
+            }
+
             $filtered = [];
-            foreach ($collection as $page) {
+            foreach ($source as $page) {
                 if ($page instanceof PageInterface && $this->matchesFilters($page, $filters)) {
                     $filtered[$page->getKey()] = $page;
                 }
@@ -149,20 +161,7 @@ class PagesController extends AbstractApiController
         $locatedAt = $this->applyLocate($items, $pagination, $query['locate'] ?? null);
         $slice = array_slice($items, $pagination['offset'], $pagination['limit']);
 
-        $includeTranslations = filter_var(
-            $request->getQueryParams()['translations'] ?? false,
-            FILTER_VALIDATE_BOOLEAN
-        );
-
-        $listOptions = [
-            'include_content' => false,
-            'render_content' => false,
-            'include_children' => false,
-            'include_media' => false,
-            'include_translations' => $includeTranslations,
-        ];
-
-        $data = $this->attachPageCapabilities($request, $slice, $this->serializer->serializeCollection($slice, $listOptions));
+        $data = $this->attachPageCapabilities($request, $slice, $this->serializer->serializeCollection($slice, $this->listOptions($request)));
 
         return ApiResponse::paginated(
             data: $data,
@@ -185,12 +184,13 @@ class PagesController extends AbstractApiController
         $filters = $this->getFilters($request, self::ALLOWED_FILTERS);
         $sorting = $this->getSorting($request, self::ALLOWED_SORT_FIELDS);
         $pagination = $this->getPagination($request);
+        $search = self::searchTerm($request->getQueryParams());
 
         $sortField = $sorting['sort'] ?? 'date';
         $sortOrder = $sorting['sort'] ? $sorting['order'] : 'desc';
 
         if ($sortField === 'default' && isset($filters['children_of'])) {
-            return $this->indexViaDefaultSort($request, $filters['children_of'], $filters, $pagination);
+            return $this->indexViaDefaultSort($request, $filters['children_of'], $filters, $pagination, $search);
         }
         if ($sortField === 'default') {
             $sortField = 'order';
@@ -198,27 +198,14 @@ class PagesController extends AbstractApiController
         }
 
         $pages = $this->grav['pages'];
-        $allPages = $this->collectAndFilterPages($pages->instances(), $filters);
+        $allPages = $this->collectAndFilterPages($this->candidatePages($pages, $filters), $filters, $search);
         $allPages = $this->sortPages($allPages, $sortField, $sortOrder);
 
         $total = count($allPages);
         $locatedAt = $this->applyLocate($allPages, $pagination, $request->getQueryParams()['locate'] ?? null);
         $slice = array_slice($allPages, $pagination['offset'], $pagination['limit']);
 
-        $includeTranslations = filter_var(
-            $request->getQueryParams()['translations'] ?? false,
-            FILTER_VALIDATE_BOOLEAN
-        );
-
-        $listOptions = [
-            'include_content' => false,
-            'render_content' => false,
-            'include_children' => false,
-            'include_media' => false,
-            'include_translations' => $includeTranslations,
-        ];
-
-        $data = $this->attachPageCapabilities($request, $slice, $this->serializer->serializeCollection($slice, $listOptions));
+        $data = $this->attachPageCapabilities($request, $slice, $this->serializer->serializeCollection($slice, $this->listOptions($request)));
 
         return ApiResponse::paginated(
             data: $data,
@@ -276,6 +263,77 @@ class PagesController extends AbstractApiController
         } finally {
             $this->restoreLanguage($previousLang);
         }
+    }
+
+    /**
+     * GET /pages/{route}/neighbors — where a page sits among its siblings, for
+     * the admin's page navigator: its parent, the previous and next sibling,
+     * its first child, its position and the sibling count.
+     *
+     * Siblings are the parent's children in `sort=default` order, exactly as
+     * `GET /pages?children_of=<parent>&sort=default` lists them (`/` for a
+     * top-level page), and every row is a `fields=summary` list row. Only the
+     * parent's and the page's own children are read, never the whole site,
+     * so opening the editor no longer downloads every sibling to find two.
+     *
+     * A page that its parent's listing leaves out (a folder with no content
+     * file) gets `index: -1` and no previous or next sibling.
+     */
+    public function neighbors(ServerRequestInterface $request): ResponseInterface
+    {
+        $previousLang = $this->applyLanguage($request);
+
+        try {
+            $this->enablePages();
+
+            $route = $this->getRouteParam($request, 'route');
+            $page = $this->findPageOrFail('/' . $route, $request, self::PERMISSION_READ);
+            $this->authorizePageAction($request, $page, 'read', self::PERMISSION_READ);
+
+            $parent = $page->parent();
+            if ($parent !== null && $parent->root()) {
+                $parent = null;
+            }
+            $parentRoute = $parent !== null ? (string) $parent->rawRoute() : '/';
+
+            $siblings = $this->defaultOrderedChildren(['children_of' => $parentRoute]);
+            $index = -1;
+            foreach ($siblings as $position => $sibling) {
+                if ($sibling->path() === $page->path()) {
+                    $index = $position;
+                    break;
+                }
+            }
+
+            $children = $this->defaultOrderedChildren(['children_of' => (string) $page->rawRoute()]);
+
+            return ApiResponse::create([
+                'parent' => $this->summaryRow($request, $parent),
+                'prev' => $index > 0 ? $this->summaryRow($request, $siblings[$index - 1]) : null,
+                'next' => $index >= 0 ? $this->summaryRow($request, $siblings[$index + 1] ?? null) : null,
+                'first_child' => $this->summaryRow($request, $children[0] ?? null),
+                'index' => $index,
+                'total' => count($siblings),
+            ]);
+        } finally {
+            $this->restoreLanguage($previousLang);
+        }
+    }
+
+    /**
+     * One page serialized exactly like a `GET /pages?fields=summary` row,
+     * including the caller's per-page permissions, or null for no page.
+     */
+    private function summaryRow(ServerRequestInterface $request, ?PageInterface $page): ?array
+    {
+        if ($page === null) {
+            return null;
+        }
+
+        $options = ['include_header' => false] + $this->listOptions($request);
+        $rows = $this->attachPageCapabilities($request, [$page], $this->serializer->serializeCollection([$page], $options));
+
+        return $rows[0] ?? null;
     }
 
     /**
@@ -1385,18 +1443,28 @@ class PagesController extends AbstractApiController
      */
     public function siteLanguages(ServerRequestInterface $request): ResponseInterface
     {
+        return ApiResponse::create($this->siteLanguagesData($request));
+    }
+
+    /**
+     * The payload of GET /languages, shared with GET /admin-next/boot.
+     *
+     * @return array<string, mixed>
+     */
+    public function siteLanguagesData(ServerRequestInterface $request): array
+    {
         $this->requirePermission($request, self::PERMISSION_READ);
 
         /** @var Language $language */
         $language = $this->grav['language'];
 
         if (!$language->enabled()) {
-            return ApiResponse::create([
+            return [
                 'enabled' => false,
                 'languages' => [],
                 'default' => null,
                 'active' => null,
-            ]);
+            ];
         }
 
         $langs = $language->getLanguages();
@@ -1420,7 +1488,7 @@ class PagesController extends AbstractApiController
             'active' => $language->getActive() ?: $default,
         ];
 
-        return ApiResponse::create($data);
+        return $data;
     }
 
     /**
@@ -2224,12 +2292,13 @@ class PagesController extends AbstractApiController
     }
 
     /**
-     * Collect all page instances and apply filters.
+     * Collect all page instances and apply filters, plus the free-text search
+     * when one is given.
      *
      * @param iterable<string, PageInterface> $instances
      * @return list<PageInterface>
      */
-    private function collectAndFilterPages(iterable $instances, array $filters): array
+    private function collectAndFilterPages(iterable $instances, array $filters, ?string $search = null): array
     {
         $pages = [];
 
@@ -2239,7 +2308,7 @@ class PagesController extends AbstractApiController
             // carrying `routes.default: ''` is a real page whose route is the
             // empty string, so ask root() rather than testing the route for
             // truthiness (getgrav/grav-plugin-api#34).
-            if ($page->root() || !$page->exists()) {
+            if ($page->root() || !self::hasContentFile($page)) {
                 continue;
             }
 
@@ -2247,10 +2316,52 @@ class PagesController extends AbstractApiController
                 continue;
             }
 
+            if ($search !== null && !self::matchesSearch($page, $search)) {
+                continue;
+            }
+
             $pages[] = $page;
         }
 
         return $pages;
+    }
+
+    /**
+     * The `search` query parameter, trimmed, or null when there is none.
+     *
+     * @param array<string, mixed> $query
+     */
+    private static function searchTerm(array $query): ?string
+    {
+        $search = $query['search'] ?? null;
+        if (!is_string($search)) {
+            return null;
+        }
+        $search = trim($search);
+
+        return $search === '' ? null : $search;
+    }
+
+    /**
+     * Free-text page search for sites without Flex pages.
+     *
+     * Mirrors what the Flex pages directory does with `?search=` (its
+     * `data.search` config in `system/blueprints/flex/pages.yaml`): a
+     * case-insensitive substring match on the title, the menu label, the slug
+     * and the route (the Flex config's `key` entry). Both the public route and
+     * the raw one (`/home` for a hidden home page) are tested. Without this the
+     * regular-pages path ignored `search` and returned every page.
+     */
+    private static function matchesSearch(PageInterface $page, string $search): bool
+    {
+        foreach ([$page->title(), $page->menu(), $page->slug(), $page->route(), $page->rawRoute()] as $value) {
+            // What Utils::contains($value, $search, false) does, which Flex uses.
+            if (is_string($value) && $value !== '' && mb_stripos($value, $search) !== false) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -2341,7 +2452,36 @@ class PagesController extends AbstractApiController
             || $parentRoute === $parent->route();
     }
 
-    private function indexViaDefaultSort(ServerRequestInterface $request, string $parentRoute, array $filters, array $pagination): ResponseInterface
+    private function indexViaDefaultSort(ServerRequestInterface $request, string $parentRoute, array $filters, array $pagination, ?string $search = null): ResponseInterface
+    {
+        $items = $this->defaultOrderedChildren($filters, $search);
+
+        $total = count($items);
+        $locatedAt = $this->applyLocate($items, $pagination, $request->getQueryParams()['locate'] ?? null);
+        $slice = array_slice($items, $pagination['offset'], $pagination['limit']);
+
+        $data = $this->attachPageCapabilities($request, $slice, $this->serializer->serializeCollection($slice, $this->listOptions($request)));
+
+        return ApiResponse::paginated(
+            data: $data,
+            total: $total,
+            page: $pagination['page'],
+            perPage: $pagination['per_page'],
+            baseUrl: $this->getApiBaseUrl() . '/pages',
+            locatedAtIndex: $locatedAt,
+            query: $request->getQueryParams(),
+        );
+    }
+
+    /**
+     * The direct children of `$filters['children_of']` that pass the other
+     * filters and the search, in the folder's own order: the parent's
+     * collection ordering when it sets one, otherwise numbered folders first
+     * (ascending) and then unnumbered ones by slug. This is `sort=default`.
+     *
+     * @return list<PageInterface>
+     */
+    private function defaultOrderedChildren(array $filters, ?string $search = null): array
     {
         // Collect direct children and find parent using Flex or Pages service
         $directory = $this->getFlexDirectory('pages');
@@ -2350,13 +2490,37 @@ class PagesController extends AbstractApiController
 
         $items = [];
         if ($directory) {
-            foreach ($directory->getCollection() as $page) {
+            // The search narrows the children, not the parent lookup below, so
+            // take the matching keys from Flex's own search up front.
+            $searchKeys = null;
+            if ($search !== null) {
+                $searchKeys = [];
+                foreach ($directory->getCollection()->search($search) as $match) {
+                    if ($match instanceof PageInterface) {
+                        $searchKeys[(string) $match->getKey()] = true;
+                    }
+                }
+            }
+
+            // Read the folder's own children rather than walking every page to
+            // find them (and the folder). When the folder can't be resolved
+            // that way, fall back to the walk.
+            $collection = $directory->getCollection();
+            $folder = $this->flexFolderChildren($directory, $collection, $childRoute);
+            if ($folder !== null) {
+                $parent = $folder['parent'];
+                $source = $collection->select($folder['keys']);
+            } else {
+                $source = $collection;
+            }
+
+            foreach ($source as $page) {
                 if (!$page instanceof PageInterface) {
                     continue;
                 }
                 // Match by rawRoute too: the home page's public route is '/'
                 // while the frontend asks for its structural route (e.g. '/home').
-                if ($page->route() === $childRoute || $page->rawRoute() === $childRoute) {
+                if ($folder === null && ($page->route() === $childRoute || $page->rawRoute() === $childRoute)) {
                     $parent = $page;
                 }
                 // matchesFilters() covers children_of (via isDirectChildOf) *and*
@@ -2364,15 +2528,18 @@ class PagesController extends AbstractApiController
                 // isDirectChildOf here silently dropped those boolean filters on
                 // the default-sort path used by the tree and columns views —
                 // the same class of bug as getgrav/grav-plugin-admin2#121.
-                if ($this->matchesFilters($page, $filters)) {
+                if (
+                    $this->matchesFilters($page, $filters)
+                    && ($searchKeys === null || isset($searchKeys[(string) $page->getKey()]))
+                ) {
                     $items[] = $page;
                 }
             }
         } else {
             $this->enablePages();
-            $parent = $this->grav['pages']->find($childRoute);
-            $allPages = $this->collectAndFilterPages($this->grav['pages']->instances(), $filters);
-            $items = $allPages;
+            $pages = $this->grav['pages'];
+            $parent = $pages->find($childRoute);
+            $items = $this->collectAndFilterPages($this->candidatePages($pages, $filters), $filters, $search);
         }
 
         // Check parent's collection ordering (e.g. blog ordered by date desc)
@@ -2441,32 +2608,169 @@ class PagesController extends AbstractApiController
             $items = array_merge($ordered, $unordered);
         }
 
-        $total = count($items);
-        $locatedAt = $this->applyLocate($items, $pagination, $request->getQueryParams()['locate'] ?? null);
-        $slice = array_slice($items, $pagination['offset'], $pagination['limit']);
+        return $items;
+    }
 
-        $includeTranslations = filter_var(
-            $request->getQueryParams()['translations'] ?? false,
-            FILTER_VALIDATE_BOOLEAN
-        );
+    /**
+     * The Flex pages directly under a folder, read from the folder's own list of
+     * children instead of asking every page on the site for its parent.
+     *
+     * Returns the page whose route or structural route is the folder's (the
+     * one a `sort=default` listing takes its collection ordering from: for `/`
+     * that is the home page, whose public route is `/`) and the children's
+     * keys in the collection's own order, limited to what is in $collection.
+     * Callers still apply every filter to those children, so the result is the
+     * same as a full walk. Null when the folder doesn't resolve by its key to a
+     * page with that route (an alias, a canonical URL, no page at all); the
+     * caller then walks every page, as before.
+     *
+     * @return array{parent: ?PageInterface, keys: list<string>}|null
+     */
+    private function flexFolderChildren(FlexDirectory $directory, iterable $collection, string $parentValue): ?array
+    {
+        if (!method_exists($collection, 'getKeys')) {
+            return null;
+        }
 
-        $data = $this->attachPageCapabilities($request, $slice, $this->serializer->serializeCollection($slice, [
+        $parentRoute = '/' . trim($parentValue, '/');
+        if ($parentRoute === '/') {
+            $index = $directory->getIndex();
+            $folder = method_exists($index, 'getRoot') ? $index->getRoot() : null;
+
+            $alias = trim((string) $this->config->get('system.home.alias', '/home'), '/');
+            $parent = $alias !== '' ? $directory->getObject($alias) : null;
+            if (!$parent instanceof PageInterface || $parent->route() !== '/') {
+                return null;
+            }
+        } else {
+            $folder = $directory->getObject(ltrim($parentRoute, '/'));
+            if (!$folder instanceof PageInterface
+                || ($folder->rawRoute() !== $parentRoute && $folder->route() !== $parentRoute)) {
+                return null;
+            }
+            $parent = $folder;
+        }
+
+        if (!$folder instanceof PageInterface || !method_exists($folder, 'getMetaData') || !method_exists($folder, 'getMasterKey')) {
+            return null;
+        }
+
+        $meta = $folder->getMetaData();
+        $master = (string) $folder->getMasterKey();
+        $storageKeys = [];
+        foreach (array_keys((array) ($meta['children'] ?? [])) as $child) {
+            $storageKeys[] = $master !== '' ? $master . '/' . $child : (string) $child;
+        }
+
+        $wanted = [];
+        if ($storageKeys !== []) {
+            foreach ($directory->getIndex($storageKeys, 'storage_key') as $child) {
+                if ($child instanceof PageInterface) {
+                    $wanted[(string) $child->getKey()] = true;
+                }
+            }
+        }
+
+        $keys = [];
+        foreach ($collection->getKeys() as $key) {
+            if (isset($wanted[(string) $key])) {
+                $keys[] = $key;
+            }
+        }
+
+        return ['parent' => $parent, 'keys' => $keys];
+    }
+
+    /**
+     * The pages a listing on the regular Pages service has to look at.
+     *
+     * A `children_of` (or `root=true`) listing only needs the parent's own
+     * children, so it reads them from the children index instead of walking
+     * every page and asking each one for its parent. The filters still run on
+     * the result, so what comes back is the same. When the route doesn't
+     * resolve to a page whose route or structural route is that value (an
+     * alias, a canonical URL, or no page at all), it falls back to every page,
+     * which is what the filter has always been tested against.
+     *
+     * @return iterable<PageInterface>
+     */
+    private function candidatePages(\Grav\Common\Page\Pages $pages, array $filters): iterable
+    {
+        $parentValue = $filters['children_of'] ?? null;
+        if ($parentValue === null && isset($filters['root']) && filter_var($filters['root'], FILTER_VALIDATE_BOOLEAN)) {
+            $parentValue = '/';
+        }
+        if (!is_string($parentValue)) {
+            return $pages->instances();
+        }
+
+        $parentRoute = '/' . trim($parentValue, '/');
+        if ($parentRoute === '/') {
+            $parent = $pages->root();
+        } else {
+            $parent = $pages->find($parentRoute, true);
+            if (!$parent instanceof PageInterface
+                || $parent->root()
+                || ($parent->rawRoute() !== $parentRoute && $parent->route() !== $parentRoute)
+            ) {
+                return $pages->instances();
+            }
+        }
+
+        $path = $parent->path();
+        if ($path === null || $path === '') {
+            return $pages->instances();
+        }
+
+        $children = [];
+        foreach ($pages->children($path) as $childPath => $child) {
+            if ($child instanceof PageInterface) {
+                $children[$childPath] = $child;
+            }
+        }
+
+        return $children;
+    }
+
+    /**
+     * Whether a listed page has a content file, i.e. is a page rather than a
+     * bare folder.
+     *
+     * A regular page in the pages index was built by a scan that found its
+     * content file, so knowing it has one is enough; the stat that exists()
+     * makes for every page in a listing is skipped. A folder with no content
+     * file has no file object at all. Anything else still asks exists().
+     */
+    private static function hasContentFile(PageInterface $page): bool
+    {
+        if (get_class($page) === Page::class) {
+            return $page->file() !== null;
+        }
+
+        return $page->exists();
+    }
+
+    /**
+     * Serializer options for page-list rows.
+     *
+     * `fields=summary` leaves out `header` (the page's full frontmatter), which
+     * the admin's tree, list and columns views never read and which is about
+     * half of a 500-row listing. Every other key is unchanged, and without the
+     * parameter the rows are exactly as before.
+     */
+    private function listOptions(ServerRequestInterface $request): array
+    {
+        $query = $request->getQueryParams();
+        $fields = $query['fields'] ?? null;
+
+        return [
             'include_content' => false,
             'render_content' => false,
             'include_children' => false,
             'include_media' => false,
-            'include_translations' => $includeTranslations,
-        ]));
-
-        return ApiResponse::paginated(
-            data: $data,
-            total: $total,
-            page: $pagination['page'],
-            perPage: $pagination['per_page'],
-            baseUrl: $this->getApiBaseUrl() . '/pages',
-            locatedAtIndex: $locatedAt,
-            query: $request->getQueryParams(),
-        );
+            'include_translations' => filter_var($query['translations'] ?? false, FILTER_VALIDATE_BOOLEAN),
+            'include_header' => !(is_string($fields) && strtolower(trim($fields)) === 'summary'),
+        ];
     }
 
     /**
@@ -2697,6 +3001,16 @@ class PagesController extends AbstractApiController
      */
     private function clearPagesCache(): void
     {
+        // Grav 2.2+ can rebuild just the pages index on the next request.
+        // A standard clear also drops compiled config, languages and Twig,
+        // so every save (autosave included) left the next request fully cold.
+        $pages = $this->grav['pages'];
+        if (method_exists($pages, 'markChanged')) {
+            $pages->markChanged();
+
+            return;
+        }
+
         $this->grav['cache']->clearCache('standard');
     }
 

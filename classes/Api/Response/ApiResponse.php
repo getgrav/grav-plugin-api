@@ -76,6 +76,22 @@ class ApiResponse
     }
 
     /**
+     * A response assembled from independent parts, some of which may have
+     * failed: `{"data": {...}, "errors": {...}}`, both keyed by part name. Both
+     * members are always objects, empty ones included.
+     *
+     * @param array<string, mixed> $data
+     * @param array<string, array{status: int, title: string}> $errors
+     */
+    public static function parts(array $data, array $errors, int $status = 200, array $headers = []): ResponseInterface
+    {
+        return self::json($status, $headers, [
+            'data' => $data === [] ? new \stdClass() : $data,
+            'errors' => $errors === [] ? new \stdClass() : $errors,
+        ]);
+    }
+
+    /**
      * Create a paginated response with meta and links.
      *
      * Pass the request's query parameters as `$query` so every link keeps the

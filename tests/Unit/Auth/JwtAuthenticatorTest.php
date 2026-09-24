@@ -340,6 +340,122 @@ class JwtAuthenticatorTest extends TestCase
     }
 
     #[Test]
+    public function validation_does_not_rewrite_the_revocation_list_when_nothing_expired(): void
+    {
+        $user = TestHelper::createMockUser('judy');
+        $authenticator = $this->buildAuthenticator(['judy' => $user]);
+
+        self::assertTrue($authenticator->revokeToken($authenticator->generateRefreshToken($user)));
+
+        $file = $this->tempDir . '/revoked_tokens.json';
+        $before = file_get_contents($file);
+        touch($file, time() - 3600);
+        clearstatcache(true, $file);
+        $mtime = filemtime($file);
+
+        $request = TestHelper::createMockRequest(
+            headers: ['Authorization' => 'Bearer ' . $authenticator->generateAccessToken($user)],
+        );
+        self::assertNotNull($authenticator->authenticate($request));
+
+        clearstatcache(true, $file);
+        self::assertSame($mtime, filemtime($file), 'a JWT request with nothing expired must not write the list');
+        self::assertSame($before, file_get_contents($file));
+    }
+
+    #[Test]
+    public function validation_prunes_expired_revocations(): void
+    {
+        $user = TestHelper::createMockUser('karl');
+        $authenticator = $this->buildAuthenticator(['karl' => $user]);
+
+        $file = $this->tempDir . '/revoked_tokens.json';
+        file_put_contents($file, json_encode(['expired-jti' => time() - 10, 'live-jti' => time() + 600]));
+
+        $request = TestHelper::createMockRequest(
+            headers: ['Authorization' => 'Bearer ' . $authenticator->generateAccessToken($user)],
+        );
+        self::assertNotNull($authenticator->authenticate($request));
+
+        $list = json_decode((string) file_get_contents($file), true);
+        self::assertArrayNotHasKey('expired-jti', $list);
+        self::assertArrayHasKey('live-jti', $list);
+    }
+
+    #[Test]
+    public function prune_does_not_drop_a_revocation_added_after_the_read(): void
+    {
+        // A request reads the list, a logout on another request revokes a token,
+        // and only then does the first request prune an expired entry. The
+        // prune used to write back the copy it read before the logout, which
+        // silently un-revoked the token.
+        $user = TestHelper::createMockUser('lena');
+        $logout = $this->buildAuthenticator(['lena' => $user]);
+        $refreshToken = $logout->generateRefreshToken($user);
+
+        $file = $this->tempDir . '/revoked_tokens.json';
+        file_put_contents($file, json_encode(['expired-jti' => time() - 10]));
+
+        $accounts = TestHelper::createMockAccounts(['lena' => $user]);
+        $grav = TestHelper::createMockGrav(['accounts' => $accounts]);
+        $config = TestHelper::createMockConfig([
+            'plugins' => ['api' => ['auth' => [
+                'jwt_secret' => self::SECRET,
+                'jwt_algorithm' => self::ALGORITHM,
+                'jwt_expiry' => 3600,
+                'jwt_refresh_expiry' => 604800,
+            ]]],
+        ]);
+        $afterRead = static function () use ($logout, $refreshToken): void {
+            self::assertTrue($logout->revokeToken($refreshToken), 'the concurrent logout must succeed');
+        };
+
+        $request = new class ($grav, $config, $this->tempDir, $afterRead) extends JwtAuthenticator {
+            private bool $fired = false;
+
+            public function __construct(
+                Grav $grav,
+                Config $config,
+                private readonly string $dir,
+                private readonly \Closure $afterRead,
+            ) {
+                parent::__construct($grav, $config);
+            }
+
+            protected function getSecret(): string
+            {
+                return $this->config->get('plugins.api.auth.jwt_secret');
+            }
+
+            protected function getRevokedTokensFile(): string
+            {
+                return $this->dir . '/revoked_tokens.json';
+            }
+
+            protected function readRevokedTokens(string $file): array
+            {
+                $list = parent::readRevokedTokens($file);
+                if (!$this->fired) {
+                    $this->fired = true;
+                    ($this->afterRead)();
+                }
+
+                return $list;
+            }
+        };
+
+        $bearer = TestHelper::createMockRequest(
+            headers: ['Authorization' => 'Bearer ' . $request->generateAccessToken($user)],
+        );
+        self::assertNotNull($request->authenticate($bearer));
+
+        $list = json_decode((string) file_get_contents($file), true);
+        self::assertArrayNotHasKey('expired-jti', $list, 'the expired entry is still pruned');
+        self::assertCount(1, $list, 'the logout revocation survives the prune');
+        self::assertNull($logout->validateRefreshToken($refreshToken), 'the revoked token stays revoked');
+    }
+
+    #[Test]
     public function legacy_access_token_without_jti_still_authenticates(): void
     {
         // Tokens minted before the jti was added have none. They must keep

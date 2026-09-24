@@ -33,8 +33,7 @@ trait HandlesMediaUploads
 
     protected function getThumbnailService(): ThumbnailService
     {
-        $cacheDir = $this->grav['locator']->findResource('cache://') . '/api/thumbnails';
-        return new ThumbnailService($cacheDir);
+        return ThumbnailService::forGrav($this->grav);
     }
 
     protected function getSerializer(): MediaSerializer

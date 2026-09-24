@@ -6,8 +6,7 @@ namespace Grav\Plugin\Api;
 
 use Grav\Common\Page\Interfaces\PageInterface;
 use Grav\Common\User\Interfaces\UserInterface;
-use Symfony\Component\Yaml\Yaml;
-use Throwable;
+use Grav\Plugin\Api\Services\FrontmatterReader;
 
 /**
  * Per-page access control from a page's own frontmatter.
@@ -312,7 +311,7 @@ final class PageAcl
         // buttons. Read the frontmatter off disk in that case, the same
         // fallback PageSerializer uses for published/visible.
         if ($headerArray === []) {
-            $headerArray = $this->headerFromDisk($page);
+            $headerArray = FrontmatterReader::forPage($page);
         }
 
         $permissions = $headerArray['permissions'] ?? null;
@@ -335,61 +334,5 @@ final class PageAcl
         $decoded = json_decode((string) json_encode($header), true);
 
         return is_array($decoded) ? $decoded : [];
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function headerFromDisk(PageInterface $page): array
-    {
-        $path = $page->path();
-        $template = $page->template();
-        if (!$path || !$template) {
-            return [];
-        }
-
-        $candidates = [];
-        $language = $page->language();
-        if ($language) {
-            $candidates[] = $path . '/' . $template . '.' . $language . '.md';
-        }
-        $candidates[] = $path . '/' . $template . '.md';
-        foreach (glob($path . '/' . $template . '*.md') ?: [] as $file) {
-            $candidates[] = $file;
-        }
-
-        foreach ($candidates as $file) {
-            if (!is_file($file)) {
-                continue;
-            }
-            $header = $this->parseFrontmatter($file);
-            if ($header !== []) {
-                return $header;
-            }
-        }
-
-        return [];
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function parseFrontmatter(string $file): array
-    {
-        $contents = @file_get_contents($file);
-        if ($contents === false) {
-            return [];
-        }
-        if (!preg_match('/^---\r?\n(.*?)\r?\n---\r?\n/s', $contents, $matches)) {
-            return [];
-        }
-
-        try {
-            $parsed = Yaml::parse($matches[1]);
-        } catch (Throwable) {
-            return [];
-        }
-
-        return is_array($parsed) ? $parsed : [];
     }
 }
