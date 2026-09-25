@@ -1422,7 +1422,10 @@ paths:
             default: false
         - name: children
           in: query
-          description: When `true`, include child pages in the response.
+          description: |
+            When `true`, include child pages in the response. A child whose
+            own page permissions deny the caller read access is left out,
+            together with everything below it.
           schema:
             type: boolean
             default: false
@@ -1554,7 +1557,8 @@ paths:
           in: query
           description: |
             Whether to also delete child pages. Set to `false` to prevent
-            accidental deletion of pages with children.
+            accidental deletion of pages with children. The delete is refused
+            with a 403 when any page inside this one denies the caller delete.
           schema:
             type: boolean
             default: true
@@ -2483,8 +2487,13 @@ paths:
         A page that its parent's listing leaves out (a folder with no content
         file) gets `index: -1` and null `prev` and `next`.
 
-        Requires `api.pages.read`, and the page's own rules must allow
-        reading it. An unknown route is a 404.
+        Pages the caller can't read on their own route are left out first:
+        `parent` is null when the parent is unreadable, `prev`, `next` and
+        `first_child` are the nearest readable pages, and `index` and `total`
+        count only readable siblings.
+
+        Requires `api.pages.read` (or a page-level read grant), and the page's
+        own rules must allow reading it. An unknown route is a 404.
       parameters:
         - $ref: "#/components/parameters/pageRoute"
         - $ref: "#/components/parameters/lang"
