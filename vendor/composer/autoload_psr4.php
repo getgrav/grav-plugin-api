@@ -7,11 +7,7 @@ $baseDir = dirname($vendorDir);
 
 return array(
     'TrilbyMedia\\Cap\\' => array($vendorDir . '/trilbymedia/cap-php/src'),
-    'Psr\\Http\\Message\\' => array($vendorDir . '/psr/http-message/src'),
-    'PhpParser\\' => array($vendorDir . '/nikic/php-parser/lib/PhpParser'),
-    'Grav\\Plugin\\Api\\Tests\\' => array($baseDir . '/tests'),
     'Grav\\Plugin\\Api\\' => array($baseDir . '/classes/Api'),
     'Firebase\\JWT\\' => array($vendorDir . '/firebase/php-jwt/src'),
     'FastRoute\\' => array($vendorDir . '/nikic/fast-route/src'),
-    'DeepCopy\\' => array($vendorDir . '/myclabs/deep-copy/src/DeepCopy'),
 );

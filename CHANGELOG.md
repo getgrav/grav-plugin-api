@@ -5,6 +5,7 @@
     * Fetching a page with its children no longer includes child pages whose own permissions deny the caller read access [#47](https://github.com/getgrav/grav-plugin-api/issues/47)
     * Deleting or copying a page, directly or in a batch, is now refused when a page inside it denies that action, instead of taking the protected page along
     * The page navigator's previous, next, parent and first-child links now skip pages the account can't read, so a read grant on one page no longer reveals the pages around it [#48](https://github.com/getgrav/grav-plugin-api/issues/48)
+    * The plugin zip no longer carries PHPUnit and its dev packages (about 1,700 files): `vendor/` is committed from `composer install --no-dev`
 
 # v1.0.40
 ## 09/23/2026
