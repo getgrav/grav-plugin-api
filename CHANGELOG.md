@@ -1,5 +1,5 @@
 # v1.0.41
-## 09/24/2026
+## 09/25/2026
 
 1. [](#bugfix)
     * Fetching a page with its children no longer includes child pages whose own permissions deny the caller read access [#47](https://github.com/getgrav/grav-plugin-api/issues/47)
