@@ -3,6 +3,7 @@
 
 1. [](#bugfix)
     * You can no longer disable your own account, the same way you can't delete it, since a disabled account is logged out at once and can't log back in [#49](https://github.com/getgrav/grav-plugin-api/issues/49)
+    * A super admin can no longer remove their own super-admin access, either from their permissions or by leaving the group that grants it, since nobody could then give it back from the admin [#49](https://github.com/getgrav/grav-plugin-api/issues/49)
 
 # v1.0.41
 ## 09/25/2026
