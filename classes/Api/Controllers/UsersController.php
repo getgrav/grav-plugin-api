@@ -1128,6 +1128,17 @@ class UsersController extends AbstractApiController
             }
         }
 
+        // The counterpart of delete()'s self guard: a disabled account loses its
+        // session at once and can't log back in, so disabling yourself locks you
+        // out, and on a single-admin site only a hand edit of the account file
+        // undoes it. Keyed on the value, not the key's presence, because Admin2
+        // sends the unchanged `state: enabled` back with every save. Core treats
+        // anything other than 'enabled' as disabled.
+        if ($isSelf && $canManageUsers && array_key_exists('state', $body)
+            && ($body['state'] ?? 'enabled') !== 'enabled') {
+            throw new ForbiddenException('You cannot disable your own account.');
+        }
+
         $allowedFields = $selfFields;
         if ($canManageUsers) {
             $allowedFields = array_merge($allowedFields, $adminFields);

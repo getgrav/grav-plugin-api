@@ -1,3 +1,9 @@
+# v1.0.42
+## 09/27/2026
+
+1. [](#bugfix)
+    * You can no longer disable your own account, the same way you can't delete it, since a disabled account is logged out at once and can't log back in [#49](https://github.com/getgrav/grav-plugin-api/issues/49)
+
 # v1.0.41
 ## 09/25/2026
 

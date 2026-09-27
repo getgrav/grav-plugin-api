@@ -4025,7 +4025,8 @@ paths:
         their own account with the basic `api.access` permission; updating
         other users requires `api.users.write`. Some fields carry their own
         gate (see `UpdateUserRequest`). Only a super admin may modify a super
-        admin account (403).
+        admin account (403). You cannot disable your own account (403), the
+        same way you cannot delete it.
 
         Send the current `ETag` in `If-Match` to detect concurrent edits; a
         stale value returns 409. The submitted fields are validated against
@@ -13923,7 +13924,9 @@ components:
         state:
           type: string
           enum: [enabled, disabled]
-          description: Requires `api.users.write`.
+          description: |
+            Requires `api.users.write`. You cannot disable your own account
+            (403).
           example: enabled
         password:
           type: string
