@@ -19,6 +19,7 @@ use Grav\Plugin\Api\Exceptions\ForbiddenException;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\FlexBackend;
+use Grav\Plugin\Api\PermissionResolver;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Grav\Plugin\Api\Serializers\UserSerializer;
 use Grav\Plugin\Api\Services\PasswordPolicyService;
@@ -1139,6 +1140,8 @@ class UsersController extends AbstractApiController
             throw new ForbiddenException('You cannot disable your own account.');
         }
 
+        $wasSuper = $isSelf && $this->isSuperAdmin($user);
+
         $allowedFields = $selfFields;
         if ($canManageUsers) {
             $allowedFields = array_merge($allowedFields, $adminFields);
@@ -1150,6 +1153,15 @@ class UsersController extends AbstractApiController
             if (array_key_exists($field, $body)) {
                 $user->set($field, $body[$field]);
             }
+        }
+
+        // Same lockout through `access` or `groups`: a super admin who drops
+        // their own api.super can no longer reach the super-only parts of the
+        // admin, including the form that would give it back. Checked on the
+        // result (own map plus groups) with a fresh resolver, since the shared
+        // one has already cached this account's pre-edit access.
+        if ($wasSuper && (new PermissionResolver())->resolveExact($user, 'api.super') !== true) {
+            throw new ForbiddenException('You cannot remove super-admin access from your own account.');
         }
 
         // Persist any custom fields the site added by extending the account

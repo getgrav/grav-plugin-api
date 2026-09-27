@@ -17,7 +17,8 @@ use Psr\Http\Message\ServerRequestInterface;
 
 /**
  * grav-plugin-api#49: deleting your own account was refused, but disabling it
- * went through and locked the account out of the admin, with only a hand edit of the account file to undo it.
+ * (or stripping your own super-admin access) went through and locked the
+ * account out of the admin, with only a hand edit of the account file to undo it.
  */
 #[CoversClass(UsersController::class)]
 class UsersControllerSelfLockoutTest extends TestCase
@@ -186,6 +187,50 @@ class UsersControllerSelfLockoutTest extends TestCase
         $c->update($this->patch($alice, 'bob', ['state' => 'disabled']));
 
         $this->assertSame('disabled', $bob->get('state'));
+    }
+
+    #[Test]
+    public function super_admin_cannot_remove_own_super_via_access(): void
+    {
+        $alice = $this->superUser();
+        $c = $this->controller($alice);
+
+        $this->assertRefused(
+            $c,
+            $alice,
+            'alice',
+            ['access' => ['api' => ['access' => true], 'site' => ['login' => true]]],
+            'You cannot remove super-admin access from your own account.',
+        );
+    }
+
+    #[Test]
+    public function super_admin_cannot_leave_the_group_that_makes_them_super(): void
+    {
+        $alice = TestHelper::createMockUser('alice', [
+            'state'  => 'enabled',
+            'access' => ['site' => ['login' => true]],
+            'groups' => ['admins'],
+        ]);
+        $c = $this->controller($alice);
+
+        $this->assertRefused($c, $alice, 'alice', ['groups' => []], 'You cannot remove super-admin access from your own account.');
+    }
+
+    #[Test]
+    public function super_admin_can_move_own_super_from_group_to_account(): void
+    {
+        // Still super afterwards, so nothing is locked out.
+        $alice = TestHelper::createMockUser('alice', [
+            'state'  => 'enabled',
+            'access' => ['site' => ['login' => true]],
+            'groups' => ['admins'],
+        ]);
+        $c = $this->controller($alice);
+
+        $c->update($this->patch($alice, 'alice', ['groups' => [], 'access' => self::SUPER_ACCESS]));
+
+        $this->assertSame([], $alice->get('groups'));
     }
 
     #[Test]
