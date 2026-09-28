@@ -5,6 +5,7 @@
     * You can no longer disable your own account, the same way you can't delete it, since a disabled account is logged out at once and can't log back in [#49](https://github.com/getgrav/grav-plugin-api/issues/49)
     * A super admin can no longer remove their own super-admin access, either from their permissions or by leaving the group that grants it, since nobody could then give it back from the admin [#49](https://github.com/getgrav/grav-plugin-api/issues/49)
     * Searching the media library no longer returns files from hidden folders, which could not be opened, renamed or deleted, and the dashboard's media count no longer includes them [#50](https://github.com/getgrav/grav-plugin-api/issues/50)
+    * The token signing key file `user/config/plugins/api-private.php` is now created readable only by the site's own user, instead of being locked down a moment after it is written. Thanks @shxtterme
 
 # v1.0.41
 ## 09/25/2026
