@@ -1577,6 +1577,12 @@ class PagesController extends AbstractApiController
                 );
             }
 
+            // The write lands on the target translation, which carries its own
+            // frontmatter and so its own rules. Checking only the source let a
+            // translation that denies editing be overwritten from another
+            // language, its permissions block included.
+            $this->authorizePageAction($request, $targetPage, 'update', self::PERMISSION_WRITE);
+
             $this->fireEvent('onApiBeforePageSync', [
                 'page' => $targetPage,
                 'source_lang' => $sourceLang,
@@ -1663,6 +1669,8 @@ class PagesController extends AbstractApiController
             $sourceData = null;
             if ($sourcePage) {
                 $this->assertPageNotDenied($request, $sourcePage, 'read');
+                // Same gate show() applies to a page with Twig in its content.
+                $this->guardTwigContent($request, $sourcePage, []);
                 $translated = $sourcePage->translatedLanguages();
                 $sourceData = [
                     'lang' => $sourceLang,
@@ -1683,6 +1691,7 @@ class PagesController extends AbstractApiController
             $targetData = null;
             if ($targetPage) {
                 $this->assertPageNotDenied($request, $targetPage, 'read');
+                $this->guardTwigContent($request, $targetPage, []);
                 $translated = $targetPage->translatedLanguages();
                 $targetData = [
                     'lang' => $targetLang,
@@ -1881,7 +1890,7 @@ class PagesController extends AbstractApiController
                     'publish' => $this->batchPublish($page, $route, true),
                     'unpublish' => $this->batchPublish($page, $route, false),
                     'delete' => $this->batchDelete($page, $route),
-                    'copy' => $copied[$route] = $this->batchCopy($page, $options),
+                    'copy' => $copied[$route] = $this->batchCopy($request, $page, $options),
                 };
                 $results[] = ['route' => $route, 'status' => 'success'];
             } catch (\Throwable $e) {
@@ -2939,7 +2948,7 @@ class PagesController extends AbstractApiController
      * each new page inside this loop would mean a full filesystem walk per
      * item (#23).
      */
-    private function batchCopy(PageInterface $page, array $options): string
+    private function batchCopy(ServerRequestInterface $request, PageInterface $page, array $options): string
     {
         $destParent = $options['destination'] ?? self::structuralParentRoute($page);
         $suffix = $options['suffix'] ?? '-copy';
@@ -2950,6 +2959,7 @@ class PagesController extends AbstractApiController
         $destSlug = $page->slug() . $suffix;
 
         if ($destParent === '/') {
+            $parent = method_exists($this->grav['pages'], 'root') ? $this->grav['pages']->root() : null;
             $destParentPath = $this->grav['locator']->findResource('page://', true);
         } else {
             $parent = $this->grav['pages']->find($destParent);
@@ -2957,6 +2967,12 @@ class PagesController extends AbstractApiController
                 throw new ValidationException("Destination parent not found: {$destParent}");
             }
             $destParentPath = $parent->path();
+        }
+
+        // A copy creates a page under the destination, so the destination's own
+        // `create` rule applies, exactly as it does for POST /pages/{route}/copy.
+        if ($parent !== null) {
+            $this->assertPageNotDenied($request, $parent, 'create');
         }
 
         $destPath = $destParentPath . '/' . $destSlug;

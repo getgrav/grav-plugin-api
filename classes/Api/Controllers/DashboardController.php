@@ -314,26 +314,10 @@ class DashboardController extends AbstractApiController
             if (is_int($cached)) {
                 $totalMedia = $cached;
             } else {
-                $iterator = new \RecursiveIteratorIterator(
-                    new \RecursiveDirectoryIterator($mediaDir, \FilesystemIterator::SKIP_DOTS)
-                );
-                foreach ($iterator as $file) {
-                    if (!$file->isFile()) {
-                        continue;
-                    }
-                    // Skip sidecars, not real media: `.meta.yaml` metadata files, the
-                    // per-folder `media_order.yaml`, and hidden dotfiles — the same
-                    // files the media listing excludes.
-                    $name = $file->getFilename();
-                    if (
-                        str_starts_with($name, '.')
-                        || str_ends_with($name, '.meta.yaml')
-                        || $name === 'media_order.yaml'
-                    ) {
-                        continue;
-                    }
-                    $totalMedia++;
-                }
+                // The same walk the media search uses: hidden folders are
+                // skipped whole, with sidecars and dotfiles, so the card never
+                // counts files the media browser cannot show (#50).
+                $totalMedia = iterator_count(MediaController::walkMediaFiles($mediaDir));
                 $cache->save($cacheKey, $totalMedia, 300);
             }
         }

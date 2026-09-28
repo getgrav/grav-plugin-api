@@ -2872,8 +2872,9 @@ paths:
         Files follow the folder's saved manual order (`POST /media/order`)
         when one exists, otherwise natural filename order. A folder that does
         not exist returns an empty list. `search` switches to a recursive
-        filename search across every folder and cannot be combined with
-        `filter` or `sort` (422).
+        filename search across every folder the listing shows (hidden
+        dot-folders and everything in them are skipped) and cannot be
+        combined with `filter` or `sort` (422).
       parameters:
         - $ref: "#/components/parameters/page"
         - $ref: "#/components/parameters/per_page"
@@ -2885,7 +2886,7 @@ paths:
           example: blog/2026
         - name: search
           in: query
-          description: Case-insensitive search term for recursive filename matching across all subfolders.
+          description: Case-insensitive search term for recursive filename matching across all visible subfolders.
           schema:
             type: string
           example: hero
@@ -4025,7 +4026,8 @@ paths:
         their own account with the basic `api.access` permission; updating
         other users requires `api.users.write`. Some fields carry their own
         gate (see `UpdateUserRequest`). Only a super admin may modify a super
-        admin account (403).
+        admin account (403). You cannot disable your own account or remove
+        your own super-admin access (403), the same way you cannot delete it.
 
         Send the current `ETag` in `If-Match` to detect concurrent edits; a
         stale value returns 409. The submitted fields are validated against
@@ -13923,7 +13925,9 @@ components:
         state:
           type: string
           enum: [enabled, disabled]
-          description: Requires `api.users.write`.
+          description: |
+            Requires `api.users.write`. You cannot disable your own account
+            (403).
           example: enabled
         password:
           type: string
@@ -13934,12 +13938,15 @@ components:
           additionalProperties: true
           description: |
             Updated permission tree. Requires `api.users.write`; granting
-            `admin.super` or `api.super` also requires a super admin.
+            `admin.super` or `api.super` also requires a super admin. A super
+            admin cannot remove their own `api.super` (403).
         groups:
           type: array
           items:
             type: string
-          description: Group memberships. Requires a super admin.
+          description: |
+            Group memberships. Requires a super admin, who cannot leave a group
+            that is their only source of `api.super` (403).
       additionalProperties:
         description: |
           Custom fields the site added to the account blueprint are saved too.

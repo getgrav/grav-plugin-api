@@ -782,23 +782,58 @@ class SystemController extends AbstractApiController
     /**
      * The language code GET /translations/{lang} answers for a requested code.
      *
-     * Only the shape is validated: admin UI languages are a different concept
-     * from site content languages, so this does NOT gate on
-     * $language->getLanguages() (the languages system.yaml serves content in).
-     * Any plugin shipping a `languages/<lang>.yaml` is loadable, even if the
-     * site itself only serves English. A missing or malformed code falls back
-     * to the site default, and legacy short codes are coerced to their BCP 47
-     * form so `en` resolves to admin2's `en-US.yaml`.
+     * Admin UI languages are a different concept from site content languages,
+     * so this does NOT gate on $language->getLanguages() (the languages
+     * system.yaml serves content in). Any plugin shipping a
+     * `languages/<lang>.yaml` is loadable, even if the site itself only serves
+     * English. A missing or malformed code, or one that no source ships a file
+     * for (neither the code nor its primary subtag), falls back to the site
+     * default, and legacy short codes are coerced to their BCP 47 form so `en`
+     * resolves to admin2's `en-US.yaml`.
+     *
+     * The shipped-file check matters because the endpoint is public and each
+     * resolved code gets its own cached dictionary: a code nothing ships would
+     * only ever produce the English backfill, stored again under a new key.
      */
     public function resolveTranslationsLanguage(mixed $lang): string
     {
+        /** @var \Grav\Common\Language\Language $language */
+        $language = $this->grav['language'];
+        $default = self::normalizeLangCode($language->getDefault() ?: 'en-US');
+
         if (!is_string($lang) || !preg_match('/^[a-zA-Z]{2,3}(-[a-zA-Z]{2,4})?$/', $lang)) {
-            /** @var \Grav\Common\Language\Language $language */
-            $language = $this->grav['language'];
-            $lang = $language->getDefault() ?: 'en-US';
+            return $default;
         }
 
-        return self::normalizeLangCode($lang);
+        return self::shippedLanguageOr(self::normalizeLangCode($lang), $this->shippedTranslationLanguages(), $default);
+    }
+
+    /**
+     * Language codes any core, plugin, theme or site source ships a file for.
+     *
+     * @return array<int, string>
+     */
+    protected function shippedTranslationLanguages(): array
+    {
+        return TranslationSourceIndex::shared($this->grav)->languages();
+    }
+
+    /**
+     * $lang when a source ships a file for it or for its primary subtag,
+     * otherwise $default. Codes on disk are compared case-insensitively.
+     *
+     * @param array<int, string> $shipped
+     */
+    private static function shippedLanguageOr(string $lang, array $shipped, string $default): string
+    {
+        $shipped = array_map('strtolower', $shipped);
+        foreach (self::translationChainFor($lang) as $code) {
+            if (in_array(strtolower($code), $shipped, true)) {
+                return $lang;
+            }
+        }
+
+        return $default;
     }
 
     /**
@@ -820,6 +855,11 @@ class SystemController extends AbstractApiController
      */
     private function knownTranslationsChecksum(string $lang, ?string $prefix): ?string
     {
+        // Only the full dictionary is remembered (see translationsDictionary()).
+        if ($prefix !== null) {
+            return null;
+        }
+
         $known = $this->grav['cache']->fetch('api-translations-etag-' . $this->translationsFingerprint($lang, $prefix));
 
         return is_string($known) ? $known : null;
@@ -833,6 +873,16 @@ class SystemController extends AbstractApiController
      */
     private function translationsDictionary(string $lang, ?string $prefix, ?string $knownChecksum): array
     {
+        // A prefixed request is filtered from the cached full dictionary rather
+        // than stored under its own key: the prefix is free text from a public
+        // endpoint, so one entry per prefix would let anyone grow the cache.
+        if ($prefix !== null) {
+            $full = $this->translationsDictionary($lang, null, $this->knownTranslationsChecksum($lang, null));
+            $strings = self::filterByPrefix($full['strings'], $prefix);
+
+            return ['checksum' => md5(json_encode($strings)), 'strings' => $strings];
+        }
+
         $cache = $this->grav['cache'];
         $fingerprint = $this->translationsFingerprint($lang, $prefix);
         $etagKey = 'api-translations-etag-' . $fingerprint;
@@ -843,7 +893,7 @@ class SystemController extends AbstractApiController
             $checksum = $cached['checksum'];
             $translations = $cached['strings'];
         } else {
-            $translations = $this->buildTranslationsForRequest($lang, $prefix);
+            $translations = $this->buildTranslationsForRequest($lang);
             // Include a checksum for cache invalidation
             $checksum = md5(json_encode($translations));
             $cache->save($dictKey, ['checksum' => $checksum, 'strings' => $translations], self::TRANSLATIONS_CACHE_TTL);
@@ -861,7 +911,7 @@ class SystemController extends AbstractApiController
      *
      * @return array<string, string>
      */
-    private function buildTranslationsForRequest(string $lang, ?string $prefix): array
+    private function buildTranslationsForRequest(string $lang): array
     {
         $translations = $this->buildTranslationChain($lang);
 
@@ -893,17 +943,24 @@ class SystemController extends AbstractApiController
             }
         }
 
-        // Filter by prefix if requested
-        if ($prefix !== null) {
-            $prefixLower = strtolower($prefix) . '.';
-            $translations = array_filter(
-                $translations,
-                fn($key) => str_starts_with(strtolower((string) $key), $prefixLower),
-                ARRAY_FILTER_USE_KEY
-            );
-        }
-
         return $translations;
+    }
+
+    /**
+     * The entries under one key prefix, e.g. `PLUGIN_ADMIN`, matched case-insensitively.
+     *
+     * @param array<string, string> $translations
+     * @return array<string, string>
+     */
+    private static function filterByPrefix(array $translations, string $prefix): array
+    {
+        $prefixLower = strtolower($prefix) . '.';
+
+        return array_filter(
+            $translations,
+            fn($key) => str_starts_with(strtolower((string) $key), $prefixLower),
+            ARRAY_FILTER_USE_KEY
+        );
     }
 
     /**
