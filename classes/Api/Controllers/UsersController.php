@@ -1140,6 +1140,8 @@ class UsersController extends AbstractApiController
             throw new ForbiddenException('You cannot disable your own account.');
         }
 
+        // @scope-cap-exempt: only ever blocks an edit (the self-demotion guard
+        // below), never grants anything, so an API-key scope cannot widen it.
         $wasSuper = $isSelf && $this->isSuperAdmin($user);
 
         $allowedFields = $selfFields;
