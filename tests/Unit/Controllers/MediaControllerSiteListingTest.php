@@ -100,6 +100,50 @@ class MediaControllerSiteListingTest extends TestCase
         self::assertSame(0, $payload['meta']['pagination']['total']);
     }
 
+    /**
+     * Hidden folders the listing never shows, at the top level and nested,
+     * plus one visible nested hit so the walk is proven to still recurse.
+     */
+    private function seedHiddenFolders(): void
+    {
+        mkdir($this->mediaDir . '/.private/deeper', 0777, true);
+        mkdir($this->mediaDir . '/photos/.cache', 0777, true);
+        file_put_contents($this->mediaDir . '/.private/secret-top.txt', 'x');
+        file_put_contents($this->mediaDir . '/.private/deeper/secret-deep.txt', 'x');
+        file_put_contents($this->mediaDir . '/photos/.cache/secret-thumb.txt', 'x');
+        file_put_contents($this->mediaDir . '/photos/nested/secret-visible.txt', 'x');
+        file_put_contents($this->mediaDir . '/photos/nested/.secret-dotfile.txt', 'x');
+    }
+
+    #[Test]
+    public function search_never_descends_into_hidden_folders(): void
+    {
+        $this->seedHiddenFolders();
+
+        $payload = $this->json($this->controller->siteMedia($this->request(['search' => 'secret'])));
+
+        // Only the visible nested file: nothing from .private/, .private/deeper/
+        // or photos/.cache/, which the listing and every path route refuse (#50).
+        self::assertSame(1, $payload['meta']['pagination']['total']);
+        self::assertSame('secret-visible.txt', $payload['data'][0]['filename']);
+        self::assertSame('photos/nested', $payload['data'][0]['path']);
+    }
+
+    #[Test]
+    public function media_file_walk_counts_only_what_the_listing_shows(): void
+    {
+        $this->seedHiddenFolders();
+
+        $names = [];
+        foreach (MediaController::walkMediaFiles($this->mediaDir) as $file) {
+            $names[] = $file->getFilename();
+        }
+        sort($names);
+
+        // No sidecars, no dotfiles, nothing under a dot-folder.
+        self::assertSame(['a.txt', 'b.txt', 'secret-visible.txt'], $names);
+    }
+
     #[Test]
     public function missing_folder_echoes_the_requested_pagination(): void
     {

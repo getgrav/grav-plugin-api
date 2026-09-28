@@ -1854,6 +1854,34 @@ class MediaController extends AbstractApiController
     }
 
     /**
+     * Every media file under $dir that the folder listing would show. Hidden
+     * entries are never entered, so a dot-folder at any depth is skipped along
+     * with everything inside it, the same as the listing, the folder counts and
+     * validateRelativePath() treat it (#50). The `.meta.yaml` and
+     * `media_order.yaml` sidecars are skipped too. Shared by search and the
+     * dashboard's media count so both agree with what the user can browse.
+     *
+     * @return \Generator<\SplFileInfo>
+     */
+    public static function walkMediaFiles(string $dir): \Generator
+    {
+        $tree = new \RecursiveIteratorIterator(
+            new \RecursiveCallbackFilterIterator(
+                new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS),
+                static fn (\SplFileInfo $entry): bool => !str_starts_with($entry->getFilename(), '.')
+            )
+        );
+
+        foreach ($tree as $file) {
+            $name = $file->getFilename();
+            if (!$file->isFile() || str_ends_with($name, '.meta.yaml') || $name === self::MEDIA_ORDER_FILE) {
+                continue;
+            }
+            yield $file;
+        }
+    }
+
+    /**
      * Handle recursive media search across all subfolders.
      */
     private function handleMediaSearch(
@@ -1868,23 +1896,8 @@ class MediaController extends AbstractApiController
         $matches = [];
 
         if (is_dir($mediaPath)) {
-            $iterator = new \RecursiveIteratorIterator(
-                new \RecursiveDirectoryIterator($mediaPath, \FilesystemIterator::SKIP_DOTS),
-                \RecursiveIteratorIterator::SELF_FIRST
-            );
-
-            foreach ($iterator as $item) {
-                if ($item->isDir()) {
-                    continue;
-                }
-
+            foreach (self::walkMediaFiles($mediaPath) as $item) {
                 $name = $item->getFilename();
-
-                // Skip hidden and metadata files, and the manual-order sidecar
-                // (the folder listing hides it too; it isn't a media file).
-                if (str_starts_with($name, '.') || str_ends_with($name, '.meta.yaml') || $name === self::MEDIA_ORDER_FILE) {
-                    continue;
-                }
 
                 // Match filename
                 if (!str_contains(strtolower($name), $search)) {

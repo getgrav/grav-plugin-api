@@ -2872,8 +2872,9 @@ paths:
         Files follow the folder's saved manual order (`POST /media/order`)
         when one exists, otherwise natural filename order. A folder that does
         not exist returns an empty list. `search` switches to a recursive
-        filename search across every folder and cannot be combined with
-        `filter` or `sort` (422).
+        filename search across every folder the listing shows (hidden
+        dot-folders and everything in them are skipped) and cannot be
+        combined with `filter` or `sort` (422).
       parameters:
         - $ref: "#/components/parameters/page"
         - $ref: "#/components/parameters/per_page"
@@ -2885,7 +2886,7 @@ paths:
           example: blog/2026
         - name: search
           in: query
-          description: Case-insensitive search term for recursive filename matching across all subfolders.
+          description: Case-insensitive search term for recursive filename matching across all visible subfolders.
           schema:
             type: string
           example: hero
