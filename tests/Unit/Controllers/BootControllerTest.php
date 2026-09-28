@@ -252,6 +252,11 @@ final class BootTestSystemController extends SystemController
     {
         return 'sum:' . $lang;
     }
+
+    protected function shippedTranslationLanguages(): array
+    {
+        return ['de', 'en', 'es', 'fr'];
+    }
 }
 
 final class BootTestLanguage

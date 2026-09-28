@@ -6,6 +6,8 @@
     * A super admin can no longer remove their own super-admin access, either from their permissions or by leaving the group that grants it, since nobody could then give it back from the admin [#49](https://github.com/getgrav/grav-plugin-api/issues/49)
     * Searching the media library no longer returns files from hidden folders, which could not be opened, renamed or deleted, and the dashboard's media count no longer includes them [#50](https://github.com/getgrav/grav-plugin-api/issues/50)
     * The token signing key file `user/config/plugins/api-private.php` is now created readable only by the site's own user, instead of being locked down a moment after it is written. Thanks @shxtterme
+    * [security] The public translations endpoint now answers a language that nothing ships a file for with the default language, and serves prefix requests from the full cached dictionary, so requests can no longer grow the cache without limit. Thanks @ma4ter
+    * [security] Syncing a translation now needs edit rights on the translation being overwritten, and a batch copy honours the destination's page rules, the same as a single copy. Comparing translations applies the same Twig content check as opening the page. Thanks @ma4ter
 
 # v1.0.41
 ## 09/25/2026
