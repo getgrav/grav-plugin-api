@@ -134,7 +134,10 @@ class PageSerializer implements SerializerInterface
             // tell whether each language is backed by an EXPLICIT file
             // (default.<lang>.md) or by the implicit default.md fallback.
             $pagePath = $resource->path();
-            $template = $resource->template();
+            // Modules report their template as `modular/<name>`, but the file
+            // on disk is `<name>.md` / `<name>.<lang>.md`, so only the last
+            // segment names the file.
+            $template = $resource->template() ? basename((string) $resource->template()) : '';
             $data['has_default_file'] = $pagePath && $template
                 ? is_file($pagePath . '/' . $template . '.md')
                 : false;

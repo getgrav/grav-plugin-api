@@ -1,3 +1,9 @@
+# v1.0.43
+## 09/29/2026
+
+1. [](#bugfix)
+    * A modular page's translation status now sees its own files. A module reports its template as `modular/<name>` while its file is `<name>.md`, so the API said a module had no default file and listed none of its language files, even when they were there.
+
 # v1.0.42
 ## 09/28/2026
 
