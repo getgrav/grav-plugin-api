@@ -1,3 +1,10 @@
+# v1.0.44
+## 09/30/2026
+
+1. [](#bugfix)
+    * Fetching a page with `render=true` no longer fails with a server error on module pages or pages using shortcodes that render Twig, and page summaries now include that output too [#52](https://github.com/getgrav/grav-plugin-api/issues/52)
+    * A fieldset's `icon` setting now reaches the admin, so the icon shows beside the fieldset title [getgrav/grav-plugin-admin2#183](https://github.com/getgrav/grav-plugin-admin2/issues/183)
+
 # v1.0.43
 ## 09/29/2026
 

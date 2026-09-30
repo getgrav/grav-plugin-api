@@ -100,6 +100,27 @@ class BlueprintCommonAttributesTest extends TestCase
     }
 
     #[Test]
+    public function a_fieldset_icon_reaches_the_browser(): void
+    {
+        // Classic admin's fieldset template draws `icon` before the title, and
+        // the admin-next renderer already does the same, but the allowlist had
+        // no `icon` entry so the value never left the server
+        // (getgrav/grav-plugin-admin2#183).
+        $fields = $this->serialize([
+            'hero' => [
+                'type' => 'fieldset',
+                'title' => 'Hero settings',
+                'icon' => 'gear',
+                'collapsible' => true,
+                'fields' => [],
+            ],
+        ]);
+
+        $this->assertArrayHasKey('icon', $fields[0]);
+        $this->assertSame('gear', $fields[0]['icon']);
+    }
+
+    #[Test]
     public function display_label_false_is_preserved_rather_than_treated_as_absent(): void
     {
         // `display_label: false` is the whole point of the attribute, so a
