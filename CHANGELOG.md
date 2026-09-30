@@ -3,6 +3,7 @@
 
 1. [](#bugfix)
     * Fetching a page with `render=true` no longer fails with a server error on module pages or pages using shortcodes that render Twig, and page summaries now include that output too [#52](https://github.com/getgrav/grav-plugin-api/issues/52)
+    * Page listings now show the new order or location right after a reorder, move, copy or delete, instead of the old state for up to a minute [#53](https://github.com/getgrav/grav-plugin-api/issues/53)
     * A fieldset's `icon` setting now reaches the admin, so the icon shows beside the fieldset title [getgrav/grav-plugin-admin2#183](https://github.com/getgrav/grav-plugin-admin2/issues/183)
 
 # v1.0.43

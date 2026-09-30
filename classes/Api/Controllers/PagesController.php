@@ -3058,6 +3058,14 @@ class PagesController extends AbstractApiController
         if (method_exists($pages, 'markChanged')) {
             $pages->markChanged();
 
+            // markChanged() only moves core's pages cache id. The listing reads
+            // the Flex pages directory, which keeps its storage keys in its own
+            // index cache for `system.flex.cache.index.lifetime` (60s), so a move,
+            // reorder, copy or delete made by renaming folders would list the old
+            // state until that expires. Page::save() clears the directory itself,
+            // which is why create and update were never affected.
+            $this->getFlexDirectory('pages')?->clearCache();
+
             return;
         }
 
