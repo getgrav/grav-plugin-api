@@ -165,6 +165,7 @@ class PageSerializer implements SerializerInterface
         }
 
         if ($renderContent) {
+            $this->initTwig();
             $data['content_html'] = $resource->content();
         }
 
@@ -419,6 +420,8 @@ class PageSerializer implements SerializerInterface
     {
         $max = ($summarySize !== null && $summarySize > 0) ? $summarySize : 300;
 
+        $this->initTwig();
+
         try {
             // Page::summary(size, textOnly: true) is documented to return text, but
             // core short-circuits to full rendered HTML when summaries are disabled
@@ -438,6 +441,26 @@ class PageSerializer implements SerializerInterface
         $text = trim(preg_replace('/\s+/', ' ', $text) ?? $text);
 
         return Utils::truncate($text, $max, true, ' ', '…');
+    }
+
+    /**
+     * Build Twig's environment before a page renders its content.
+     *
+     * The API router answers inside RequestProcessor, ahead of TwigProcessor,
+     * so on an API request nothing has called Twig::init() yet. Page::content()
+     * and summary() run content Twig and shortcodes, and modules render through
+     * Twig unconditionally, all of which need that environment: without it they
+     * fail on a null Twig. init() does nothing once it has run, so this is safe
+     * to call per page. Core's Security::detectXssInEditorContent() does the
+     * same for saves.
+     */
+    private function initTwig(): void
+    {
+        $grav = Grav::instance();
+
+        if (isset($grav['twig'])) {
+            $grav['twig']->init();
+        }
     }
 
     /**
