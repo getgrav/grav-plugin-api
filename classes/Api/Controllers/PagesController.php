@@ -612,8 +612,10 @@ class PagesController extends AbstractApiController
             $dirName = $order !== null ? PageOrdering::key($order, $slug, $this->siblingDigits($parentPath)) : $slug;
             $pagePath = $parentPath . '/' . $dirName;
 
-            if (is_dir($pagePath)) {
-                throw new ValidationException("A page already exists at route: {$route}");
+            // Grav routes by slug, so `02._dup` and `03._dup` would claim the same
+            // route: refuse the slug when a sibling has it under any order prefix.
+            if (($clash = $this->findSlugClash($parentPath, $dirName)) !== null) {
+                throw new ValidationException("A page already exists at route: {$route} (folder '{$clash}').");
             }
 
             // Build header: blueprint field defaults sit lowest, then the
@@ -1110,8 +1112,10 @@ class PagesController extends AbstractApiController
             throw new ValidationException('Source and destination paths are identical.');
         }
 
-        if (is_dir($newPath)) {
-            throw new ValidationException("A page already exists at the destination path.");
+        // The page's own folder is about to vacate, so it is not a clash (moving
+        // `02.foo` to `05.foo` within one parent).
+        if (($clash = $this->findSlugClash($newParentPath, $dirName, $oldPath)) !== null) {
+            throw new ValidationException("A page already exists at the destination path (folder '{$clash}').");
         }
 
         Folder::move($oldPath, $newPath);
@@ -1185,8 +1189,8 @@ class PagesController extends AbstractApiController
 
         $destPath = $destParentPath . '/' . $destSlug;
 
-        if (is_dir($destPath)) {
-            throw new ValidationException("A page already exists at route: {$destRoute}");
+        if (($clash = $this->findSlugClash($destParentPath, $destSlug)) !== null) {
+            throw new ValidationException("A page already exists at route: {$destRoute} (folder '{$clash}').");
         }
 
         $this->assertDescendantsNotDenied($request, $page, 'read');
@@ -1741,16 +1745,32 @@ class PagesController extends AbstractApiController
         $parentPath = $parent->path();
         $children = $parent->children();
 
-        // Build a map of slug -> current directory name
+        // Build a map of slug -> current directory name. Grav routes by slug, so a
+        // slug two children share (under different order prefixes) cannot be told
+        // apart here; keep every folder so it can be refused below instead of
+        // letting the last one win.
         $childMap = [];
+        $dirsBySlug = [];
         foreach ($children as $child) {
-            $childMap[$child->slug()] = basename($child->path());
+            $dir = basename($child->path());
+            $childMap[$child->slug()] = $dir;
+            $dirsBySlug[$child->slug()][] = $dir;
         }
 
-        // Validate all slugs exist
+        // Validate all slugs exist, are listed once, and name exactly one folder
+        $listed = [];
         foreach ($order as $slug) {
-            if (!isset($childMap[$slug])) {
-                throw new ValidationException("Child page with slug '{$slug}' not found under '{$parent->route()}'.");
+            if (!is_string($slug) || !isset($childMap[$slug])) {
+                throw new ValidationException("Child page with slug '" . (is_string($slug) ? $slug : gettype($slug)) . "' not found under '{$parent->route()}'.");
+            }
+            if (isset($listed[$slug])) {
+                throw new ValidationException("Child page with slug '{$slug}' is listed more than once.");
+            }
+            $listed[$slug] = true;
+            if (count($dirsBySlug[$slug]) > 1) {
+                throw new ValidationException(
+                    "More than one child of '{$parent->route()}' has the slug '{$slug}' (" . implode(', ', $dirsBySlug[$slug]) . "). Rename or delete one before reordering."
+                );
             }
         }
 
@@ -1764,38 +1784,12 @@ class PagesController extends AbstractApiController
                 $digits = $w;
             }
         }
-        $reorderDigits = $digits ?: null;
 
-        $tempRenames = [];
-        $position = 1;
-
-        foreach ($order as $slug) {
-            $currentDir = $childMap[$slug];
-            $newDir = PageOrdering::key($position, $slug, $reorderDigits);
-
-            if ($currentDir !== $newDir) {
-                $oldPath = $parentPath . '/' . $currentDir;
-                // Use temp name to avoid conflicts during rename
-                $tempPath = $parentPath . '/_temp_' . $position . '_' . $slug;
-                $tempRenames[] = [
-                    'temp' => $tempPath,
-                    'final' => $parentPath . '/' . $newDir,
-                    'old' => $oldPath,
-                ];
-                if (is_dir($oldPath)) {
-                    rename($oldPath, $tempPath);
-                }
-            }
-
-            $position++;
-        }
-
-        // Now rename from temp to final names
-        foreach ($tempRenames as $rename) {
-            if (is_dir($rename['temp'])) {
-                rename($rename['temp'], $rename['final']);
-            }
-        }
+        // Every target name is checked before the first folder moves, and a
+        // failure part-way puts the folders back, so a bad request can no longer
+        // strand children under `_temp_` names.
+        $plan = $this->planReorder($parentPath, $childMap, $order, $digits ?: null, $parent->route());
+        $this->applyRenames($plan);
 
         $this->clearPagesCache();
 
@@ -2106,6 +2100,30 @@ class PagesController extends AbstractApiController
                     );
                 }
                 $check = self::routeParent($check);
+            }
+        }
+
+        // Grav routes by slug, so a page landing under a new parent must not share
+        // its slug with a page already there, or with another page landing there,
+        // whatever their order prefixes. Folders that move in this batch vacate
+        // their old name. A reorder within one parent creates no new clash, so a
+        // clash that was already on disk never blocks renumbering.
+        $vacating = array_map(static fn (array $op): string => (string) $op['oldPath'], $resolved);
+        $landing = [];
+        foreach ($resolved as $op) {
+            $landingKey = rtrim((string) $op['newParentPath'], '/') . "\0" . $op['slug'];
+            $landing[$landingKey] = ($landing[$landingKey] ?? 0) + 1;
+        }
+        foreach ($resolved as $index => $op) {
+            if ($op['newParentPath'] === null || $op['newParentRoute'] === $op['currentParentRoute']) {
+                continue;
+            }
+            $landingKey = rtrim((string) $op['newParentPath'], '/') . "\0" . $op['slug'];
+            if ($landing[$landingKey] > 1
+                || $this->findSlugClash($op['newParentPath'], $op['slug'], $vacating) !== null) {
+                throw new ValidationException(
+                    "A page with the slug '{$op['slug']}' already exists under '{$op['newParentRoute']}' (operation index {$index})."
+                );
             }
         }
 
@@ -2976,7 +2994,7 @@ class PagesController extends AbstractApiController
         }
 
         $destPath = $destParentPath . '/' . $destSlug;
-        if (is_dir($destPath)) {
+        if ($this->findSlugClash($destParentPath, $destSlug) !== null) {
             throw new ValidationException("A page already exists at the copy destination for: {$page->route()}");
         }
 
@@ -3043,6 +3061,133 @@ class PagesController extends AbstractApiController
                 // index rebuild that follows must not read a stale one.
                 $file->free();
             }
+        }
+    }
+
+    /**
+     * The folder under $parentPath that already holds the slug of $dirName, or
+     * null. The order prefix is ignored: Grav routes by slug, so `02.foo` and
+     * `03.foo` answer to the same route and one of them never shows in listings.
+     *
+     * @param string      $parentPath Filesystem path of the parent folder.
+     * @param string      $dirName    Folder name about to be created, prefix included.
+     * @param list<string>|string|null $ignorePaths Folder(s) about to vacate (the page being moved).
+     */
+    private function findSlugClash(string $parentPath, string $dirName, array|string|null $ignorePaths = null): ?string
+    {
+        if (!is_dir($parentPath)) {
+            return null;
+        }
+
+        $slug = PageOrdering::parse($dirName)[1];
+        $ignore = array_flip(array_map(
+            static fn (string $path): string => rtrim($path, '/'),
+            (array) $ignorePaths
+        ));
+
+        foreach (scandir($parentPath) ?: [] as $entry) {
+            if ($entry[0] === '.' || !is_dir($parentPath . '/' . $entry)) {
+                continue;
+            }
+            if (isset($ignore[rtrim($parentPath, '/') . '/' . $entry])) {
+                continue;
+            }
+            if (PageOrdering::parse($entry)[1] === $slug) {
+                return $entry;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Work out the renames a reorder needs, refusing the request when a target
+     * name is taken by a folder that is not part of it.
+     *
+     * @param array<string, string> $childMap slug => current folder name
+     * @param list<string>          $order    slugs in their new order
+     * @return list<array{old: string, temp: string, final: string}>
+     */
+    private function planReorder(string $parentPath, array $childMap, array $order, ?int $digits, string $parentRoute): array
+    {
+        $existing = array_flip(array_filter(
+            scandir($parentPath) ?: [],
+            static fn (string $entry): bool => $entry !== '.' && $entry !== '..'
+        ));
+
+        $plan = [];
+        $vacated = [];
+        $position = 1;
+
+        foreach ($order as $slug) {
+            $currentDir = $childMap[$slug];
+            $newDir = PageOrdering::key($position, $slug, $digits);
+
+            if ($currentDir !== $newDir && is_dir($parentPath . '/' . $currentDir)) {
+                $tempDir = '_temp_' . $position . '_' . $slug;
+                $plan[] = [
+                    'old' => $parentPath . '/' . $currentDir,
+                    'temp' => $parentPath . '/' . $tempDir,
+                    'final' => $parentPath . '/' . $newDir,
+                ];
+                $vacated[$currentDir] = true;
+            }
+
+            $position++;
+        }
+
+        // A folder that moves away frees its name; anything else already sitting
+        // on a temp or final name is in the way.
+        foreach ($plan as $rename) {
+            foreach (['temp', 'final'] as $kind) {
+                $name = basename($rename[$kind]);
+                if (isset($existing[$name]) && !isset($vacated[$name])) {
+                    throw new ValidationException(
+                        "Cannot reorder '{$parentRoute}': the folder '{$name}' already exists and is not part of this reorder."
+                    );
+                }
+            }
+        }
+
+        return $plan;
+    }
+
+    /**
+     * Carry out planned renames through temp names, and put every folder back
+     * if any step fails.
+     *
+     * @param list<array{old: string, temp: string, final: string}> $plan
+     */
+    private function applyRenames(array $plan): void
+    {
+        $done = [];
+
+        try {
+            // Temp names first, so a folder can take a name another one is leaving.
+            foreach ($plan as $rename) {
+                $this->renameOrFail($rename['old'], $rename['temp']);
+                $done[] = [$rename['old'], $rename['temp']];
+            }
+            foreach ($plan as $rename) {
+                $this->renameOrFail($rename['temp'], $rename['final']);
+                $done[] = [$rename['temp'], $rename['final']];
+            }
+        } catch (\Throwable $e) {
+            foreach (array_reverse($done) as [$from, $to]) {
+                if (is_dir($to) && !file_exists($from)) {
+                    @rename($to, $from);
+                }
+            }
+
+            throw new \RuntimeException('Reorder failed and was rolled back: ' . $e->getMessage(), 0, $e);
+        }
+    }
+
+    private function renameOrFail(string $from, string $to): void
+    {
+        if (!@rename($from, $to)) {
+            $reason = error_get_last()['message'] ?? 'rename failed';
+            throw new \RuntimeException($reason);
         }
     }
 
