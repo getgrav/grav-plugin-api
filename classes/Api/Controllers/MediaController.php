@@ -2083,10 +2083,11 @@ class MediaController extends AbstractApiController
      *
      * The direct URL is derived the way core's `MediaFileTrait::url()` does it —
      * strip the install root, prefix `base_url` — but only when the result is
-     * something the web server will actually hand over. Grav's shipped
-     * `.htaccess` and `webserver-configs/nginx.conf` both deny `user/env` and
-     * `user/config` whatever the file type, so those fall back to this plugin's
-     * own permission-gated byte-serving route instead of a guaranteed 403.
+     * something the web server will actually hand over. `user/config` is denied
+     * whatever the file type, and `user/env` was too before Grav 2.2.4, which
+     * nginx, Caddy and IIS sites keep until someone updates the server config by
+     * hand, so those fall back to this plugin's own permission-gated
+     * byte-serving route instead of a possible 403.
      */
     private function resolvePublicUrl(string $absolutePath, string $mediaRelativePath): string
     {
@@ -2154,10 +2155,11 @@ class MediaController extends AbstractApiController
      * Whether the web server will serve a webroot-relative path directly.
      *
      * Mirrors the deny rules Grav ships in `.htaccess` and
-     * `webserver-configs/nginx.conf`, which block `user/config`, `user/env` and
-     * `user/accounts` for every file type. A multi-site `user://media` living
-     * inside `user/env/<host>/` is on disk but 403s over HTTP, so its direct URL
-     * would be exactly as broken as the hardcoded one it replaces.
+     * `webserver-configs/`, which block `user/config` and `user/accounts` for
+     * every file type. Grav 2.2.4 stopped blocking all of `user/env`
+     * (getgrav/grav#4335), but a server config written before it still does, and
+     * only Apache's is updated on upgrade, so a multi-site `user://media` inside
+     * `user/env/<host>/` keeps using the fallback route, which works either way.
      */
     private function isWebServable(string $relative): bool
     {
