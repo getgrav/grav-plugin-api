@@ -1,6 +1,9 @@
 # v1.0.44
 ## 09/30/2026
 
+1. [](#new)
+    * A new `darkShade` preference (`graphite`, `zinc` or `midnight`) sets how dark mode looks, as a site default and as a per-user override. It defaults to `graphite`, and an unknown value falls back to it
+    * A new `helpMode` preference (`inline` or `tooltip`) sets whether field help text shows under the label or in a tooltip behind a small info icon, as a site default and as a per-user override. It defaults to `inline`, and an unknown value falls back to it
 1. [](#bugfix)
     * Fetching a page with `render=true` no longer fails with a server error on module pages or pages using shortcodes that render Twig, and page summaries now include that output too [#52](https://github.com/getgrav/grav-plugin-api/issues/52)
     * Page listings now show the new order or location right after a reorder, move, copy or delete, instead of the old state for up to a minute [#53](https://github.com/getgrav/grav-plugin-api/issues/53)

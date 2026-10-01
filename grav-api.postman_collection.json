@@ -11428,7 +11428,7 @@
             "description": "Patches the calling user's overrides, stored under `admin_next.preferences` in their account YAML. Only the user-overridable keys (see `PreferencesValues`) are accepted; site-only keys such as `autoSaveEnabled` or `menubarLinks` are ignored here.\n\nKeys not present in the body are left alone. A key set to `null` removes that override so the site default applies again. Values that fail validation (unknown enum value, wrong type) are silently dropped rather than rejected; numeric values are clamped to their allowed range.\n\nRequires `api.access`. Demo accounts are refused. Returns the full resolved payload, the same as `GET /admin-next/preferences`.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"colorMode\": \"dark\",\n  \"accentHue\": 200,\n  \"fontSize\": null\n}",
+              "raw": "{\n  \"colorMode\": \"dark\",\n  \"accentHue\": 200,\n  \"darkShade\": \"midnight\",\n  \"helpMode\": \"tooltip\",\n  \"fontSize\": null\n}",
               "options": {
                 "raw": {
                   "language": "json"
