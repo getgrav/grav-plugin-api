@@ -32,7 +32,7 @@ class PreferencesResolver
     private const VALID_COLOR_MODE = ['', 'light', 'dark'];
     /** Dark mode palettes. Graphite (dark greys) is the default; Zinc is the older near-black look. */
     private const VALID_DARK_SHADE = ['graphite', 'zinc', 'midnight'];
-    /** Where field help text goes: under the label (the default), or in a tooltip behind a small info icon. */
+    /** Where field help text goes: in a tooltip behind a small info icon (the default), or under the label. */
     private const VALID_HELP_MODE = ['inline', 'tooltip'];
     private const VALID_FONT_FAMILY = ['inter', 'google-sans', 'public-sans', 'nunito-sans', 'jost', 'albert-sans'];
     private const VALID_FONT_SIZE = ['small', 'normal', 'large', 'xlarge'];
@@ -65,7 +65,7 @@ class PreferencesResolver
             'darkShade' => 'graphite',
             'fontFamily' => 'google-sans',
             'fontSize' => 'normal',
-            'helpMode' => 'inline',
+            'helpMode' => 'tooltip',
             'editorMode' => 'normal',
             'editorKeymap' => 'default',
             'editorStickyToolbar' => true,
