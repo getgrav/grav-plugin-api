@@ -10,6 +10,10 @@
     * Creating, copying or moving a page is now refused when a sibling already has the same slug under a different number, and a reorder checks every folder name first and puts things back if a rename fails, so pages are no longer left under `_temp_` names [#54](https://github.com/getgrav/grav-plugin-api/issues/54)
     * A fieldset's `icon` setting now reaches the admin, so the icon shows beside the fieldset title [getgrav/grav-plugin-admin2#183](https://github.com/getgrav/grav-plugin-admin2/issues/183)
     * The taxonomy list now returns number-like values such as `2024` as text, as documented, so the admin's Taxonomy field loads on sites that use years as tags or run the Archives plugin [getgrav/grav-plugin-admin2#186](https://github.com/getgrav/grav-plugin-admin2/issues/186)
+    * Creating a module, or switching one to another template, is now refused when that template doesn't exist on the site, with the available modular types listed in the error, instead of leaving a red "template not found" heading on the live page [#55](https://github.com/getgrav/grav-plugin-api/issues/55)
+    * Saving a module with its own template sent as `text` rather than `modular/text` no longer deletes the module's file [#55](https://github.com/getgrav/grav-plugin-api/issues/55)
+    * Switching the template of a page that has a `template` header no longer leaves the old page file behind
+    * A page `template` that is empty, not text or a path is now refused instead of writing a file Grav can't use
 
 # v1.0.43
 ## 09/29/2026

@@ -599,6 +599,16 @@ class PagesController extends AbstractApiController
 
             $this->authorizePageAction($request, $parent, 'create', self::PERMISSION_WRITE);
 
+            // A page whose folder starts with `_` is a module whichever `kind`
+            // asked for it, and a module needs a template that exists (#55).
+            // A folder writes no .md, so its template is never used.
+            $module = $kind !== 'folder' && str_starts_with($slug, '_');
+            if ($kind === 'folder') {
+                $template = is_string($template) ? $template : 'default';
+            } else {
+                $template = $this->resolveTemplate($template, $module, array_key_exists('template', $body));
+            }
+
             // Resolve `order: "auto"` against existing siblings: if any sibling
             // carries a numeric prefix, assign the next number; otherwise leave
             // the new page unprefixed. Mirrors admin-classic's add-page flow.
@@ -629,6 +639,10 @@ class PagesController extends AbstractApiController
                 ['title' => $title],
                 $header,
             );
+
+            if ($module) {
+                $this->assertModuleDisplayTemplate($header['template'] ?? null, null);
+            }
 
             // Enforce security.twig_content.* gate before any plugin event can
             // mutate the header — reject the create up-front if the request
@@ -708,6 +722,192 @@ class PagesController extends AbstractApiController
         } finally {
             $this->restoreLanguage($previousLang);
         }
+    }
+
+    /**
+     * Check the `template` a create or a template switch asked for, and return
+     * it the way Grav reports it (`modular/<name>` for a module).
+     *
+     * The page file is named after the template, so anything that is not a
+     * plain name is refused. buildPageFilename() would otherwise quietly turn
+     * `modular/text` on an ordinary page into `text.md`, and an empty value
+     * into a hidden `.md`.
+     *
+     * A module's template also has to exist. A module whose template Twig
+     * cannot find makes its parent render core's red "template not found"
+     * heading in front of visitors (#55), where an ordinary page just falls
+     * back to the theme's `default.html.twig`. That is why only modules are
+     * checked: a headless site may use page types no theme or blueprint
+     * knows, and those keep working.
+     *
+     * @param bool $given false when the caller sent no `template` and the
+     *                    `default` stand-in is what is being checked
+     * @throws ValidationException
+     */
+    private function resolveTemplate(mixed $template, bool $module, bool $given = true): string
+    {
+        if (!is_string($template) || trim($template) === '') {
+            throw $this->templateError('template', "The 'template' field must be a non-empty string.");
+        }
+
+        $template = trim($template);
+        // A module's template is named either way: the admin sends the
+        // `modular/text` its type list holds, other callers send `text`.
+        $name = $module && str_starts_with($template, 'modular/') ? substr($template, 8) : $template;
+
+        if ($name === '' || $name[0] === '.' || strpbrk($name, '/\\') !== false) {
+            throw $this->templateError('template', !$module && str_starts_with($template, 'modular/')
+                ? "Template '{$template}' is a modular type, which only a module can use. Create it with kind 'module'."
+                : "Invalid template '{$template}': it must be a template name, not a path.");
+        }
+
+        if (!$module) {
+            return $name;
+        }
+
+        $template = 'modular/' . $name;
+        $types = $this->modularTypes();
+        if ($types === null) {
+            return $template;
+        }
+
+        // Matched without regard to case and returned as registered, so `Hero`
+        // does not become a `Hero.md` that only renders on a case-insensitive
+        // filesystem.
+        foreach ($types as $type) {
+            if (strcasecmp($type, $template) === 0) {
+                return $type;
+            }
+        }
+
+        if ($this->twigTemplateExists($template)) {
+            return $template;
+        }
+
+        throw $this->templateError('template', ($given
+            ? "Template '{$template}' is not a modular type on this site. "
+            : "A module needs a 'template'. ") . $this->modularTypesHint($types));
+    }
+
+    /**
+     * Whether `$template` names the template the page already has, in either
+     * spelling for a module (`text` or `modular/text`).
+     */
+    private function isCurrentTemplate(mixed $template, PageInterface $page): bool
+    {
+        if (!is_string($template)) {
+            return false;
+        }
+
+        $template = trim($template);
+        $current = (string) $page->template();
+
+        return strcasecmp($template, $current) === 0
+            || ($page->isModule() && strcasecmp('modular/' . $template, $current) === 0);
+    }
+
+    /**
+     * Check a `template` header a module is being given.
+     *
+     * Core reads that header before the file name, and for a module a
+     * template Twig cannot find ends in the same red heading (#55). It names
+     * any Twig template, so it is checked as written.
+     *
+     * @throws ValidationException
+     */
+    private function assertModuleDisplayTemplate(mixed $new, mixed $old): void
+    {
+        if ($new === null || $new === '' || $new === $old) {
+            return;
+        }
+
+        $types = $this->modularTypes();
+        if ($types === null) {
+            return;
+        }
+
+        if (is_string($new) && (in_array(trim($new), $types, true) || $this->twigTemplateExists(trim($new)))) {
+            return;
+        }
+
+        $shown = is_string($new) ? $new : gettype($new);
+        throw $this->templateError(
+            'header.template',
+            "The 'template' header '{$shown}' is not a template this module can render with. " . $this->modularTypesHint($types),
+        );
+    }
+
+    /**
+     * The registered modular types: what the theme's and plugins' blueprints
+     * and `templates/modular/` folders declare, and what the admin offers.
+     *
+     * @return list<string>|null null when the registry cannot be asked
+     */
+    private function modularTypes(): ?array
+    {
+        $pages = $this->grav['pages'];
+        if (!method_exists($pages, 'types') || !method_exists($pages, 'modularTypes')) {
+            return null;
+        }
+
+        try {
+            // Core always registers `default`, so an empty list of page types
+            // means the registry was never built (the theme was not ready).
+            if (!$pages::types()) {
+                return null;
+            }
+
+            return array_map('strval', array_keys($pages::modularTypes()));
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * Whether Twig can find `<template>.html.twig`, the test core applies when
+     * it renders a module.
+     *
+     * A plugin that only adds a Twig path never registers its templates as
+     * types (lightbox-gallery's `modular/lightbox`), so the type list alone
+     * would refuse modules that render fine.
+     *
+     * `modular/default` is the exception. Core ships that template itself, and
+     * it IS the "template not found" heading, so Twig always finds it. It only
+     * counts when a theme has its own, which registers it as a type.
+     */
+    private function twigTemplateExists(string $template): bool
+    {
+        if ($template === 'modular/default') {
+            return false;
+        }
+
+        try {
+            if (!isset($this->grav['twig'])) {
+                return false;
+            }
+
+            // The API answers ahead of TwigProcessor, so Twig may not be built
+            // yet. init() does nothing once it has run.
+            $twig = $this->grav['twig'];
+            $twig->init();
+
+            return $twig->twig()->getLoader()->exists($template . '.html.twig');
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /** @param list<string> $types */
+    private function modularTypesHint(array $types): string
+    {
+        return $types
+            ? 'Available modular types: ' . implode(', ', $types) . '.'
+            : 'This site has no modular types: its theme has no templates/modular folder.';
+    }
+
+    private function templateError(string $field, string $message): ValidationException
+    {
+        return new ValidationException($message, [['field' => $field, 'message' => $message]]);
     }
 
     /**
@@ -869,6 +1069,7 @@ class PagesController extends AbstractApiController
 
             if (array_key_exists('header', $body)) {
                 $incoming = (array) $body['header'];
+                $displayTemplate = $this->headerToArray($page->header())['template'] ?? null;
                 if (($body['header_mode'] ?? null) === 'replace') {
                     // Expert (raw-frontmatter) mode sends the COMPLETE header, so
                     // replace it wholesale. Merging would preserve keys the user
@@ -883,6 +1084,11 @@ class PagesController extends AbstractApiController
                     $existing = $this->headerToArray($page->header());
                     $merged = $this->mergePatch($existing, $incoming);
                     $merged = $this->stripNullValues($merged);
+                }
+                // Only a `template` header this request sets or changes is
+                // checked, so a module that already has one keeps saving.
+                if ($page->isModule()) {
+                    $this->assertModuleDisplayTemplate($merged['template'] ?? null, $displayTemplate);
                 }
                 $page->header((object) $merged);
                 // Sync properties that legacy Page caches separately from the
@@ -899,7 +1105,14 @@ class PagesController extends AbstractApiController
             $templateChanged = false;
             $oldFilePath = null;
             $previousTemplate = null;
-            if (array_key_exists('template', $body) && $body['template'] !== $page->template()) {
+            // A module reports `modular/text` and callers send either that or
+            // `text`. Its own template in either spelling is not a switch: it
+            // used to be treated as one, and the "old" file removed after the
+            // save was the page's only file (#55). Sending a page's template
+            // back unchanged also has to keep working when that type is no
+            // longer registered, as after a theme switch.
+            if (array_key_exists('template', $body) && !$this->isCurrentTemplate($body['template'], $page)) {
+                $newTemplate = $this->resolveTemplate($body['template'], $page->isModule());
                 $previousTemplate = $page->template();
                 // The page FILENAME is the template basename only. For modular
                 // modules Grav's template() returns a `modular/<name>` form, so
@@ -908,9 +1121,12 @@ class PagesController extends AbstractApiController
                 // leave the original module untouched (admin2#69). buildPageFilename()
                 // strips the prefix (basename) and handles the language extension.
                 $lang = $page->language() ?: null;
-                $oldFilePath = $page->path() . '/' . $this->buildPageFilename($page->template(), $lang);
-                $page->template($body['template']);
-                $page->name($this->buildPageFilename($body['template'], $lang));
+                // The file the page was loaded from. template() is no guide to
+                // it when a `template` header overrides the display template.
+                $oldFilePath = $page->filePath()
+                    ?: $page->path() . '/' . $this->buildPageFilename($previousTemplate, $lang);
+                $page->template($newTemplate);
+                $page->name($this->buildPageFilename($newTemplate, $lang));
                 $templateChanged = true;
             }
 
@@ -942,8 +1158,9 @@ class PagesController extends AbstractApiController
 
             $page->save();
 
-            // Remove old template file after successful save
-            if ($templateChanged && $oldFilePath && file_exists($oldFilePath)) {
+            // Remove old template file after successful save, unless the save
+            // went to that same file.
+            if ($templateChanged && $oldFilePath && $oldFilePath !== $page->filePath() && file_exists($oldFilePath)) {
                 unlink($oldFilePath);
             }
 

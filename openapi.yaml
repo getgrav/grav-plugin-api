@@ -1315,6 +1315,22 @@ paths:
         non-toggleable `default:` values, then `title`, then the supplied
         `header`. A missing parent or an already occupied target returns 422.
 
+        `template` names the page file, so it must be a plain name: an empty
+        value, a non-string or a path returns 422. An ordinary page may use
+        any name, and one the theme has no template for renders with the
+        theme's `default` template.
+
+        A module (`kind: module`, or a route whose last segment starts with
+        `_`) needs a template that exists, because a module without one makes
+        its parent page show a "template not found" error. It can be sent as
+        `text` or `modular/text`, and has to be a registered modular type (see
+        `GET /blueprints/pages?modular=true`) or a `modular/<name>.html.twig`
+        that Twig can find. Anything else returns 422 with the available
+        modular types in the message. Leaving `template` out of a module is
+        refused the same way, unless the theme has a `modular/default`
+        template of its own. A `template` header on a module has to name a
+        template Twig can find too.
+
         Requires `api.pages.write`, and the parent page's own `create` rule
         (if any) must allow it: a page-level grant can stand in for the
         account permission, a page-level deny refuses it. Setting
@@ -1484,6 +1500,15 @@ paths:
         exist; otherwise 422 is returned (create it with
         `POST /pages/{route}/translate` first). Submitted fields are
         validated against the page blueprint (422 on failure).
+
+        A `template` that differs from the page's current one renames the
+        page file. It is checked as it is on create: it must be a plain name,
+        and a module can only be switched to a template that exists (422
+        otherwise, with the available modular types in the message). Sending
+        the current template back changes nothing, for a module in either
+        form (`text` or `modular/text`), so a page whose type the theme no
+        longer has can still be saved. A `template` header is checked on a
+        module only when the request sets or changes it.
 
         Requires `api.pages.write`, subject to the page's own `update` rule.
         Enabling `process.twig`, or editing a page that already has it on,
@@ -13698,7 +13723,12 @@ components:
           example: My New Post
         template:
           type: string
-          description: Template name. Defaults to `default` if omitted.
+          description: |
+            Template name, which becomes the page file name (`blog` writes
+            `blog.md`). Defaults to `default` if omitted. For a module, send
+            a modular type as `text` or `modular/text`: a module has no
+            usable default unless the theme has a `modular/default` template
+            of its own, and one that does not exist returns 422.
           default: default
           example: blog
         content:
@@ -13742,7 +13772,8 @@ components:
             What to create. `page` writes the folder plus `<template>.md`.
             `folder` creates only the directory (a routing/grouping
             container, no Markdown file). `module` creates a modular
-            sub-page: the slug is prefixed with `_` unless it already is.
+            sub-page: the slug is prefixed with `_` unless it already is,
+            and `template` has to be a modular type.
           example: page
         lang:
           type: string
@@ -13772,7 +13803,11 @@ components:
             New content here.
         template:
           type: string
-          description: Change the page template.
+          description: |
+            Change the page template, which renames the page file. For a
+            module, send a modular type as `text` or `modular/text`; one
+            that does not exist returns 422. The page's current template is
+            accepted unchanged.
           example: blog
         header:
           type: object
