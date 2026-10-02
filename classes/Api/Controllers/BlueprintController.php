@@ -1429,6 +1429,8 @@ class BlueprintController extends AbstractApiController
                 'placeholder_key', 'placeholder_value', 'value_type',
                 'btnLabel', 'placement', 'sortby', 'sortby_dir',
                 'sort', 'collapsible', 'min_height', 'selectunique',
+                // section/fieldset — Font Awesome name drawn before the title.
+                'icon',
                 'condition', 'wrapper_classes',
                 'provider', 'translate',
                 'page_field', 'page_template', 'success_msg', 'error_msg',

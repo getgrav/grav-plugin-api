@@ -1344,6 +1344,10 @@ class GpmController extends AbstractApiController
     /**
      * GET /gpm/plugins/{slug}/changelog - Get plugin CHANGELOG.md content.
      * GET /gpm/themes/{slug}/changelog
+     *
+     * With `?available=true` this returns what an update would bring instead:
+     * the GPM feed's entries newer than the installed version, as one markdown
+     * document (see gravChangelog() for the core equivalent).
      */
     public function changelog(ServerRequestInterface $request): ResponseInterface
     {
@@ -1353,6 +1357,12 @@ class GpmController extends AbstractApiController
         $type = str_contains($request->getUri()->getPath(), '/themes/') ? 'themes' : 'plugins';
 
         $path = $this->resolvePackagePath($slug, $type);
+
+        $query = $request->getQueryParams();
+        if (filter_var($query['available'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+            return $this->availableChangelog($slug, $type);
+        }
+
         $file = $path . '/CHANGELOG.md';
 
         if (!file_exists($file)) {
@@ -1380,7 +1390,52 @@ class GpmController extends AbstractApiController
         // Only show entries newer than the installed version.
         $changelog = $gravInfo ? (array) $gravInfo->getChangelog(GRAV_VERSION) : [];
 
-        // Each entry is either a markdown string or ['date' => ..., 'content' => markdown].
+        return ApiResponse::create([
+            'content' => $this->assembleChangelog($changelog),
+        ]);
+    }
+
+    /**
+     * What an update to an installed plugin/theme would change: the feed's
+     * changelog entries newer than the installed version, as one markdown doc.
+     */
+    private function availableChangelog(string $slug, string $type): ResponseInterface
+    {
+        $gpm = $this->getGpm();
+
+        $installed = $type === 'themes' ? $gpm->getInstalledTheme($slug) : $gpm->getInstalledPlugin($slug);
+        if (!$installed) {
+            throw new NotFoundException("Package '{$slug}' is not installed.");
+        }
+
+        $remote = $type === 'themes' ? $gpm->getRepositoryTheme($slug) : $gpm->getRepositoryPlugin($slug);
+        $installedVersion = (string) ($installed->version ?? '');
+
+        $changelog = [];
+        if ($remote && $installedVersion !== '' && !empty($remote->changelog)) {
+            $changelog = (array) $remote->getChangelog($installedVersion);
+        }
+
+        $content = $this->assembleChangelog($changelog);
+        if ($content === '') {
+            throw new NotFoundException("No newer changelog entries found for '{$slug}'.");
+        }
+
+        return ApiResponse::create([
+            'content' => $content,
+        ]);
+    }
+
+    /**
+     * Assemble feed changelog entries (version => entry) into one markdown doc,
+     * one `# v{version} ({date})` section per version.
+     *
+     * Each entry is either a markdown string or ['date' => ..., 'content' => markdown].
+     *
+     * @param array<string, mixed> $changelog
+     */
+    private function assembleChangelog(array $changelog): string
+    {
         $parts = [];
         foreach ($changelog as $version => $entry) {
             $date = is_array($entry) ? ($entry['date'] ?? '') : '';
@@ -1394,9 +1449,7 @@ class GpmController extends AbstractApiController
             $parts[] = "{$heading}\n\n{$body}";
         }
 
-        return ApiResponse::create([
-            'content' => implode("\n\n", $parts),
-        ]);
+        return implode("\n\n", $parts);
     }
 
     /**

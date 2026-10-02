@@ -30,6 +30,10 @@ class PreferencesResolver
     public const SITE_CONFIG_FILE = 'admin-next.yaml';
 
     private const VALID_COLOR_MODE = ['', 'light', 'dark'];
+    /** Dark mode palettes. Graphite (dark greys) is the default; Zinc is the older near-black look. */
+    private const VALID_DARK_SHADE = ['graphite', 'zinc', 'midnight'];
+    /** Where field help text goes: in a tooltip behind a small info icon (the default), or under the label. */
+    private const VALID_HELP_MODE = ['inline', 'tooltip'];
     private const VALID_FONT_FAMILY = ['inter', 'google-sans', 'public-sans', 'nunito-sans', 'jost', 'albert-sans'];
     private const VALID_FONT_SIZE = ['small', 'normal', 'large', 'xlarge'];
     private const VALID_EDITOR_MODE = ['normal', 'expert'];
@@ -58,8 +62,10 @@ class PreferencesResolver
             'colorMode' => '',
             'accentHue' => 271,
             'accentSaturation' => 91,
+            'darkShade' => 'graphite',
             'fontFamily' => 'google-sans',
             'fontSize' => 'normal',
+            'helpMode' => 'tooltip',
             'editorMode' => 'normal',
             'editorKeymap' => 'default',
             'editorStickyToolbar' => true,
@@ -224,6 +230,11 @@ class PreferencesResolver
         $effective = array_replace($defaults, $site);
         foreach ($userPrefs as $key => $value) {
             if ($value === null || !array_key_exists($key, $defaults)) {
+                continue;
+            }
+            // A hand-edited account file can hold a shade or help mode that does
+            // not exist; ignore it so the site default (or the built-in) still applies.
+            if (in_array($key, ['darkShade', 'helpMode'], true) && $this->coerceValue($key, $value) === null) {
                 continue;
             }
             $effective[$key] = $value;
@@ -499,8 +510,10 @@ class PreferencesResolver
             'colorMode' => is_string($value) && in_array($value, self::VALID_COLOR_MODE, true) ? $value : null,
             'accentHue' => is_numeric($value) ? max(0, min(360, (int) $value)) : null,
             'accentSaturation' => is_numeric($value) ? max(0, min(100, (int) $value)) : null,
+            'darkShade' => is_string($value) && in_array($value, self::VALID_DARK_SHADE, true) ? $value : null,
             'fontFamily' => is_string($value) && in_array($value, self::VALID_FONT_FAMILY, true) ? $value : null,
             'fontSize' => is_string($value) && in_array($value, self::VALID_FONT_SIZE, true) ? $value : null,
+            'helpMode' => is_string($value) && in_array($value, self::VALID_HELP_MODE, true) ? $value : null,
             'editorMode' => is_string($value) && in_array($value, self::VALID_EDITOR_MODE, true) ? $value : null,
             'editorKeymap' => is_string($value) && in_array($value, self::VALID_EDITOR_KEYMAP, true) ? $value : null,
             'editorStickyToolbar', 'autoSaveEnabled', 'autoSaveToolbarUndo', 'collabEnabled' => is_bool($value) ? $value : (is_scalar($value) ? (bool) $value : null),
