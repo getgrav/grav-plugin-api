@@ -2272,10 +2272,26 @@ class PagesController extends AbstractApiController
 
         // Simplify: return just taxonomy type => [values] without internal file paths
         foreach ($raw as $type => $values) {
-            $taxonomy[$type] = array_keys($values);
+            $taxonomy[$type] = self::taxonomyValueList((array) $values);
         }
 
         return ApiResponse::create($taxonomy);
+    }
+
+    /**
+     * The values in use for one taxonomy type, as a list of strings.
+     *
+     * Core keys its taxonomy map by value, and PHP turns a key that looks like
+     * an integer ("2024") into an int. array_keys() alone therefore sent year
+     * tags and the like as JSON numbers, where the documented response and its
+     * clients expect strings (getgrav/grav-plugin-admin2#186).
+     *
+     * @param array<int|string, mixed> $values Core's map for one type, keyed by value.
+     * @return list<string>
+     */
+    private static function taxonomyValueList(array $values): array
+    {
+        return array_map('strval', array_keys($values));
     }
 
     // -------------------------------------------------------------------------
