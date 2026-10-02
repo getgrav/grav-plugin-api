@@ -397,6 +397,13 @@ class PagesController extends AbstractApiController
                 $this->authorizePageAction($request, $target, 'read', self::PERMISSION_READ);
             }
 
+            $query = $request->getQueryParams();
+            $requestedLang = $query['lang'] ?? null;
+            $targetRoute = $target->route();
+            if ($requestedLang) {
+                $targetRoute = $this->grav['language']->getLanguageURLPrefix($requestedLang) . $targetRoute;
+            }
+
             // Pin the token to the page's canonical public route, the same value
             // the admin builds the preview URL from, so it can only ever unlock
             // this page. Only super admins and users with page-read reach here.
@@ -407,7 +414,7 @@ class PagesController extends AbstractApiController
             return ApiResponse::create([
                 'token' => $token,
                 'expires_in' => $ttl,
-                'route' => (string) $target->route(),
+                'route' => (string) $targetRoute,
                 // A theme that gives its modules an anchor can scroll straight
                 // to the one being previewed. Advisory only: a theme that emits
                 // no such id simply lands at the top of the parent.
