@@ -5512,6 +5512,8 @@ paths:
         Return the raw Markdown content of the specified plugin's CHANGELOG.md
         file.
 
+        With `available=true` it returns what an update would change instead: the GPM repository's changelog entries for versions newer than the installed one, assembled into one Markdown document with a `# v{version} ({date})` heading per version (the same format as `GET /gpm/grav/changelog`). It answers 404 when the plugin is not in the repository or has no newer entries. An API plugin older than this parameter ignores it and returns the installed CHANGELOG.md.
+
         Requires `api.gpm.read`.
       parameters:
         - name: slug
@@ -5521,6 +5523,13 @@ paths:
           schema:
             type: string
           example: api
+        - name: available
+          in: query
+          required: false
+          description: When `true`, return the repository's changelog entries newer than the installed version instead of the installed CHANGELOG.md.
+          schema:
+            type: boolean
+            default: false
       responses:
         "200":
           description: Plugin changelog content returned.
@@ -5606,6 +5615,8 @@ paths:
         Return the raw Markdown content of the specified theme's CHANGELOG.md
         file.
 
+        With `available=true` it returns what an update would change instead: the GPM repository's changelog entries for versions newer than the installed one, assembled into one Markdown document with a `# v{version} ({date})` heading per version (the same format as `GET /gpm/grav/changelog`). It answers 404 when the theme is not in the repository or has no newer entries. An API plugin older than this parameter ignores it and returns the installed CHANGELOG.md.
+
         Requires `api.gpm.read`.
       parameters:
         - name: slug
@@ -5615,6 +5626,13 @@ paths:
           schema:
             type: string
           example: quark
+        - name: available
+          in: query
+          required: false
+          description: When `true`, return the repository's changelog entries newer than the installed version instead of the installed CHANGELOG.md.
+          schema:
+            type: boolean
+            default: false
       responses:
         "200":
           description: Theme changelog content returned.
