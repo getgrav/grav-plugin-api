@@ -142,57 +142,76 @@ class PreferencesResolverSiteDefaultsTest extends TestCase
     }
 
     #[Test]
-    public function help_mode_defaults_to_inline(): void
+    public function help_mode_defaults_to_tooltip(): void
     {
         $resolver = $this->resolver();
 
-        self::assertSame('inline', $resolver->defaultPreferences()['helpMode']);
-        self::assertSame('inline', $resolver->sitePreferences()['helpMode']);
+        self::assertSame('tooltip', $resolver->defaultPreferences()['helpMode']);
+        self::assertSame('tooltip', $resolver->sitePreferences()['helpMode']);
+        self::assertSame('tooltip', $resolver->resolve(TestHelper::createMockUser(), false)['effective']['helpMode']);
     }
 
     #[Test]
-    public function a_site_can_default_to_tooltip_help(): void
+    public function a_site_can_default_to_inline_help(): void
     {
         $resolver = $this->resolver();
 
-        $resolver->saveSitePreferences(['helpMode' => 'tooltip']);
-        self::assertSame('tooltip', $resolver->sitePreferences()['helpMode']);
+        $resolver->saveSitePreferences(['helpMode' => 'inline']);
+        self::assertSame('inline', $resolver->sitePreferences()['helpMode']);
+        self::assertSame('inline', $resolver->resolve(TestHelper::createMockUser(), false)['effective']['helpMode']);
 
         $resolver->saveSitePreferences(['helpMode' => null]);
-        self::assertSame('inline', $resolver->sitePreferences()['helpMode']);
+        self::assertSame('tooltip', $resolver->sitePreferences()['helpMode']);
     }
 
     #[Test]
-    public function an_unknown_site_help_mode_is_dropped_and_falls_back_to_inline(): void
+    public function an_unknown_site_help_mode_is_dropped_and_falls_back_to_tooltip(): void
     {
         $resolver = $this->resolver();
 
-        $resolver->saveSitePreferences(['helpMode' => 'tooltip']);
+        $resolver->saveSitePreferences(['helpMode' => 'inline']);
         $resolver->saveSitePreferences(['helpMode' => 'popup']);
 
-        self::assertSame('inline', $resolver->sitePreferences()['helpMode']);
+        self::assertSame('tooltip', $resolver->sitePreferences()['helpMode']);
 
-        // A bad value that reached the file some other way reads back as inline too.
+        // A bad value that reached the file some other way reads back as tooltip.
         file_put_contents($this->root . '/user/config/admin-next.yaml', "ui:\n  defaults:\n    helpMode: popup\n");
-        self::assertSame('inline', $resolver->sitePreferences()['helpMode']);
+        self::assertSame('tooltip', $resolver->sitePreferences()['helpMode']);
+        self::assertSame('tooltip', $resolver->resolve(TestHelper::createMockUser(), false)['effective']['helpMode']);
     }
 
     #[Test]
     public function a_user_help_mode_overrides_the_site_default(): void
     {
         $resolver = $this->resolver();
-        $resolver->saveSitePreferences(['helpMode' => 'tooltip']);
+        $resolver->saveSitePreferences(['helpMode' => 'inline']);
         $user = TestHelper::createMockUser();
 
+        self::assertSame('inline', $resolver->resolve($user, false)['effective']['helpMode']);
+
+        $resolver->saveUserPreferences($user, ['helpMode' => 'tooltip']);
+        $payload = $resolver->resolve($user, false);
+        self::assertSame('tooltip', $payload['effective']['helpMode']);
+        self::assertSame('tooltip', $payload['user']['helpMode']);
+        self::assertSame('inline', $payload['site']['helpMode']);
+
+        // null removes the override and the site default applies again.
+        $resolver->saveUserPreferences($user, ['helpMode' => null]);
+        self::assertSame('inline', $resolver->resolve($user, false)['effective']['helpMode']);
+    }
+
+    #[Test]
+    public function a_user_can_choose_inline_help_over_the_tooltip_default(): void
+    {
+        $resolver = $this->resolver();
+        $user = TestHelper::createMockUser();
+
+        // Nothing set anywhere: tooltip. The user opts into inline, then clears it.
         self::assertSame('tooltip', $resolver->resolve($user, false)['effective']['helpMode']);
 
         $resolver->saveUserPreferences($user, ['helpMode' => 'inline']);
-        $payload = $resolver->resolve($user, false);
-        self::assertSame('inline', $payload['effective']['helpMode']);
-        self::assertSame('inline', $payload['user']['helpMode']);
-        self::assertSame('tooltip', $payload['site']['helpMode']);
+        self::assertSame('inline', $resolver->resolve($user, false)['effective']['helpMode']);
 
-        // null removes the override and the site default applies again.
         $resolver->saveUserPreferences($user, ['helpMode' => null]);
         self::assertSame('tooltip', $resolver->resolve($user, false)['effective']['helpMode']);
     }
@@ -203,20 +222,24 @@ class PreferencesResolverSiteDefaultsTest extends TestCase
         $resolver = $this->resolver();
         $user = TestHelper::createMockUser();
 
-        $resolver->saveUserPreferences($user, ['helpMode' => 'tooltip']);
+        $resolver->saveUserPreferences($user, ['helpMode' => 'inline']);
         $resolver->saveUserPreferences($user, ['helpMode' => 'popup']);
 
-        self::assertSame('tooltip', $resolver->resolve($user, false)['effective']['helpMode']);
+        self::assertSame('inline', $resolver->resolve($user, false)['effective']['helpMode']);
     }
 
     #[Test]
     public function an_unknown_help_mode_already_in_an_account_file_is_ignored(): void
     {
         $resolver = $this->resolver();
-        $resolver->saveSitePreferences(['helpMode' => 'tooltip']);
+        $resolver->saveSitePreferences(['helpMode' => 'inline']);
         $user = TestHelper::createMockUser();
         $user->set('admin_next', ['preferences' => ['helpMode' => 'popup']]);
 
+        self::assertSame('inline', $resolver->resolve($user, false)['effective']['helpMode']);
+
+        // With no site value either, the built-in tooltip default applies.
+        $resolver->saveSitePreferences(['helpMode' => null]);
         self::assertSame('tooltip', $resolver->resolve($user, false)['effective']['helpMode']);
     }
 

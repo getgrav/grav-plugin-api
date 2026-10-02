@@ -15425,8 +15425,8 @@ components:
           type: string
           nullable: true
           enum: [inline, tooltip]
-          description: Where field help text goes. `inline` (the default) shows it under the field label, and `tooltip` hides it behind a small info icon next to the label. An unknown value is dropped, so the site default (or `inline`) applies.
-          example: inline
+          description: Where field help text goes. `tooltip` (the default) hides it behind a small info icon next to the label, and `inline` shows it under the field label. An unknown value is dropped, so the site default (or `tooltip`) applies.
+          example: tooltip
         editorMode:
           type: string
           nullable: true
@@ -15716,7 +15716,7 @@ components:
           darkShade: graphite
           fontFamily: google-sans
           fontSize: normal
-          helpMode: inline
+          helpMode: tooltip
           editorMode: normal
           editorKeymap: default
           editorStickyToolbar: true
@@ -15750,7 +15750,7 @@ components:
           accentHue: 271
           darkShade: graphite
           fontFamily: google-sans
-          helpMode: inline
+          helpMode: tooltip
           autoSaveEnabled: false
           collabEnabled: true
           menubarLinks: []

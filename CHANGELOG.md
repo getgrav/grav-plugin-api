@@ -3,7 +3,7 @@
 
 1. [](#new)
     * A new `darkShade` preference (`graphite`, `zinc` or `midnight`) sets how dark mode looks, as a site default and as a per-user override. It defaults to `graphite`, and an unknown value falls back to it
-    * A new `helpMode` preference (`inline` or `tooltip`) sets whether field help text shows under the label or in a tooltip behind a small info icon, as a site default and as a per-user override. It defaults to `inline`, and an unknown value falls back to it
+    * A new `helpMode` preference (`inline` or `tooltip`) sets whether field help text shows under the label or in a tooltip behind a small info icon, as a site default and as a per-user override. It defaults to `tooltip`, and an unknown value falls back to it
     * A plugin or theme's changelog can now be fetched as just the entries newer than the installed version, so the admin can show what an available update changes [getgrav/grav-admin-next#27](https://github.com/getgrav/grav-admin-next/issues/27)
 1. [](#bugfix)
     * Fetching a page with `render=true` no longer fails with a server error on module pages or pages using shortcodes that render Twig, and page summaries now include that output too [#52](https://github.com/getgrav/grav-plugin-api/issues/52)
