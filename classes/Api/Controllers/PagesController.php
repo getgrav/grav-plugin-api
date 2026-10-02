@@ -389,19 +389,13 @@ class PagesController extends AbstractApiController
             // asked for, except for a module, which only renders inside its
             // parent (admin2#170).
             $target = self::previewRenderTarget($page);
+            $targetRoute = $this->grav['language']->getLanguageURLPrefix($requestedLang) . $targetRoute;
 
             // Previewing a module unlocks its host page too, so the caller has
             // to be allowed to read that page in its own right: a per-page ACL
             // can grant a module without granting its parent.
             if ($target !== $page) {
                 $this->authorizePageAction($request, $target, 'read', self::PERMISSION_READ);
-            }
-
-            $query = $request->getQueryParams();
-            $requestedLang = $query['lang'] ?? null;
-            $targetRoute = $target->route();
-            if ($requestedLang) {
-                $targetRoute = $this->grav['language']->getLanguageURLPrefix($requestedLang) . $targetRoute;
             }
 
             // Pin the token to the page's canonical public route, the same value
