@@ -27,6 +27,10 @@ use ReflectionClass;
  * PATCH also treated a module's own template sent without the `modular/` prefix
  * as a switch, and the "old" file it removed after the save was the module's
  * only file.
+ *
+ * Follow-up: a route whose last segment carries an order prefix (`01._hero`)
+ * escaped the check, because `_` was looked for in front of the prefix. Grav
+ * strips the prefix before it decides a page is a module.
  */
 #[CoversClass(PagesController::class)]
 class PagesControllerTemplateCheckTest extends TestCase
@@ -371,6 +375,121 @@ class PagesControllerTemplateCheckTest extends TestCase
             'template' => 'modular/text',
         ])));
         self::assertStringContainsString("kind 'module'", $e->getMessage());
+        self::assertSame([], $this->listing());
+    }
+
+    #[Test]
+    public function create_checks_a_module_whose_route_carries_an_order_prefix(): void
+    {
+        // `01._hero` is a module to Grav, which strips the prefix before it
+        // looks for the `_`. With no template it used to be written as an
+        // ordinary page: `01._hero/default.md`, and its parent rendered the
+        // red "modular/default.html.twig not found" heading.
+        $controller = $this->controller(pages: ['/parent' => $this->parentPage()]);
+
+        $e = $this->refused(fn () => $controller->create($this->request([
+            'route' => '/parent/01._hero',
+            'title' => 'X',
+        ])));
+
+        self::assertStringContainsString("A module needs a 'template'", $e->getMessage());
+        self::assertSame('template', $e->getValidationErrors()[0]['field']);
+        self::assertSame([], $this->listing(), 'nothing may be written');
+
+        $e = $this->refused(fn () => $controller->create($this->request([
+            'route' => '/parent/12._t',
+            'title' => 'T',
+            'template' => 'testimonials',
+        ])));
+
+        self::assertStringContainsString("'modular/testimonials' is not a modular type", $e->getMessage());
+        self::assertSame([], $this->listing());
+    }
+
+    #[Test]
+    public function create_checks_a_prefixed_module_whatever_the_width_of_the_prefix(): void
+    {
+        $controller = $this->controller(pages: ['/parent' => $this->parentPage()]);
+
+        foreach (['1._a', '001._a', '0._a'] as $segment) {
+            $this->refused(fn () => $controller->create($this->request([
+                'route' => '/parent/' . $segment,
+                'title' => 'X',
+            ])));
+        }
+
+        self::assertSame([], $this->listing());
+    }
+
+    #[Test]
+    public function create_keeps_the_prefix_in_the_folder_and_out_of_the_route(): void
+    {
+        // create() answers with the page found at the route it was given, so
+        // only the prefix-free routes are served.
+        $served = [];
+        foreach (['/parent/_hero', '/parent/_text', '/parent/plain', '/parent/other'] as $route) {
+            $page = $this->createMock(WritablePageForTemplateCheckTest::class);
+            $page->method('route')->willReturn($route);
+            $page->method('rawRoute')->willReturn($route);
+            $page->method('header')->willReturn((object) []);
+            $page->method('children')->willReturn(new \ArrayIterator([]));
+            $page->method('parent')->willReturn(null);
+            $page->method('media')->willReturn(new class {
+                public function all(): array { return []; }
+            });
+            $page->method('translatedLanguages')->willReturn([]);
+            $page->method('untranslatedLanguages')->willReturn([]);
+            $served[$route] = $page;
+        }
+        $controller = $this->controller(pages: ['/parent' => $this->parentPage()] + $served);
+
+        // The test Page's save() writes nothing, so what would be written is
+        // read off the page each save is announced with.
+        $written = [];
+        Grav::instance()->addListener('onAdminSave', function ($event) use (&$written): void {
+            $written[] = basename(dirname($event['page']->filePath())) . '/' . basename($event['page']->filePath());
+        });
+
+        // A valid module still goes through, with the prefix in its folder name.
+        $response = $controller->create($this->request(['route' => '/parent/01._hero', 'title' => 'H', 'template' => 'hero']));
+        self::assertSame('/api/v1/pages/parent/_hero', parse_url($response->getHeaderLine('Location'), PHP_URL_PATH));
+        // `kind` adds the `_` after the prefix, not in front of it.
+        $controller->create($this->request(['route' => '/parent/02.text', 'title' => 'T', 'kind' => 'module', 'template' => 'text']));
+        // An ordinary page is written as asked.
+        $controller->create($this->request(['route' => '/parent/03.plain', 'title' => 'P']));
+        // An `order` in the body wins over the prefix typed into the route.
+        $controller->create($this->request(['route' => '/parent/07.other', 'title' => 'O', 'order' => 4]));
+
+        self::assertSame(['01._hero/hero.md', '02._text/text.md', '03.plain/default.md', '04.other/default.md'], $written);
+    }
+
+    #[Test]
+    public function split_order_prefix_follows_the_pattern_core_strips_it_with(): void
+    {
+        $controller = $this->controller();
+
+        self::assertSame(['01.', '_hero'], $this->call($controller, 'splitOrderPrefix', '01._hero'));
+        self::assertSame(['001.', 'hero'], $this->call($controller, 'splitOrderPrefix', '001.hero'));
+        self::assertSame(['', '_hero'], $this->call($controller, 'splitOrderPrefix', '_hero'));
+        self::assertSame(['', 'hero'], $this->call($controller, 'splitOrderPrefix', 'hero'));
+        // Only a leading run of digits and one dot is a prefix.
+        self::assertSame(['01.', '02.hero'], $this->call($controller, 'splitOrderPrefix', '01.02.hero'));
+        self::assertSame(['', 'v1.2'], $this->call($controller, 'splitOrderPrefix', 'v1.2'));
+        self::assertSame(['', '01'], $this->call($controller, 'splitOrderPrefix', '01'));
+        self::assertSame(['01.', ''], $this->call($controller, 'splitOrderPrefix', '01.'));
+    }
+
+    #[Test]
+    public function create_refuses_a_route_that_is_only_an_order_prefix(): void
+    {
+        $controller = $this->controller(pages: ['/parent' => $this->parentPage()]);
+
+        $e = $this->refused(fn () => $controller->create($this->request([
+            'route' => '/parent/01.',
+            'title' => 'X',
+        ])));
+
+        self::assertStringContainsString('order prefix but no page name', $e->getMessage());
         self::assertSame([], $this->listing());
     }
 

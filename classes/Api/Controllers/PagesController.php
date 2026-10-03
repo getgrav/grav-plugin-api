@@ -36,6 +36,13 @@ class PagesController extends AbstractApiController
     private const PERMISSION_READ = 'api.pages.read';
     private const PERMISSION_WRITE = 'api.pages.write';
 
+    /**
+     * The order prefix of a page folder, as core strips it before it reads the
+     * slug (PAGE_ORDER_PREFIX_REGEX in Grav\Common\Page\Page, repeated here
+     * because the Flex constant cannot be loaded without the Flex page classes).
+     */
+    private const ORDER_PREFIX_REGEX = '/^[0-9]+\./u';
+
     private const ALLOWED_FILTERS = ['published', 'template', 'routable', 'visible', 'parent', 'children_of', 'root'];
     private const ALLOWED_SORT_FIELDS = ['date', 'title', 'slug', 'modified', 'order', 'default'];
 
@@ -488,6 +495,20 @@ class PagesController extends AbstractApiController
     }
 
     /**
+     * Split a page folder name or route segment into its order prefix and its
+     * slug (`01._hero` into `01.` and `_hero`), with the pattern core strips
+     * the prefix with. The prefix is '' when the name has none.
+     *
+     * @return array{0: string, 1: string}
+     */
+    private static function splitOrderPrefix(string $name): array
+    {
+        $slug = (string) preg_replace(self::ORDER_PREFIX_REGEX, '', $name);
+
+        return [substr($name, 0, strlen($name) - strlen($slug)), $slug];
+    }
+
+    /**
      * Last segment of a page route, always using `/` as the separator.
      * See {@see routeParent()} for why dirname()/basename() can't be used.
      */
@@ -572,13 +593,22 @@ class PagesController extends AbstractApiController
 
             // Ensure parent exists
             $parentRoute = self::routeParent($route);
-            $slug = self::routeBasename($route);
+
+            // The last segment may carry an order prefix the way a folder does
+            // (`01._hero`). Grav routes by the slug without it and decides
+            // whether a page is a module from that slug, so the `_` test below
+            // has to see the slug alone (#55). The prefix is kept for the
+            // folder name and left out of the route, which never holds it.
+            [$routePrefix, $slug] = self::splitOrderPrefix(self::routeBasename($route));
+            if ($routePrefix !== '' && $slug === '') {
+                throw new ValidationException("Invalid route: '{$route}' has an order prefix but no page name.");
+            }
 
             // Modular sub-page convention: folder name starts with `_`.
             if ($kind === 'module' && !str_starts_with($slug, '_')) {
                 $slug = '_' . $slug;
-                $route = ($parentRoute === '/' ? '' : $parentRoute) . '/' . $slug;
             }
+            $route = ($parentRoute === '/' ? '' : $parentRoute) . '/' . $slug;
 
             if ($parentRoute !== '/') {
                 $parent = $this->grav['pages']->find($parentRoute);
@@ -619,7 +649,10 @@ class PagesController extends AbstractApiController
             // Build directory name with optional ordering prefix. Width follows
             // the parent's existing children when present, so adding a page
             // under a 3-digit collection stays 3-digit.
-            $dirName = $order !== null ? PageOrdering::key($order, $slug, $this->siblingDigits($parentPath)) : $slug;
+            // An `order` in the body wins over a prefix typed into the route.
+            $dirName = $order !== null
+                ? PageOrdering::key($order, $slug, $this->siblingDigits($parentPath))
+                : $routePrefix . $slug;
             $pagePath = $parentPath . '/' . $dirName;
 
             // Grav routes by slug, so `02._dup` and `03._dup` would claim the same

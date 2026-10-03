@@ -1309,6 +1309,9 @@ paths:
         exist (except when creating top-level pages). Supply an optional
         `order` to create an ordered (visible) page, or pass `"auto"` to let
         the server pick the next free prefix based on existing siblings.
+        The last segment of `route` may carry its own order prefix
+        (`/blog/03.my-post`): it names the folder and is left out of the
+        page's route, and an `order` in the body wins over it.
         Include `lang` in the body to create the page in a specific language.
 
         The new frontmatter is built from the template blueprint's
@@ -1321,7 +1324,7 @@ paths:
         theme's `default` template.
 
         A module (`kind: module`, or a route whose last segment starts with
-        `_`) needs a template that exists, because a module without one makes
+        `_` once any order prefix is set aside, as in `/page/01._hero`) needs a template that exists, because a module without one makes
         its parent page show a "template not found" error. It can be sent as
         `text` or `modular/text`, and has to be a registered modular type (see
         `GET /blueprints/pages?modular=true`) or a `modular/<name>.html.twig`
