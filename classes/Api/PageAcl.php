@@ -227,8 +227,10 @@ final class PageAcl
 
     /**
      * Expand a `crudl` shorthand string into per-action booleans. A `-` (or `+`)
-     * applies to the letter immediately after it, so `'-ud'` denies update and
-     * still allows delete — same as everywhere else Grav reads these strings.
+     * applies to every letter after it until the next sign, so `'-ud'` denies both
+     * update and delete and `'-c+r-ud'` is what the ACL picker writes for C, U and D
+     * denied with R allowed — same as core's {@see \Grav\Framework\Acl\Access}.
+     * Letters before any sign are allowed.
      *
      * @return array<string, bool>
      */
@@ -244,7 +246,6 @@ final class PageAcl
                 $allow = true;
             } elseif (isset(self::RULES[$letter])) {
                 $result[self::RULES[$letter]] = $allow;
-                $allow = true;
             }
         }
 

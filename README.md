@@ -881,7 +881,7 @@ permissions:
 ---
 ```
 
-Letters map to `create`, `read`, `update`, `delete`, `publish`, `list`; a `-` applies to the letter right after it, so `'-ud'` denies update and still allows delete.
+Letters map to `create`, `read`, `update`, `delete`, `publish`, `list`; a `-` denies every letter after it until the next `+`, so `'-ud'` denies both update and delete and `'cru-d'` allows create, read and update but denies delete. Letters before any sign are allowed.
 
 The rules work in both directions:
 

@@ -201,6 +201,23 @@ class PageAclTest extends TestCase
     }
 
     #[Test]
+    public function a_sign_applies_to_every_letter_until_the_next_sign(): void
+    {
+        // What the Admin-Next ACL picker writes for C, U, D denied and R allowed.
+        $page = $this->page(['permissions' => ['groups' => ['editors' => '-c+r-ud']]]);
+
+        $acl = new PageAcl();
+        $user = $this->user('jane', ['editors']);
+
+        $this->assertFalse($acl->authorize($page, $user, 'create'));
+        $this->assertTrue($acl->authorize($page, $user, 'read'));
+        $this->assertFalse($acl->authorize($page, $user, 'update'));
+        $this->assertFalse($acl->authorize($page, $user, 'delete'));
+        // Not mentioned, so the account permission decides.
+        $this->assertNull($acl->authorize($page, $user, 'publish'));
+    }
+
+    #[Test]
     public function has_rules_reports_whether_the_chain_carries_any(): void
     {
         $acl = new PageAcl();

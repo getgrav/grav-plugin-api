@@ -1,3 +1,9 @@
+# v1.0.45
+## 10/02/2026
+
+1. [](#bugfix)
+    * A page's group permissions now deny every letter after a `-` up to the next `+`, so `-c+r-ud`, which the permissions picker saves for create, update and delete denied, no longer allows delete. The picker now writes a sign before each denied letter [getgrav/grav#4340](https://github.com/getgrav/grav/issues/4340)
+
 # v1.0.44
 ## 10/01/2026
 
