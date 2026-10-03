@@ -396,7 +396,6 @@ class PagesController extends AbstractApiController
             // asked for, except for a module, which only renders inside its
             // parent (admin2#170).
             $target = self::previewRenderTarget($page);
-            $targetRoute = $this->grav['language']->getLanguageURLPrefix($requestedLang) . $targetRoute;
 
             // Previewing a module unlocks its host page too, so the caller has
             // to be allowed to read that page in its own right: a per-page ACL
@@ -415,7 +414,13 @@ class PagesController extends AbstractApiController
             return ApiResponse::create([
                 'token' => $token,
                 'expires_in' => $ttl,
-                'route' => (string) $targetRoute,
+                // The URL path the browser loads: the language prefix the
+                // front end serves this language under, then the route the
+                // page has IN that language. The active language is the one
+                // the page was just resolved in, so a translated slug
+                // (`/typographie`) and its prefix (`/fr`) always agree
+                // (admin2#188).
+                'route' => $this->grav['language']->getLanguageURLPrefix() . $target->route(),
                 // A theme that gives its modules an anchor can scroll straight
                 // to the one being previewed. Advisory only: a theme that emits
                 // no such id simply lands at the top of the parent.

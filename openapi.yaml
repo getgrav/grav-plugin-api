@@ -2785,7 +2785,7 @@ paths:
                         description: Lifetime in seconds.
                       route:
                         type: string
-                        description: Frontend route the browser should load.
+                        description: Frontend path the browser should load. On a multi-language site it starts with the language prefix the site serves that language under (for example `/fr/typographie`, using the page's route in that language), following `system.languages.include_default_lang` for the default language. Pass `lang` to preview a translation.
                       anchor:
                         type: string
                         nullable: true
