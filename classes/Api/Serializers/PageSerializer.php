@@ -13,11 +13,13 @@ use Grav\Common\Page\Interfaces\PageInterface;
 use Grav\Common\Page\Markdown\Excerpts;
 use Grav\Common\Utils;
 use Grav\Plugin\Api\Services\FrontmatterReader;
+use Grav\Plugin\Api\Services\ModularTemplates;
 
 class PageSerializer implements SerializerInterface
 {
     public function __construct(
         private ?MediaSerializer $mediaSerializer = null,
+        private ?ModularTemplates $modularTemplates = null,
     ) {}
 
     public function serialize(object $resource, array $options = []): array
@@ -123,6 +125,17 @@ class PageSerializer implements SerializerInterface
             unset($data['header']);
         }
 
+        // Whether a module's template is missing on this site, so its parent
+        // page shows core's "template not found" heading (#55). It costs a Twig
+        // lookup for a module whose type is not registered, so page lists leave
+        // it out (`include_template_state` false); the lookup is made once per
+        // template name however many modules use it. An ordinary page is never
+        // flagged: an unknown type falls back to the theme's default template,
+        // and headless sites use types no theme knows.
+        if ($options['include_template_state'] ?? true) {
+            $data['template_missing'] = $this->templateMissing($resource);
+        }
+
         if ($includeTranslations) {
             $data['translated_languages'] = $resource->translatedLanguages();
             $data['untranslated_languages'] = $resource->untranslatedLanguages();
@@ -191,6 +204,23 @@ class PageSerializer implements SerializerInterface
         }
 
         return $data;
+    }
+
+    /**
+     * Whether `$resource` is a module that core cannot find a template for. The
+     * template is the one core renders with: `Page::template()`, which is the
+     * `template` header when there is one and the file's name otherwise.
+     */
+    private function templateMissing(PageInterface $resource): bool
+    {
+        if (!$resource->isModule()) {
+            return false;
+        }
+
+        $template = $resource->template();
+
+        return is_string($template) && $template !== ''
+            && ($this->modularTemplates ??= new ModularTemplates(Grav::instance()))->isMissing($template);
     }
 
     /**

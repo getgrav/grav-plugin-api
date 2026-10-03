@@ -1324,15 +1324,19 @@ paths:
         theme's `default` template.
 
         A module (`kind: module`, or a route whose last segment starts with
-        `_` once any order prefix is set aside, as in `/page/01._hero`) needs a template that exists, because a module without one makes
-        its parent page show a "template not found" error. It can be sent as
-        `text` or `modular/text`, and has to be a registered modular type (see
-        `GET /blueprints/pages?modular=true`) or a `modular/<name>.html.twig`
-        that Twig can find. Anything else returns 422 with the available
-        modular types in the message. Leaving `template` out of a module is
-        refused the same way, unless the theme has a `modular/default`
-        template of its own. A `template` header on a module has to name a
-        template Twig can find too.
+        `_` once any order prefix is set aside, as in `/page/01._hero`) can
+        be sent a template as `text` or `modular/text`. A module whose
+        template doesn't exist on the site is still created, because a
+        developer may be part way through building it, but the page the
+        module belongs to shows a "template not found" error until the
+        template exists, so the response carries a `template_missing` warning
+        in `data.warnings`. The template exists when it is a registered
+        modular type (see `GET /blueprints/pages?modular=true`) or a
+        `modular/<name>.html.twig` that Twig can find. Leaving `template` out
+        of a module writes `modular/default`, which only exists when the
+        theme has a `modular/default` template of its own. A `template`
+        header on a module that Twig can't find is warned about the same way
+        (`field: header.template`).
 
         Requires `api.pages.write`, and the parent page's own `create` rule
         (if any) must allow it: a page-level grant can stand in for the
@@ -1505,13 +1509,15 @@ paths:
         validated against the page blueprint (422 on failure).
 
         A `template` that differs from the page's current one renames the
-        page file. It is checked as it is on create: it must be a plain name,
-        and a module can only be switched to a template that exists (422
-        otherwise, with the available modular types in the message). Sending
-        the current template back changes nothing, for a module in either
-        form (`text` or `modular/text`), so a page whose type the theme no
-        longer has can still be saved. A `template` header is checked on a
-        module only when the request sets or changes it.
+        page file. It must be a plain name, as on create (422 otherwise). A
+        module can be switched to a template that doesn't exist on the site:
+        the save goes through and `data.warnings` carries a
+        `template_missing` warning. Sending the current template back
+        changes nothing, for a module in either form (`text` or
+        `modular/text`), so a page whose type the theme no longer has can
+        still be saved. A `template` header on a module is warned about only
+        when the request sets or changes it. Whether the page's template is
+        missing right now is in `data.template_missing`.
 
         Requires `api.pages.write`, subject to the page's own `update` rule.
         Enabling `process.twig`, or editing a page that already has it on,
@@ -12812,6 +12818,26 @@ components:
           type: string
           description: The Twig template used to render this page.
           example: blog
+        template_missing:
+          type: boolean
+          description: |
+            True for a module whose template doesn't exist on the site, so the
+            page the module belongs to shows core's red "template not found"
+            error. The template checked is the one core renders with: the
+            `template` header when the page has one, otherwise the page file's
+            name under `modular/`. Always false for an ordinary page, which
+            falls back to the theme's default template. Present on single-page
+            details and on create and update responses, and left out of page
+            lists.
+          example: false
+        warnings:
+          type: array
+          description: |
+            Things the request did that the caller should know about, though
+            it succeeded. Only on create and update responses, and only when
+            there is something to say.
+          items:
+            $ref: "#/components/schemas/PageWarning"
         header:
           type: object
           additionalProperties: true
@@ -13017,6 +13043,27 @@ components:
         - modified
         - order
 
+    PageWarning:
+      type: object
+      description: |
+        A warning on a page create or update that succeeded. `template_missing`
+        means a module was created or switched to a template that doesn't exist
+        on the site, so the page it belongs to shows a "template not found"
+        error until the template exists.
+      required: [field, code, message]
+      properties:
+        field:
+          type: string
+          description: The request field the warning is about, `template` or `header.template`.
+          example: template
+        code:
+          type: string
+          enum: [template_missing]
+          example: template_missing
+        message:
+          type: string
+          description: A plain-words explanation, listing the modular types the site has.
+          example: "Template 'modular/testimonials' doesn't exist on this site, so the page this module belongs to will show a 'template not found' error until it does. Modular types on this site: modular/features, modular/hero."
     PageSummary:
       type: object
       description: |
@@ -13749,7 +13796,8 @@ components:
             `blog.md`). Defaults to `default` if omitted. For a module, send
             a modular type as `text` or `modular/text`: a module has no
             usable default unless the theme has a `modular/default` template
-            of its own, and one that does not exist returns 422.
+            of its own, and a template that does not exist is allowed with a
+            `template_missing` warning in the response.
           default: default
           example: blog
         content:
@@ -13794,7 +13842,8 @@ components:
             `folder` creates only the directory (a routing/grouping
             container, no Markdown file). `module` creates a modular
             sub-page: the slug is prefixed with `_` unless it already is,
-            and `template` has to be a modular type.
+            and `template` should be a modular type (the response warns when
+            it isn't one the site has).
           example: page
         lang:
           type: string
@@ -13827,7 +13876,8 @@ components:
           description: |
             Change the page template, which renames the page file. For a
             module, send a modular type as `text` or `modular/text`; one
-            that does not exist returns 422. The page's current template is
+            that does not exist is allowed, with a `template_missing`
+            warning in the response. The page's current template is
             accepted unchanged.
           example: blog
         header:
