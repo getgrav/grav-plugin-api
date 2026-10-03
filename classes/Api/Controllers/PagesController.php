@@ -396,6 +396,7 @@ class PagesController extends AbstractApiController
             // asked for, except for a module, which only renders inside its
             // parent (admin2#170).
             $target = self::previewRenderTarget($page);
+            $targetRoute = $this->grav['language']->getLanguageURLPrefix($requestedLang) . $targetRoute;
 
             // Previewing a module unlocks its host page too, so the caller has
             // to be allowed to read that page in its own right: a per-page ACL
@@ -414,7 +415,7 @@ class PagesController extends AbstractApiController
             return ApiResponse::create([
                 'token' => $token,
                 'expires_in' => $ttl,
-                'route' => (string) $target->route(),
+                'route' => (string) $targetRoute,
                 // A theme that gives its modules an anchor can scroll straight
                 // to the one being previewed. Advisory only: a theme that emits
                 // no such id simply lands at the top of the parent.
