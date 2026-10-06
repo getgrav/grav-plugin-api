@@ -6,6 +6,7 @@
 1. [](#bugfix)
     * The page preview opens a translation at its own address, such as `/fr/typographie`, so previewing a page in a language other than the default shows that language instead of the default one or a 404. Thanks @fdruide [getgrav/grav-plugin-admin2#188](https://github.com/getgrav/grav-plugin-admin2/issues/188)
     * A module created at a route with an order prefix, such as `/page/01._hero`, is now recognised as a module, and the prefix no longer ends up in the new page's route [#55](https://github.com/getgrav/grav-plugin-api/issues/55)
+    * A page's ETag is now the same however the page was read (with translations, children or rendered content) and however it was saved, so sending it as `If-Match` on a save works, where the editor's own copy used to be refused with a conflict every time. Thanks @onetrev [getgrav/grav-plugin-admin2#189](https://github.com/getgrav/grav-plugin-admin2/issues/189)
     * A page's group permissions now deny every letter after a `-` up to the next `+`, so `-c+r-ud`, which the permissions picker saves for create, update and delete denied, no longer allows delete. The picker now writes a sign before each denied letter [getgrav/grav#4340](https://github.com/getgrav/grav/issues/4340)
 
 # v1.0.44

@@ -269,14 +269,44 @@ class PagesController extends AbstractApiController
 
             // The ETag is the page's own state — take it BEFORE attaching the
             // caller's capabilities, which vary per user and would otherwise
-            // make every If-Match on a later PATCH mismatch.
-            $etag = $this->generateEtag($data);
+            // make every If-Match on a later PATCH mismatch (see pageEtag()).
+            $etag = $this->pageEtag($page, $data);
             $data['permissions'] = $this->pageCapabilities($request, $page);
 
             return $this->respondWithEtag($data, etag: $etag);
         } finally {
             $this->restoreLanguage($previousLang);
         }
+    }
+
+    /**
+     * The ETag of a page: a hash of what a PATCH can overwrite, which is its
+     * frontmatter, body, template and language. show(), update() and move() all
+     * take it from here, so the validator from any one of them is the one the
+     * next PATCH checks (getgrav/grav-plugin-admin2#189).
+     *
+     * Hashing the response itself did not work. The admin's editor loads with
+     * `translations=true`, and that read's ETag never matched what update()
+     * computed from the plain page, so every save with an `If-Match` was
+     * refused. The same went for anything else in a response that is not the
+     * page's own file: the media list (a page save never touches it, yet an
+     * upload would 409 the next save), `has_children` and `order` (a sibling
+     * added or moved), `modified` (Page::save() leaves the in-memory mtime at
+     * the pre-save value, so the response to a PATCH never matched the next
+     * request) and the caller's `permissions`.
+     *
+     * @param array<string, mixed> $data the serialized page, whatever options it was read with
+     */
+    private function pageEtag(PageInterface $page, array $data): string
+    {
+        return $this->generateEtag([
+            'header' => $data['header'] ?? [],
+            // A summary read leaves the body out of its response. Line endings
+            // are compared as LF: a body saved with CRLF reads back with LF.
+            'content' => str_replace(["\r\n", "\r"], "\n", (string) ($data['content'] ?? $page->rawMarkdown())),
+            'template' => $data['template'] ?? null,
+            'language' => $data['language'] ?? null,
+        ]);
     }
 
     /**
@@ -1006,7 +1036,7 @@ class PagesController extends AbstractApiController
 
             // ETag validation for conflict detection
             $currentData = $this->serializer->serialize($page);
-            $this->validateEtag($request, $this->generateEtag($currentData));
+            $this->validateEtag($request, $this->pageEtag($page, $currentData));
 
             $body = $this->getRequestBody($request);
 
@@ -1151,9 +1181,8 @@ class PagesController extends AbstractApiController
             $this->fireEvent('onApiPageUpdated', $updatedEvent);
 
             $data = $this->serializer->serialize($page);
-            // ETag from the page state alone — see show() for why the caller's
-            // capabilities must stay out of it.
-            $etag = $this->generateEtag($data);
+            // ETag from the page state alone — see pageEtag().
+            $etag = $this->pageEtag($page, $data);
             $data['permissions'] = $this->pageCapabilities($request, $page);
             if ($warnings) {
                 $data['warnings'] = $warnings;
@@ -1338,7 +1367,7 @@ class PagesController extends AbstractApiController
         }
 
         $data = $this->serializer->serialize($movedPage);
-        $etag = $this->generateEtag($data);
+        $etag = $this->pageEtag($movedPage, $data);
         $data['permissions'] = $this->pageCapabilities($request, $movedPage);
 
         return $this->respondWithEtag($data, 200, $moveTags, $etag);
