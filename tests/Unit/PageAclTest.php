@@ -227,4 +227,40 @@ class PageAclTest extends TestCase
         $parent = $this->page(['permissions' => ['groups' => ['editors' => 'r']]]);
         $this->assertTrue($acl->hasRules($this->page(['title' => 'Child'], $parent)));
     }
+
+    #[Test]
+    public function the_pages_root_takes_its_rules_from_root_md(): void
+    {
+        // A regular site never loads the root page's header, so the rules that
+        // decide who may create top-level pages are read from user/pages/root.md.
+        $dir = sys_get_temp_dir() . '/page-acl-root-' . bin2hex(random_bytes(4));
+        mkdir($dir);
+        file_put_contents($dir . '/root.md', "---\npermissions:\n  groups:\n    editors: '-c-u-d'\n---\n");
+
+        try {
+            $root = $this->createMock(PageInterface::class);
+            $root->method('header')->willReturn(null);
+            $root->method('parent')->willReturn(null);
+            $root->method('root')->willReturn(true);
+            $root->method('path')->willReturn($dir);
+            $root->method('template')->willReturn('default');
+            $root->method('language')->willReturn(null);
+
+            $topLevel = $this->page(['title' => 'Top'], $root);
+
+            $acl = new PageAcl();
+            $user = $this->user('jane', ['editors']);
+
+            // Creating a top-level page is judged against its parent: the root.
+            $this->assertFalse($acl->authorize($root, $user, 'create'));
+            $this->assertFalse($acl->authorize($topLevel, $user, 'update'));
+            // A page that speaks for itself stops the walk before the root.
+            $foo = $this->page(['permissions' => ['groups' => ['editors' => '+c']]], $root);
+            $this->assertTrue($acl->authorize($foo, $user, 'create'));
+            $this->assertFalse($acl->authorize($foo, $user, 'update'));
+        } finally {
+            @unlink($dir . '/root.md');
+            @rmdir($dir);
+        }
+    }
 }

@@ -312,7 +312,13 @@ final class PageAcl
         // buttons. Read the frontmatter off disk in that case, the same
         // fallback PageSerializer uses for published/visible.
         if ($headerArray === []) {
-            $headerArray = FrontmatterReader::forPage($page);
+            // The pages root has no content file of its own in a regular
+            // site, so its rules live in `user/pages/root.md`, the same file a
+            // Flex site keeps them in. That is where "who may create top-level
+            // pages" is decided: a top-level page's parent is the root.
+            $headerArray = $page->root()
+                ? FrontmatterReader::parse(rtrim((string) $page->path(), '/') . '/root.md')
+                : FrontmatterReader::forPage($page);
         }
 
         $permissions = $headerArray['permissions'] ?? null;

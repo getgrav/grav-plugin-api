@@ -2,6 +2,7 @@
 ## 10/02/2026
 
 1. [](#improved)
+    * Permissions in `user/pages/root.md` now apply to the top level of a regular site, as they already did on Flex Pages sites, so a group can be kept from creating top-level pages. Thanks @gareins [getgrav/grav#4345](https://github.com/getgrav/grav/issues/4345)
     * Creating a module, or switching one to another template, is allowed again when that template doesn't exist on the site yet, and the response now includes a warning saying so, and page details say when a module's template is missing [#55](https://github.com/getgrav/grav-plugin-api/issues/55)
 1. [](#bugfix)
     * The page preview opens a translation at its own address, such as `/fr/typographie`, so previewing a page in a language other than the default shows that language instead of the default one or a 404. Thanks @fdruide [getgrav/grav-plugin-admin2#188](https://github.com/getgrav/grav-plugin-admin2/issues/188)
