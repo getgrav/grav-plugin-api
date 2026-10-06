@@ -227,8 +227,10 @@ final class PageAcl
 
     /**
      * Expand a `crudl` shorthand string into per-action booleans. A `-` (or `+`)
-     * applies to the letter immediately after it, so `'-ud'` denies update and
-     * still allows delete — same as everywhere else Grav reads these strings.
+     * applies to every letter after it until the next sign, so `'-ud'` denies both
+     * update and delete and `'-c+r-ud'` is what the ACL picker writes for C, U and D
+     * denied with R allowed — same as core's {@see \Grav\Framework\Acl\Access}.
+     * Letters before any sign are allowed.
      *
      * @return array<string, bool>
      */
@@ -244,7 +246,6 @@ final class PageAcl
                 $allow = true;
             } elseif (isset(self::RULES[$letter])) {
                 $result[self::RULES[$letter]] = $allow;
-                $allow = true;
             }
         }
 
@@ -311,7 +312,13 @@ final class PageAcl
         // buttons. Read the frontmatter off disk in that case, the same
         // fallback PageSerializer uses for published/visible.
         if ($headerArray === []) {
-            $headerArray = FrontmatterReader::forPage($page);
+            // The pages root has no content file of its own in a regular
+            // site, so its rules live in `user/pages/root.md`, the same file a
+            // Flex site keeps them in. That is where "who may create top-level
+            // pages" is decided: a top-level page's parent is the root.
+            $headerArray = $page->root()
+                ? FrontmatterReader::parse(rtrim((string) $page->path(), '/') . '/root.md')
+                : FrontmatterReader::forPage($page);
         }
 
         $permissions = $headerArray['permissions'] ?? null;

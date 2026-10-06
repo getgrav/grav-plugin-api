@@ -24,9 +24,19 @@ use ReflectionClass;
  * module to any template too. A module whose template Twig cannot find makes
  * its parent render core's red "template not found" heading to visitors.
  *
+ * The API first refused those requests (422). A developer may be part way
+ * through building a template, so it now allows them and answers with a
+ * `template_missing` warning instead, and page details carry `template_missing`
+ * (see PageSerializerTemplateMissingTest). What stays refused is whatever
+ * would write a file Grav can't use: a template that is not a plain name.
+ *
  * PATCH also treated a module's own template sent without the `modular/` prefix
  * as a switch, and the "old" file it removed after the save was the module's
  * only file.
+ *
+ * Follow-up: a route whose last segment carries an order prefix (`01._hero`)
+ * escaped the check, because `_` was looked for in front of the prefix. Grav
+ * strips the prefix before it decides a page is a module.
  */
 #[CoversClass(PagesController::class)]
 class PagesControllerTemplateCheckTest extends TestCase
@@ -268,6 +278,52 @@ class PagesControllerTemplateCheckTest extends TestCase
         return (new ReflectionClass(PagesController::class))->getMethod($method)->invoke($controller, ...$args);
     }
 
+    /**
+     * Pages create() can read back at their routes, as the answer it builds
+     * the response from. Only prefix-free routes are ever looked up.
+     *
+     * @return array<string, PageInterface>
+     */
+    private function served(string ...$routes): array
+    {
+        $served = [];
+        foreach ($routes as $route) {
+            $page = $this->createMock(WritablePageForTemplateCheckTest::class);
+            $page->method('route')->willReturn($route);
+            $page->method('rawRoute')->willReturn($route);
+            $page->method('header')->willReturn((object) []);
+            $page->method('children')->willReturn(new \ArrayIterator([]));
+            $page->method('parent')->willReturn(null);
+            $page->method('media')->willReturn(new class {
+                public function all(): array { return []; }
+            });
+            $page->method('translatedLanguages')->willReturn([]);
+            $page->method('untranslatedLanguages')->willReturn([]);
+            $served[$route] = $page;
+        }
+
+        return $served;
+    }
+
+    /**
+     * The test Page's save() writes nothing, so what would be written is read
+     * off the page each save is announced with.
+     *
+     * @param list<string> $written filled with `<folder>/<file>`
+     */
+    private function captureWrites(array &$written): void
+    {
+        Grav::instance()->addListener('onAdminSave', function ($event) use (&$written): void {
+            $written[] = basename(dirname($event['page']->filePath())) . '/' . basename($event['page']->filePath());
+        });
+    }
+
+    /** @return array<string, mixed> the `data` of a response */
+    private function data(\Psr\Http\Message\ResponseInterface $response): array
+    {
+        return json_decode((string) $response->getBody(), true)['data'];
+    }
+
     private function refused(callable $do): ValidationException
     {
         try {
@@ -284,58 +340,116 @@ class PagesControllerTemplateCheckTest extends TestCase
     // -------------------------------------------------------
 
     #[Test]
-    public function create_refuses_a_module_with_no_template_instead_of_writing_modular_default(): void
+    public function create_allows_a_module_with_no_template_and_warns_that_modular_default_is_missing(): void
     {
-        $controller = $this->controller(pages: ['/parent' => $this->parentPage()]);
+        $controller = $this->controller(pages: ['/parent' => $this->parentPage()] + $this->served('/parent/_x'));
+        $written = [];
+        $this->captureWrites($written);
 
-        $e = $this->refused(fn () => $controller->create($this->request([
+        $response = $controller->create($this->request([
             'route' => '/parent/x',
             'title' => 'X',
             'kind' => 'module',
-        ])));
+        ]));
 
-        self::assertStringContainsString("A module needs a 'template'", $e->getMessage());
-        self::assertStringContainsString('modular/hero, modular/text', $e->getMessage(), 'the caller is told what it can use');
-        self::assertSame('template', $e->getValidationErrors()[0]['field']);
-        self::assertSame([], $this->listing(), 'nothing may be written');
+        self::assertSame(201, $response->getStatusCode());
+        self::assertSame(['_x/default.md'], $written);
+        $warnings = $this->data($response)['warnings'];
+        self::assertCount(1, $warnings);
+        self::assertSame('template', $warnings[0]['field']);
+        self::assertSame('template_missing', $warnings[0]['code']);
+        self::assertStringContainsString("Template 'modular/default' doesn't exist on this site", $warnings[0]['message']);
+        self::assertStringContainsString('modular/hero, modular/text', $warnings[0]['message'], 'the caller is told what it can use');
     }
 
     #[Test]
-    public function create_refuses_a_module_whose_template_is_not_a_modular_type(): void
+    public function create_allows_a_module_whose_template_is_not_a_modular_type_and_warns(): void
     {
-        $controller = $this->controller(pages: ['/parent' => $this->parentPage()]);
+        $controller = $this->controller(pages: ['/parent' => $this->parentPage()] + $this->served('/parent/_t'));
+        $written = [];
+        $this->captureWrites($written);
 
-        $e = $this->refused(fn () => $controller->create($this->request([
+        $response = $controller->create($this->request([
             'route' => '/parent/t',
             'title' => 'T',
             'kind' => 'module',
             'template' => 'testimonials',
-        ])));
+        ]));
 
-        self::assertStringContainsString("'modular/testimonials' is not a modular type", $e->getMessage());
-        self::assertSame(422, $e->getStatusCode());
-        self::assertSame([], $this->listing());
+        self::assertSame(201, $response->getStatusCode());
+        self::assertSame(['_t/testimonials.md'], $written);
+        $warnings = $this->data($response)['warnings'];
+        self::assertSame('template', $warnings[0]['field']);
+        self::assertSame('template_missing', $warnings[0]['code']);
+        self::assertStringContainsString("Template 'modular/testimonials' doesn't exist on this site", $warnings[0]['message']);
+        self::assertStringContainsString("'template not found' error", $warnings[0]['message']);
     }
 
     #[Test]
-    public function create_checks_a_module_made_by_its_slug_alone(): void
+    public function create_warns_about_a_module_made_by_its_slug_alone(): void
     {
         // What a caller with no `kind` to send does: the `_` makes it a module.
-        $controller = $this->controller(pages: ['/parent' => $this->parentPage()]);
+        $controller = $this->controller(pages: ['/parent' => $this->parentPage()] + $this->served('/parent/_t'));
+        $written = [];
+        $this->captureWrites($written);
 
-        $e = $this->refused(fn () => $controller->create($this->request([
+        $response = $controller->create($this->request([
             'route' => '/parent/_t',
             'title' => 'T',
             'template' => 'blog',
-        ])));
+        ]));
 
-        self::assertStringContainsString("'modular/blog' is not a modular type", $e->getMessage());
-        self::assertSame([], $this->listing());
+        self::assertSame(['_t/blog.md'], $written);
+        self::assertStringContainsString("Template 'modular/blog' doesn't exist", $this->data($response)['warnings'][0]['message']);
     }
 
     #[Test]
-    public function create_refuses_a_template_header_a_module_cannot_render_with(): void
+    public function create_warns_about_a_template_header_a_module_cannot_render_with(): void
     {
+        $controller = $this->controller(pages: ['/parent' => $this->parentPage()] + $this->served('/parent/_h'));
+        $written = [];
+        $this->captureWrites($written);
+
+        $response = $controller->create($this->request([
+            'route' => '/parent/h',
+            'title' => 'H',
+            'kind' => 'module',
+            'template' => 'text',
+            'header' => ['template' => 'modular/nope'],
+        ]));
+
+        self::assertSame(201, $response->getStatusCode());
+        self::assertSame(['_h/text.md'], $written);
+        $warnings = $this->data($response)['warnings'];
+        self::assertCount(1, $warnings, 'the file template is registered, only the header names a missing one');
+        self::assertSame('header.template', $warnings[0]['field']);
+        self::assertSame('template_missing', $warnings[0]['code']);
+        self::assertStringContainsString("'modular/nope', which doesn't exist on this site", $warnings[0]['message']);
+    }
+
+    #[Test]
+    public function create_does_not_warn_about_the_file_template_when_a_template_header_wins(): void
+    {
+        // Core renders with the header's template, so a missing file template
+        // is not what breaks the page.
+        $controller = $this->controller(pages: ['/parent' => $this->parentPage()] + $this->served('/parent/_h'));
+
+        $response = $controller->create($this->request([
+            'route' => '/parent/h',
+            'title' => 'H',
+            'kind' => 'module',
+            'template' => 'nope',
+            'header' => ['template' => 'modular/hero'],
+        ]));
+
+        self::assertSame(201, $response->getStatusCode());
+        self::assertArrayNotHasKey('warnings', $this->data($response));
+    }
+
+    #[Test]
+    public function create_still_refuses_a_template_header_that_is_not_text(): void
+    {
+        // Core trims the header, so this would not even be a missing template.
         $controller = $this->controller(pages: ['/parent' => $this->parentPage()]);
 
         $e = $this->refused(fn () => $controller->create($this->request([
@@ -343,11 +457,41 @@ class PagesControllerTemplateCheckTest extends TestCase
             'title' => 'H',
             'kind' => 'module',
             'template' => 'text',
-            'header' => ['template' => 'modular/nope'],
+            'header' => ['template' => ['a']],
         ])));
 
         self::assertSame('header.template', $e->getValidationErrors()[0]['field']);
         self::assertSame([], $this->listing());
+    }
+
+    #[Test]
+    public function create_returns_no_warning_for_a_module_whose_template_exists(): void
+    {
+        $controller = $this->controller(
+            twigTemplates: ['modular/lightbox.html.twig'],
+            pages: ['/parent' => $this->parentPage()] + $this->served('/parent/_a', '/parent/_b'),
+        );
+
+        // Registered, and found only by Twig.
+        foreach ([['a', 'hero'], ['b', 'lightbox']] as [$slug, $template]) {
+            $response = $controller->create($this->request(['route' => '/parent/' . $slug, 'title' => 'T', 'kind' => 'module', 'template' => $template]));
+            self::assertSame(201, $response->getStatusCode());
+            self::assertArrayNotHasKey('warnings', $this->data($response), $template);
+        }
+    }
+
+    #[Test]
+    public function create_returns_no_warning_for_an_ordinary_page_with_an_unknown_template(): void
+    {
+        // An unknown page type falls back to the theme's default template.
+        $controller = $this->controller(pages: ['/parent' => $this->parentPage()] + $this->served('/parent/landing'));
+        $written = [];
+        $this->captureWrites($written);
+
+        $response = $controller->create($this->request(['route' => '/parent/landing', 'title' => 'L', 'template' => 'landing']));
+
+        self::assertSame(['landing/landing.md'], $written);
+        self::assertArrayNotHasKey('warnings', $this->data($response));
     }
 
     #[Test]
@@ -374,6 +518,102 @@ class PagesControllerTemplateCheckTest extends TestCase
         self::assertSame([], $this->listing());
     }
 
+    #[Test]
+    public function create_warns_about_a_module_whose_route_carries_an_order_prefix(): void
+    {
+        // `01._hero` is a module to Grav, which strips the prefix before it
+        // looks for the `_`. With no template it used to be written as an
+        // ordinary page: `01._hero/default.md`, and its parent rendered the
+        // red "modular/default.html.twig not found" heading.
+        $controller = $this->controller(pages: ['/parent' => $this->parentPage()] + $this->served('/parent/_hero', '/parent/_t'));
+        $written = [];
+        $this->captureWrites($written);
+
+        $response = $controller->create($this->request([
+            'route' => '/parent/01._hero',
+            'title' => 'X',
+        ]));
+
+        self::assertStringContainsString("Template 'modular/default' doesn't exist", $this->data($response)['warnings'][0]['message']);
+
+        $response = $controller->create($this->request([
+            'route' => '/parent/12._t',
+            'title' => 'T',
+            'template' => 'testimonials',
+        ]));
+
+        self::assertStringContainsString("Template 'modular/testimonials' doesn't exist", $this->data($response)['warnings'][0]['message']);
+        self::assertSame(['01._hero/default.md', '12._t/testimonials.md'], $written);
+    }
+
+    #[Test]
+    public function create_warns_about_a_prefixed_module_whatever_the_width_of_the_prefix(): void
+    {
+        $controller = $this->controller(pages: ['/parent' => $this->parentPage()] + $this->served('/parent/_a'));
+
+        foreach (['1._a', '001._a', '0._a'] as $segment) {
+            $response = $controller->create($this->request([
+                'route' => '/parent/' . $segment,
+                'title' => 'X',
+                'template' => 'nope',
+            ]));
+            self::assertSame('template_missing', $this->data($response)['warnings'][0]['code'], $segment);
+        }
+    }
+
+    #[Test]
+    public function create_keeps_the_prefix_in_the_folder_and_out_of_the_route(): void
+    {
+        // create() answers with the page found at the route it was given, so
+        // only the prefix-free routes are served.
+        $controller = $this->controller(pages: ['/parent' => $this->parentPage()] + $this->served('/parent/_hero', '/parent/_text', '/parent/plain', '/parent/other'));
+        $written = [];
+        $this->captureWrites($written);
+
+        // A valid module still goes through, with the prefix in its folder name.
+        $response = $controller->create($this->request(['route' => '/parent/01._hero', 'title' => 'H', 'template' => 'hero']));
+        self::assertSame('/api/v1/pages/parent/_hero', parse_url($response->getHeaderLine('Location'), PHP_URL_PATH));
+        self::assertArrayNotHasKey('warnings', $this->data($response));
+        // `kind` adds the `_` after the prefix, not in front of it.
+        $controller->create($this->request(['route' => '/parent/02.text', 'title' => 'T', 'kind' => 'module', 'template' => 'text']));
+        // An ordinary page is written as asked.
+        $controller->create($this->request(['route' => '/parent/03.plain', 'title' => 'P']));
+        // An `order` in the body wins over the prefix typed into the route.
+        $controller->create($this->request(['route' => '/parent/07.other', 'title' => 'O', 'order' => 4]));
+
+        self::assertSame(['01._hero/hero.md', '02._text/text.md', '03.plain/default.md', '04.other/default.md'], $written);
+    }
+
+    #[Test]
+    public function split_order_prefix_follows_the_pattern_core_strips_it_with(): void
+    {
+        $controller = $this->controller();
+
+        self::assertSame(['01.', '_hero'], $this->call($controller, 'splitOrderPrefix', '01._hero'));
+        self::assertSame(['001.', 'hero'], $this->call($controller, 'splitOrderPrefix', '001.hero'));
+        self::assertSame(['', '_hero'], $this->call($controller, 'splitOrderPrefix', '_hero'));
+        self::assertSame(['', 'hero'], $this->call($controller, 'splitOrderPrefix', 'hero'));
+        // Only a leading run of digits and one dot is a prefix.
+        self::assertSame(['01.', '02.hero'], $this->call($controller, 'splitOrderPrefix', '01.02.hero'));
+        self::assertSame(['', 'v1.2'], $this->call($controller, 'splitOrderPrefix', 'v1.2'));
+        self::assertSame(['', '01'], $this->call($controller, 'splitOrderPrefix', '01'));
+        self::assertSame(['01.', ''], $this->call($controller, 'splitOrderPrefix', '01.'));
+    }
+
+    #[Test]
+    public function create_refuses_a_route_that_is_only_an_order_prefix(): void
+    {
+        $controller = $this->controller(pages: ['/parent' => $this->parentPage()]);
+
+        $e = $this->refused(fn () => $controller->create($this->request([
+            'route' => '/parent/01.',
+            'title' => 'X',
+        ])));
+
+        self::assertStringContainsString('order prefix but no page name', $e->getMessage());
+        self::assertSame([], $this->listing());
+    }
+
     // -------------------------------------------------------
     // What the check accepts
     // -------------------------------------------------------
@@ -389,39 +629,24 @@ class PagesControllerTemplateCheckTest extends TestCase
     }
 
     #[Test]
-    public function a_module_template_only_twig_knows_is_accepted(): void
-    {
-        // A plugin that adds a Twig path without registering its types.
-        $controller = $this->controller(twigTemplates: ['modular/lightbox.html.twig']);
-
-        self::assertSame('modular/lightbox', $this->call($controller, 'resolveTemplate', 'lightbox', true));
-
-        $e = $this->refused(fn () => $this->call($controller, 'resolveTemplate', 'gallery', true));
-        self::assertStringContainsString("'modular/gallery'", $e->getMessage());
-    }
-
-    #[Test]
-    public function cores_own_modular_default_template_does_not_count(): void
-    {
-        // Twig always finds `modular/default.html.twig`: core ships it, and it
-        // is the "template not found" heading the check exists to prevent.
-        $controller = $this->controller(twigTemplates: ['modular/default.html.twig']);
-
-        $e = $this->refused(fn () => $this->call($controller, 'resolveTemplate', 'default', true, false));
-        self::assertStringContainsString("A module needs a 'template'", $e->getMessage());
-
-        // A theme with its own `templates/modular/default.html.twig` registers it.
-        $themed = $this->controller(self::MODULAR + ['modular/default' => 'Default']);
-        self::assertSame('modular/default', $this->call($themed, 'resolveTemplate', 'default', true, false));
-    }
-
-    #[Test]
-    public function twig_is_only_asked_when_the_type_is_not_registered(): void
+    public function a_module_template_that_does_not_exist_is_returned_not_refused(): void
     {
         $controller = $this->controller();
-        $this->call($controller, 'resolveTemplate', 'text', true);
 
-        self::assertSame(0, Grav::instance()['twig']->inits);
+        self::assertSame('modular/testimonials', $this->call($controller, 'resolveTemplate', 'testimonials', true));
+        self::assertSame('modular/testimonials', $this->call($controller, 'resolveTemplate', 'modular/testimonials', true));
+        self::assertSame('modular/default', $this->call($controller, 'resolveTemplate', 'default', true));
+    }
+
+    #[Test]
+    public function a_module_template_still_has_to_be_a_plain_name(): void
+    {
+        $controller = $this->controller();
+
+        foreach (['', '  ', 'a/b', '..', '.hidden', 'modular/a/b', 'a\\b', 'modular/'] as $template) {
+            $e = $this->refused(fn () => $this->call($controller, 'resolveTemplate', $template, true));
+            self::assertSame('template', $e->getValidationErrors()[0]['field'], json_encode($template));
+        }
     }
 
     #[Test]
@@ -436,20 +661,13 @@ class PagesControllerTemplateCheckTest extends TestCase
     }
 
     #[Test]
-    public function a_site_with_no_modular_types_says_so(): void
+    public function page_lists_leave_the_template_flag_out(): void
     {
-        $e = $this->refused(fn () => $this->call($this->controller([]), 'resolveTemplate', 'default', true, false));
+        // A Twig lookup per module row is not worth it in a list. Details
+        // (show, create, update) carry the flag.
+        $options = $this->call($this->controller(), 'listOptions', $this->request([], [], 'GET'));
 
-        self::assertStringContainsString("A module needs a 'template'", $e->getMessage());
-        self::assertStringContainsString('no modular types', $e->getMessage());
-    }
-
-    #[Test]
-    public function nothing_is_refused_when_the_type_registry_cannot_be_asked(): void
-    {
-        $controller = $this->controller(null);
-
-        self::assertSame('modular/anything', $this->call($controller, 'resolveTemplate', 'anything', true));
+        self::assertFalse($options['include_template_state']);
     }
 
     // -------------------------------------------------------
@@ -469,18 +687,53 @@ class PagesControllerTemplateCheckTest extends TestCase
     }
 
     #[Test]
-    public function update_refuses_to_switch_a_module_to_a_type_that_does_not_exist(): void
+    public function update_switches_a_module_to_a_type_that_does_not_exist_and_warns(): void
     {
         $page = $this->pageOnDisk('_good', 'text.md', 'modular/text', true);
-        $page->expects(self::never())->method('save');
+        $page->expects(self::once())->method('save');
         $controller = $this->controller(pages: ['/parent/_good' => $page]);
 
-        $e = $this->refused(fn () => $controller->update(
-            $this->request(['template' => 'testimonials'], ['route' => 'parent/_good'], 'PATCH')
-        ));
+        $response = $controller->update($this->request(['template' => 'testimonials'], ['route' => 'parent/_good'], 'PATCH'));
 
-        self::assertStringContainsString("'modular/testimonials' is not a modular type", $e->getMessage());
-        self::assertSame(['text.md'], $this->listing('parent/_good'));
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame('testimonials.md', $page->name());
+        self::assertSame([], $this->listing('parent/_good'), 'the old file is removed once the new one is saved');
+        $warnings = $this->data($response)['warnings'];
+        self::assertCount(1, $warnings);
+        self::assertSame('template', $warnings[0]['field']);
+        self::assertSame('template_missing', $warnings[0]['code']);
+        self::assertStringContainsString("Template 'modular/testimonials' doesn't exist on this site", $warnings[0]['message']);
+        self::assertStringContainsString('modular/hero, modular/text', $warnings[0]['message']);
+    }
+
+    #[Test]
+    public function update_returns_no_warning_without_a_template_to_warn_about(): void
+    {
+        $page = $this->pageOnDisk('_good', 'text.md', 'modular/text', true);
+        $plain = $this->pageOnDisk('plain', 'default.md', 'default', false);
+        $controller = $this->controller(pages: ['/parent/_good' => $page, '/parent/plain' => $plain]);
+
+        // To a registered type, to its own template, and with no template at all.
+        foreach ([['parent/_good', ['template' => 'hero']], ['parent/_good', ['template' => 'modular/hero']], ['parent/_good', ['title' => 'T']]] as [$route, $body]) {
+            self::assertArrayNotHasKey('warnings', $this->data($controller->update($this->request($body, ['route' => $route], 'PATCH'))), json_encode($body));
+        }
+
+        // An ordinary page may switch to a type no theme has.
+        $response = $controller->update($this->request(['template' => 'landing'], ['route' => 'parent/plain'], 'PATCH'));
+        self::assertSame(200, $response->getStatusCode());
+        self::assertArrayNotHasKey('warnings', $this->data($response));
+    }
+
+    #[Test]
+    public function update_does_not_warn_about_the_file_template_when_a_template_header_wins(): void
+    {
+        $page = $this->pageOnDisk('_h', 'text.md', 'modular/hero', true, ['template' => 'modular/hero']);
+        $controller = $this->controller(pages: ['/parent/_h' => $page]);
+
+        $response = $controller->update($this->request(['template' => 'nope'], ['route' => 'parent/_h'], 'PATCH'));
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertArrayNotHasKey('warnings', $this->data($response));
     }
 
     #[Test]
@@ -542,26 +795,57 @@ class PagesControllerTemplateCheckTest extends TestCase
     }
 
     #[Test]
-    public function update_checks_a_template_header_only_when_the_request_changes_it(): void
+    public function update_warns_about_a_template_header_only_when_the_request_changes_it(): void
     {
         $page = $this->pageOnDisk('_h', 'text.md', 'modular/nope', true, ['template' => 'modular/nope']);
         $controller = $this->controller(pages: ['/parent/_h' => $page]);
 
         // The header already holds an unknown template: sending it back (as a
-        // raw-frontmatter editor does) is not a change.
+        // raw-frontmatter editor does) is not a change, so nothing is repeated.
         $response = $controller->update($this->request(
             ['header' => ['title' => 'Edited', 'template' => 'modular/nope'], 'header_mode' => 'replace'],
             ['route' => 'parent/_h'],
             'PATCH',
         ));
         self::assertSame(200, $response->getStatusCode());
+        self::assertArrayNotHasKey('warnings', $this->data($response));
+        // The page itself still says so.
+        self::assertTrue($this->data($response)['template_missing']);
 
-        $e = $this->refused(fn () => $controller->update($this->request(
+        $response = $controller->update($this->request(
             ['header' => ['template' => 'modular/other']],
             ['route' => 'parent/_h'],
             'PATCH',
-        )));
-        self::assertSame('header.template', $e->getValidationErrors()[0]['field']);
+        ));
+        self::assertSame(200, $response->getStatusCode());
+        $warnings = $this->data($response)['warnings'];
+        self::assertSame('header.template', $warnings[0]['field']);
+        self::assertSame('template_missing', $warnings[0]['code']);
+        self::assertStringContainsString("'modular/other', which doesn't exist", $warnings[0]['message']);
+
+        // A header that names a registered type is fine.
+        $response = $controller->update($this->request(
+            ['header' => ['template' => 'modular/hero']],
+            ['route' => 'parent/_h'],
+            'PATCH',
+        ));
+        self::assertArrayNotHasKey('warnings', $this->data($response));
+    }
+
+    #[Test]
+    public function update_still_refuses_a_template_that_is_not_a_plain_name(): void
+    {
+        $page = $this->pageOnDisk('_good', 'text.md', 'modular/text', true);
+        $page->expects(self::never())->method('save');
+        $controller = $this->controller(pages: ['/parent/_good' => $page]);
+
+        foreach (['a/b', '.hidden', '', ['a']] as $template) {
+            $e = $this->refused(fn () => $controller->update(
+                $this->request(['template' => $template], ['route' => 'parent/_good'], 'PATCH')
+            ));
+            self::assertSame('template', $e->getValidationErrors()[0]['field'], json_encode($template));
+        }
+        self::assertSame(['text.md'], $this->listing('parent/_good'));
     }
 }
 

@@ -286,9 +286,15 @@ function serializeAcl(states) {
     for (const letter of order) {
         const st = states[letter];
         if (!st) continue;
-        const sign = st === 'deny' ? '-' : '+';
-        if (sign !== cur) { out += sign; cur = sign; }
-        out += letter;
+        if (st === 'deny') {
+            // Every denied letter carries its own sign, so a reader that applies a
+            // sign to only the next letter (cores before the fix) still denies it.
+            out += '-' + letter;
+            cur = '-';
+        } else {
+            if (cur === '-') { out += '+'; cur = '+'; }
+            out += letter;
+        }
     }
     return out;
 }
