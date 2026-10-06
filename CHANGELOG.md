@@ -1,5 +1,5 @@
 # v1.0.45
-## 10/02/2026
+## 10/06/2026
 
 1. [](#improved)
     * Permissions in `user/pages/root.md` now apply to the top level of a regular site, as they already did on Flex Pages sites, so a group can be kept from creating top-level pages. Thanks @gareins [getgrav/grav#4345](https://github.com/getgrav/grav/issues/4345)
