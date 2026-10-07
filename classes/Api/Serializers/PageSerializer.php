@@ -137,8 +137,8 @@ class PageSerializer implements SerializerInterface
         }
 
         if ($includeTranslations) {
-            $data['translated_languages'] = $resource->translatedLanguages();
-            $data['untranslated_languages'] = $resource->untranslatedLanguages();
+            $data['translated_languages'] = $resource->translatedLanguages(onlyPublished: false);
+            $data['untranslated_languages'] = $resource->untranslatedLanguages(includeUnpublished: true);
 
             // Disambiguate Grav's translated_languages response: when the page
             // has an untyped base file (e.g. default.md), Grav reports every
