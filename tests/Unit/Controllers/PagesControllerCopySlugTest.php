@@ -99,6 +99,22 @@ class PagesControllerCopySlugTest extends TestCase
     }
 
     #[Test]
+    public function every_language_variant_is_rewritten_when_the_source_is_a_language_file(): void
+    {
+        // The controller passes $page->extension(), which is `.en.md` when the
+        // source page was loaded from default.en.md.
+        foreach (['default.en.md', 'default.fr.md'] as $file) {
+            $this->write($file, "---\ntitle: T\nslug: shared\n---\n\nbody\n");
+        }
+
+        $this->rewrite('shared-2', '.en.md');
+
+        foreach (['default.en.md', 'default.fr.md'] as $file) {
+            self::assertStringContainsString('slug: shared-2', $this->read($file), "{$file} keeps the source slug");
+        }
+    }
+
+    #[Test]
     public function a_page_without_a_slug_does_not_gain_one(): void
     {
         $this->write('default.md', "---\ntitle: No Slug Here\n---\n\nbody\n");
