@@ -1465,8 +1465,9 @@ class PagesController extends AbstractApiController
         $page = $this->findPageOrFail('/' . $route, $request, self::PERMISSION_READ);
         $this->authorizePageAction($request, $page, 'read', self::PERMISSION_READ);
 
-        $translated = $page->translatedLanguages();
-        $untranslated = $page->untranslatedLanguages();
+        // A draft translation counts as translated in both lists (#57).
+        $translated = $page->translatedLanguages(false);
+        $untranslated = $page->untranslatedLanguages(true);
 
         /** @var Language $language */
         $language = $this->grav['language'];
@@ -3275,7 +3276,10 @@ class PagesController extends AbstractApiController
      */
     private function rewriteCopiedSlug(string $destPath, string $destSlug, string $extension): void
     {
-        $extension = '.' . ltrim($extension, '.');
+        // A translated page's extension carries its language (`.en.md`), but
+        // every language file of the copy holds the source slug, so match on
+        // the markdown extension alone.
+        $extension = '.' . pathinfo('page.' . ltrim($extension, '.'), PATHINFO_EXTENSION);
 
         // scandir rather than glob: a page folder name may legitimately contain
         // `[` or `*`, which glob would read as a pattern.

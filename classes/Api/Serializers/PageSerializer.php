@@ -137,8 +137,11 @@ class PageSerializer implements SerializerInterface
         }
 
         if ($includeTranslations) {
-            $data['translated_languages'] = $resource->translatedLanguages();
-            $data['untranslated_languages'] = $resource->untranslatedLanguages();
+            // Both lists ask the same question about drafts, so a language whose
+            // translation is unpublished counts as translated and is never in both
+            // (#57). Positional, since a page class may name these arguments its own way.
+            $data['translated_languages'] = $resource->translatedLanguages(false);
+            $data['untranslated_languages'] = $resource->untranslatedLanguages(true);
 
             // Disambiguate Grav's translated_languages response: when the page
             // has an untyped base file (e.g. default.md), Grav reports every

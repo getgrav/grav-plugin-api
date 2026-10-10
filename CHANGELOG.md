@@ -1,3 +1,10 @@
+# v1.0.46
+## 10/09/2026
+
+1. [](#bugfix)
+    * A language whose translation is a draft is listed only as translated, in page details and the page's languages, instead of as both translated and untranslated. Thanks @fdruide [#57](https://github.com/getgrav/grav-plugin-api/pull/57)
+    * Copying a page on a multi-language site gives every translation the new page's slug, so a translation with its own slug no longer shares its route with the original [getgrav/grav-admin-next#33](https://github.com/getgrav/grav-admin-next/issues/33)
+
 # v1.0.45
 ## 10/06/2026
 
