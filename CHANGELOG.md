@@ -1,5 +1,5 @@
 # v1.0.46
-## 10/07/2026
+## 10/09/2026
 
 1. [](#bugfix)
     * A language whose translation is a draft is listed only as translated, in page details and the page's languages, instead of as both translated and untranslated. Thanks @fdruide [#57](https://github.com/getgrav/grav-plugin-api/pull/57)
