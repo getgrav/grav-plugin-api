@@ -1487,90 +1487,89 @@ class PagesController extends AbstractApiController
      */
     public function translate(ServerRequestInterface $request): ResponseInterface
     {
-        $this->enablePages();
-
-        $route = $this->getRouteParam($request, 'route');
-        $page = $this->findPageOrFail('/' . $route, $request, self::PERMISSION_WRITE);
-        $this->authorizePageAction($request, $page, 'update', self::PERMISSION_WRITE);
-
         $body = $this->getRequestBody($request);
         $this->requireFields($body, ['lang']);
+        $sourceLang = $body['source_lang'] ?? null;
+        $targetLang = $body['lang'];
 
-        $lang = $body['lang'];
-        $this->validateLanguageCode($lang);
-
-        // Check if translation already exists
-        $translated = $page->translatedLanguages();
-        if (isset($translated[$lang])) {
-            throw new ValidationException("A translation already exists for language '{$lang}'. Use PATCH to update it.");
-        }
-
-        $title = $body['title'] ?? $page->title();
-        $content = $body['content'] ?? $page->rawMarkdown();
-        $header = $body['header'] ?? $this->headerToArray($page->header());
-
-        // Ensure title is set, and back-fill blueprint defaults underneath so a
-        // minimal explicit header still gets the template's `default:` values
-        // (admin2#49). When no header is supplied the source page's frontmatter
-        // is already complete, so the defaults are a no-op there.
-        $header = array_replace_recursive(
-            $this->blueprintHeaderDefaults($page->template()),
-            ['title' => $title],
-            is_array($header) ? $header : [],
-        );
-
-        // Same Twig-content scope/permission cap create()/update() enforce: an
-        // api.pages.write key scoped below admin.pages_twig must not enable
-        // process.twig on the page it authors here. translate() previously wrote
-        // a caller-supplied header/content without this gate, letting a scoped key
-        // turn on Twig-in-content (SSTI) that create()/update() would reject.
-        // (GHSA-w94c-jmg4-w4c9, follow-up to GHSA-96xv-p87j-58mx)
-        $this->guardTwigContent($request, null, is_array($body['header'] ?? null) ? $body['header'] : []);
-
-        $this->fireEvent('onApiBeforePageTranslate', [
-            'page' => $page,
-            'lang' => $lang,
-            'header' => &$header,
-            'content' => &$content,
-        ]);
-
-        // Build the language-specific file path
-        $template = $page->template();
-        $filename = $this->buildPageFilename($template, $lang);
-        $filePath = $page->path() . '/' . $filename;
-
-        $translatedPage = new Page();
-        $translatedPage->filePath($filePath);
-        $translatedPage->header((object) $header);
-        $translatedPage->rawMarkdown($content);
-
-        // Editor XSS backstop, as run by create()/update(). (GHSA-w94c-jmg4-w4c9)
-        $this->validatePageChanges($translatedPage, ['header' => $header, 'content' => $content]);
-
-        // Allow plugins to modify the page before save
-        $this->fireAdminEvent('onAdminSave', ['object' => &$translatedPage, 'page' => &$translatedPage]);
-
-        $translatedPage->save();
-
-        $this->clearPagesCache();
-
-        // Re-init and fetch the translated page
-        /** @var Language $language */
-        $language = $this->grav['language'];
-        $previousLang = $language->getActive() ?? false;
+        $previousLang = $this->applyLanguage($request, $sourceLang);
 
         try {
+            $this->enablePages();
+
+            $route = $this->getRouteParam($request, 'route');
+            $page = $this->findPageOrFail('/' . $route, $request, self::PERMISSION_WRITE);
+            $this->authorizePageAction($request, $page, 'update', self::PERMISSION_WRITE);
+
+            $this->validateLanguageCode($targetLang);
+
+            // Check if translation already exists
+            $translated = $page->translatedLanguages();
+            if (isset($translated[$targetLang])) {
+                throw new ValidationException("A translation already exists for language '{$targetLang}'. Use PATCH to update it.");
+            }
+
+            $title = $body['title'] ?? $page->title();
+            $content = $body['content'] ?? $page->rawMarkdown();
+            $header = $body['header'] ?? $this->headerToArray($page->header());
+
+            // Ensure title is set, and back-fill blueprint defaults underneath so a
+            // minimal explicit header still gets the template's `default:` values
+            // (admin2#49). When no header is supplied the source page's frontmatter
+            // is already complete, so the defaults are a no-op there.
+            $header = array_replace_recursive(
+                $this->blueprintHeaderDefaults($page->template()),
+                ['title' => $title],
+                is_array($header) ? $header : [],
+            );
+
+            // Same Twig-content scope/permission cap create()/update() enforce: an
+            // api.pages.write key scoped below admin.pages_twig must not enable
+            // process.twig on the page it authors here. translate() previously wrote
+            // a caller-supplied header/content without this gate, letting a scoped key
+            // turn on Twig-in-content (SSTI) that create()/update() would reject.
+            // (GHSA-w94c-jmg4-w4c9, follow-up to GHSA-96xv-p87j-58mx)
+            $this->guardTwigContent($request, null, is_array($body['header'] ?? null) ? $body['header'] : []);
+
+            $this->fireEvent('onApiBeforePageTranslate', [
+                'page' => $page,
+                'lang' => $targetLang,
+                'header' => &$header,
+                'content' => &$content,
+            ]);
+
+            // Build the language-specific file path
+            $template = $page->template();
+            $filename = $this->buildPageFilename($template, $targetLang);
+            $filePath = $page->path() . '/' . $filename;
+
+            $translatedPage = new Page();
+            $translatedPage->filePath($filePath);
+            $translatedPage->header((object) $header);
+            $translatedPage->rawMarkdown($content);
+
+            // Editor XSS backstop, as run by create()/update(). (GHSA-w94c-jmg4-w4c9)
+            $this->validatePageChanges($translatedPage, ['header' => $header, 'content' => $content]);
+
+            // Allow plugins to modify the page before save
+            $this->fireAdminEvent('onAdminSave', ['object' => &$translatedPage, 'page' => &$translatedPage]);
+
+            $translatedPage->save();
+
+            $this->clearPagesCache();
+
+            // Re-init and fetch the translated page
             // The file was written explicitly above, so this switch only affects
             // what gets echoed back — but without it the response (and the
             // events below) carried the source-language page (#24).
-            $this->switchLanguage($lang);
+            $this->switchLanguage($targetLang);
             $newPage = $this->grav['pages']->find('/' . $route);
 
             $this->fireAdminEvent('onAdminAfterSave', ['object' => $newPage ?? $translatedPage, 'page' => $newPage ?? $translatedPage]);
             $this->fireEvent('onApiPageTranslated', [
                 'page' => $newPage ?? $translatedPage,
                 'route' => '/' . $route,
-                'lang' => $lang,
+                'lang' => $targetLang,
             ]);
 
             $data = $this->serializer->serialize($newPage ?? $translatedPage);

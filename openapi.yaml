@@ -1773,10 +1773,12 @@ paths:
       tags: [Pages]
       summary: Create a translation for a page
       description: |
-        Create a new language translation for an existing page. The `lang`
-        field specifies the target language code; it must be one of the
-        site's configured languages, and multi-language must be enabled. If a
-        translation already exists for that language, `422` is returned (use
+        Create a new language translation for an existing page. The `source_lang`
+        field specifies the language of the page to translate from. The
+        `lang` field specifies the target language code. Both
+        `source_lang` and `lang` must be one of the site's configured
+        languages, and multi-language must be enabled. If a translation
+        already exists for the target language, `422` is returned (use
         `PATCH /pages/{route}?lang=` to update it). Fields left out are copied
         from the source page, and the result is validated against the page
         blueprint. The response is the page in the new language.
@@ -1794,6 +1796,10 @@ paths:
               type: object
               required: [lang]
               properties:
+                source_lang:
+                  type: string
+                  description: Source page's language code.
+                  example: fr
                 lang:
                   type: string
                   description: Language code for the translation.
