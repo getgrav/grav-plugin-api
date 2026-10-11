@@ -1,3 +1,11 @@
+# v1.0.47
+## 10/11/2026
+
+1. [](#improved)
+    * Added a Spanish translation, and the plugin's settings labels, help text and options can now be translated. Thanks @pmoreno-rodriguez [#58](https://github.com/getgrav/grav-plugin-api/pull/58)
+1. [](#bugfix)
+    * Creating a translation of a page whose source is not in the default language keeps the page's template, content and title when the request names the source language with `source_lang`. Thanks @fdruide [#59](https://github.com/getgrav/grav-plugin-api/pull/59) [getgrav/grav-plugin-admin2#193](https://github.com/getgrav/grav-plugin-admin2/issues/193)
+
 # v1.0.46
 ## 10/09/2026
 

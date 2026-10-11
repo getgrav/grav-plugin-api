@@ -1,7 +1,7 @@
 name: API
 slug: api
 type: plugin
-version: 1.0.46
+version: 1.0.47
 description: RESTful API for Grav CMS. Provides headless access to pages, media, configuration, users, and system management.
 icon: plug
 author:
@@ -581,7 +581,7 @@ form:
 
             audit.capture.auth:
               type: toggle
-              label: Capture PLUGIN_API.AUTHENTICATION
+              label: PLUGIN_API.CAPTURE_AUTHENTICATION
               help: PLUGIN_API.CAPTURE_AUTHENTICATION_HELP
               default: 1
               options:
@@ -592,7 +592,7 @@ form:
 
             audit.capture.content:
               type: toggle
-              label: Capture PLUGIN_API.CONTENT Changes
+              label: PLUGIN_API.CAPTURE_CONTENT_CHANGES
               help: PLUGIN_API.CAPTURE_CONTENT_CHANGES_HELP
               default: 1
               options:
