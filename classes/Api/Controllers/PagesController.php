@@ -2263,17 +2263,20 @@ class PagesController extends AbstractApiController
                 }
             }
 
-            // Whether this op actually causes a path rename on disk. Position-
-            // unchanged + parent-unchanged ops are no-ops at the filesystem
-            // level — clients (e.g. the tree-view drag handler) emit them
-            // when renumbering all siblings of a drop target, even for
-            // siblings whose position didn't actually shift. Tracking these
-            // as "moved" below would falsely flag conflicts when one of those
-            // no-op siblings happens to be the source parent of another op.
-            $currentOrder = (int) $page->order();
+            // The folder name this op ends with. Keep the width the folder
+            // already used.
+            $slug = ltrim($page->slug(), '.');
+            $digits = PageOrdering::digitsFromFolder(basename($page->path())) ?? PageOrdering::defaultDigits();
+            $dirName = $position !== null
+                ? str_pad((string) $position, $digits, '0', STR_PAD_LEFT) . '.' . $slug
+                : $slug;
+
+            // Whether this op renames anything on disk. Clients renumbering
+            // every sibling of a drop target send ops for siblings that keep
+            // their number; those change nothing, so they are neither treated
+            // as moved below nor renamed (getgrav/grav-admin-next#36).
             $parentChanged = $newParentRoute !== $currentParentRoute;
-            $positionChanged = $position !== null && $position !== $currentOrder;
-            $actuallyMoves = $parentChanged || $positionChanged;
+            $actuallyMoves = $parentChanged || $dirName !== basename($page->path());
 
             $resolved[] = [
                 'route' => $route,
@@ -2282,13 +2285,15 @@ class PagesController extends AbstractApiController
                 // '.' don't get rebuilt into '04..slug' style folders.
                 // Matches the sanitization the single-page /move endpoint
                 // already applies.
-                'slug' => ltrim($page->slug(), '.'),
+                'slug' => $slug,
+                'dirName' => $dirName,
                 'oldPath' => $page->path(),
                 'currentParentRoute' => $currentParentRoute,
                 'newParentRoute' => $newParentRoute,
                 'newParentPath' => $newParentPath,
                 'position' => $position,
                 'actuallyMoves' => $actuallyMoves,
+                'tempPath' => null,
             ];
         }
 
@@ -2351,24 +2356,29 @@ class PagesController extends AbstractApiController
         $this->fireEvent('onApiBeforePagesReorganize', ['operations' => $resolved]);
 
         // --- Phase 2: Move to temp names ---
+        // Only ops that rename something take part. A no-op sent through a
+        // temp name carried its whole subtree away, so an op for a page inside
+        // it found nothing at its old path and was skipped while the request
+        // still reported success. Deepest folders go first, so a page leaves
+        // its folder before that folder is renamed.
+        $moving = array_keys(array_filter($resolved, static fn (array $op): bool => $op['actuallyMoves']));
+        usort($moving, static fn (int $a, int $b): int
+            => substr_count($resolved[$b]['oldPath'], '/') <=> substr_count($resolved[$a]['oldPath'], '/'));
         $completedRenames = [];
 
         try {
-            foreach ($resolved as $index => &$op) {
-                $slug = $op['slug'];
-                $destParentPath = $op['newParentPath'];
-                $tempName = '_reorg_temp_' . $index . '_' . $slug;
-                $tempPath = $destParentPath . '/' . $tempName;
-
-                if (is_dir($op['oldPath'])) {
-                    Folder::move($op['oldPath'], $tempPath);
-                    $completedRenames[] = ['from' => $op['oldPath'], 'to' => $tempPath];
-                    $op['tempPath'] = $tempPath;
-                } else {
-                    $op['tempPath'] = null;
+            foreach ($moving as $index) {
+                $op = &$resolved[$index];
+                if (!is_dir($op['oldPath'])) {
+                    throw new \RuntimeException("'{$op['route']}' is no longer at '{$op['oldPath']}'.");
                 }
+
+                $tempPath = $op['newParentPath'] . '/_reorg_temp_' . $index . '_' . $op['slug'];
+                Folder::move($op['oldPath'], $tempPath);
+                $completedRenames[] = ['from' => $op['oldPath'], 'to' => $tempPath];
+                $op['tempPath'] = $tempPath;
+                unset($op);
             }
-            unset($op);
 
             // --- Phase 3: Rename from temp to final names ---
             foreach ($resolved as &$op) {
@@ -2376,18 +2386,7 @@ class PagesController extends AbstractApiController
                     continue;
                 }
 
-                $slug = $op['slug'];
-                $position = $op['position'];
-                $destParentPath = $op['newParentPath'];
-
-                // Keep the width the folder already used — the temp name carries no
-                // prefix, so the original path is what to read it from.
-                $digits = PageOrdering::digitsFromFolder(basename($op['oldPath'])) ?? PageOrdering::defaultDigits();
-                $dirName = $position !== null
-                    ? str_pad((string) $position, $digits, '0', STR_PAD_LEFT) . '.' . $slug
-                    : $slug;
-
-                $finalPath = $destParentPath . '/' . $dirName;
+                $finalPath = $op['newParentPath'] . '/' . $op['dirName'];
 
                 rename($op['tempPath'], $finalPath);
                 $completedRenames[] = ['from' => $op['tempPath'], 'to' => $finalPath];
