@@ -1,5 +1,5 @@
 # v1.0.47
-## 10/11/2026
+## 10/13/2026
 
 1. [](#improved)
     * Added a Spanish translation, and the plugin's settings labels, help text and options can now be translated. Thanks @pmoreno-rodriguez [#58](https://github.com/getgrav/grav-plugin-api/pull/58)
