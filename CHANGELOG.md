@@ -1,3 +1,13 @@
+# v1.0.47
+## 10/13/2026
+
+1. [](#improved)
+    * Added a Spanish translation, and the plugin's settings labels, help text and options can now be translated. Thanks @pmoreno-rodriguez [#58](https://github.com/getgrav/grav-plugin-api/pull/58)
+    * Media metadata fields can be a dropdown, with `type: select` and a list of `options`
+1. [](#bugfix)
+    * Creating a translation of a page whose source is not in the default language keeps the page's template, content and title when the request names the source language with `source_lang`. Thanks @fdruide [#59](https://github.com/getgrav/grav-plugin-api/pull/59) [getgrav/grav-plugin-admin2#193](https://github.com/getgrav/grav-plugin-admin2/issues/193)
+    * Moving a page to another level with the reorganize endpoint no longer reports success while leaving it in place or fails halfway: moves that change nothing are skipped, and a page moved into another folder takes that folder's order number width. Thanks @Gleydar [getgrav/grav-admin-next#36](https://github.com/getgrav/grav-admin-next/issues/36)
+
 # v1.0.46
 ## 10/09/2026
 

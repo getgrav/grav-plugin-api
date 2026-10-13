@@ -1773,10 +1773,12 @@ paths:
       tags: [Pages]
       summary: Create a translation for a page
       description: |
-        Create a new language translation for an existing page. The `lang`
-        field specifies the target language code; it must be one of the
-        site's configured languages, and multi-language must be enabled. If a
-        translation already exists for that language, `422` is returned (use
+        Create a new language translation for an existing page. The `source_lang`
+        field specifies the language of the page to translate from. The
+        `lang` field specifies the target language code. Both
+        `source_lang` and `lang` must be one of the site's configured
+        languages, and multi-language must be enabled. If a translation
+        already exists for the target language, `422` is returned (use
         `PATCH /pages/{route}?lang=` to update it). Fields left out are copied
         from the source page, and the result is validated against the page
         blueprint. The response is the page in the new language.
@@ -1794,6 +1796,10 @@ paths:
               type: object
               required: [lang]
               properties:
+                source_lang:
+                  type: string
+                  description: Source page's language code.
+                  example: fr
                 lang:
                   type: string
                   description: Language code for the translation.
@@ -12375,7 +12381,9 @@ components:
                   Map of metadata field key to value. Only keys matching a
                   configured field are written; an empty string (or empty array
                   for a `tags` field) clears a field. A `tags` field accepts an
-                  array of strings, or a comma-separated string. A bare
+                  array of strings, or a comma-separated string. A `select`
+                  field accepts only one of its `options` keys (or an empty
+                  string); any other value is rejected with a 422. A bare
                   `{key: value}` object (without the `fields` wrapper) is also
                   accepted.
                 example:
@@ -12415,12 +12423,24 @@ components:
                 example: Alt Text
               type:
                 type: string
-                enum: [text, textarea, tags]
+                enum: [text, textarea, tags, select]
                 example: text
+              options:
+                type: object
+                additionalProperties:
+                  type: string
+                description: |
+                  Only present on a `select` field: the allowed stored values,
+                  each mapped to its display label.
+                example:
+                  generated: AI generated
+                  altered: AI altered
+                  none: No AI
               value:
                 description: |
-                  A string for `text`/`textarea` fields, or an array of strings
-                  for a `tags` field.
+                  A string for `text`/`textarea`/`select` fields, or an array of
+                  strings for a `tags` field. A `select` value is one of its
+                  `options` keys, or an empty string.
                 oneOf:
                   - type: string
                   - type: array

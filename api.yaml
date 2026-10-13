@@ -139,8 +139,11 @@ media_metadata:
   # Descriptive fields editable in the media metadata editor (page media field
   # and site media manager). Each entry's `key` is the exact key written to the
   # `<filename>.meta.yaml` sidecar next to the media file. Order is preserved in
-  # the editor. `type` is `text` (single line), `textarea` (multi-line), or
-  # `tags` (a list of values, stored as a YAML sequence).
+  # the editor. `type` is `text` (single line), `textarea` (multi-line),
+  # `tags` (a list of values, stored as a YAML sequence), or `select` (one of
+  # the entries in `options`, a map of stored value to display label, e.g.
+  # `options: { generated: 'AI generated', none: 'No AI' }`; a select without
+  # options is ignored).
   #
   # Any keys NOT listed here — EXIF data, width/height, the `upload` block core
   # writes, image-action keys like `resize`/`quality` — are left untouched when
