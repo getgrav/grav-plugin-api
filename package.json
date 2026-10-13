@@ -7,6 +7,9 @@
     "lint:openapi": "npx -y @redocly/cli@latest lint openapi.yaml"
   },
   "devDependencies": {
-    "newman": "^6.2.2"
+    "newman": "^6.2.3"
+  },
+  "overrides": {
+    "ip-address": "^10.7.4"
   }
 }
