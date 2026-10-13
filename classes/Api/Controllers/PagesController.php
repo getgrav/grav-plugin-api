@@ -2263,10 +2263,17 @@ class PagesController extends AbstractApiController
                 }
             }
 
-            // The folder name this op ends with. Keep the width the folder
-            // already used.
+            // The folder name this op ends with. A page staying in its folder
+            // keeps the width it already used; one landing in another folder
+            // takes the width that folder's numbered pages use, so `005.x`
+            // doesn't arrive among `01.`, `02.` (or the reverse).
             $slug = ltrim($page->slug(), '.');
-            $digits = PageOrdering::digitsFromFolder(basename($page->path())) ?? PageOrdering::defaultDigits();
+            $ownDigits = PageOrdering::digitsFromFolder(basename($page->path()));
+            $digits = ($newParentRoute !== $currentParentRoute && $newParentPath !== null
+                    ? $this->siblingDigits($newParentPath)
+                    : null)
+                ?? $ownDigits
+                ?? PageOrdering::defaultDigits();
             $dirName = $position !== null
                 ? str_pad((string) $position, $digits, '0', STR_PAD_LEFT) . '.' . $slug
                 : $slug;
