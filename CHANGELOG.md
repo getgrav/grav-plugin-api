@@ -1,3 +1,9 @@
+# v1.0.48
+## 10/13/2026
+
+1. [](#bugfix)
+    * Deleting a single translation of a modular page (a module such as a features or pricing section) no longer fails with "Could not locate the language file", and removes only that language
+
 # v1.0.47
 ## 10/13/2026
 

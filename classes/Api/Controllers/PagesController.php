@@ -3714,8 +3714,10 @@ class PagesController extends AbstractApiController
             return;
         }
 
-        // Find and delete the specific language file
-        $template = $page->template();
+        // Find and delete the specific language file. The filename is the template
+        // basename only: a module's template() is `modular/<name>`, but its file is
+        // `<name>.<lang>.md` (same as buildPageFilename()).
+        $template = basename($page->template());
         $pagePath = $page->path();
 
         /** @var Language $language */
