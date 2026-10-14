@@ -769,7 +769,7 @@ class PagesController extends AbstractApiController
                 $this->fireAdminEvent('onAdminSave', ['object' => &$page, 'page' => &$page]);
 
                 // Validate the submitted page fields against the blueprint (admin2#30).
-                $this->validatePageChanges($page, ['header' => $header, 'content' => $content]);
+                $this->validatePageChanges($page, ['header' => $header, 'content' => $content], $template);
 
                 $page->save();
             }
@@ -1549,7 +1549,7 @@ class PagesController extends AbstractApiController
             $translatedPage->rawMarkdown($content);
 
             // Editor XSS backstop, as run by create()/update(). (GHSA-w94c-jmg4-w4c9)
-            $this->validatePageChanges($translatedPage, ['header' => $header, 'content' => $content]);
+            $this->validatePageChanges($translatedPage, ['header' => $header, 'content' => $content], $template);
 
             // Allow plugins to modify the page before save
             $this->fireAdminEvent('onAdminSave', ['object' => &$translatedPage, 'page' => &$translatedPage]);
@@ -3782,11 +3782,21 @@ class PagesController extends AbstractApiController
      * @param object $page  The page being saved (legacy Page or Flex PageObject).
      * @param array  $body  The request body / built create payload.
      */
-    private function validatePageChanges(object $page, array $body): void
+    private function validatePageChanges(object $page, array $body, ?string $template = null): void
     {
         if (!method_exists($page, 'getBlueprint')) {
             return;
         }
+
+        // A page built in memory from a filePath alone (create/translate) has no
+        // folder or language context, so its template is the bare filename
+        // (`features.pt-br`). That matches no blueprint, and Page::blueprints()
+        // falls back to `default`, whose single-line `subtitle` text field rejects
+        // a multi-paragraph subtitle. The caller knows the real template
+        // (`modular/features`), so resolve the blueprint from that.
+        $blueprint = $template !== null && $template !== ''
+            ? $this->grav['pages']->blueprints($template)
+            : $page->getBlueprint();
 
         $changes = [];
         if (array_key_exists('header', $body) && is_array($body['header'])) {
@@ -3799,7 +3809,7 @@ class PagesController extends AbstractApiController
             $changes['content'] = $body['content'];
         }
 
-        $this->validateChangedFields($changes, $page->getBlueprint());
+        $this->validateChangedFields($changes, $blueprint);
 
         // Render-time XSS backstop for assembled content Twig. The core save path
         // (PageObject::onBeforeSave) enforces this unconditionally; surfacing it

@@ -1,3 +1,9 @@
+# v1.0.49
+## 10/14/2026
+
+1. [](#bugfix)
+    * Creating a translation of a modular section (such as the features hero) no longer fails with `Invalid input in "Subtitle"` when the source subtitle has more than one paragraph. Creating and translating a page now validate against the blueprint of the page's real template, not the `default` blueprint that a not-yet-saved `<template>.<lang>.md` file fell back to
+
 # v1.0.48
 ## 10/13/2026
 
