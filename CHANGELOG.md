@@ -1,3 +1,9 @@
+# v1.0.50
+## 10/14/2026
+
+1. [](#bugfix)
+    * The Add Plugin dialog in Admin2 loads again on sites whose API settings still carry the old 100-item page limit, instead of spinning forever. Each page of the plugin and theme directory now starts where the previous one ended, so no plugin is listed twice [getgrav/grav-admin-next#38](https://github.com/getgrav/grav-admin-next/issues/38)
+
 # v1.0.49
 ## 10/14/2026
 
