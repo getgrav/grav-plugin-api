@@ -58,6 +58,7 @@ class ResponseCompressor
             || $response->hasHeader('Content-Disposition')
             || $this->shutdownRewritesEncoding
             || $this->outputIsCompressedElsewhere()
+            || self::bufferedOutputLength() > 0
             || !$this->acceptsGzip($request->getHeaderLine('Accept-Encoding'))
         ) {
             return $response;
@@ -140,6 +141,24 @@ class ResponseCompressor
         }
 
         return $response->withAddedHeader('Vary', 'Accept-Encoding');
+    }
+
+    /**
+     * Bytes already sitting in PHP's output buffers before the API body is
+     * written: whitespace or a BOM outside the PHP tags of a theme or plugin
+     * file, or a stray echo. Grav sends them in front of the body, so a gzipped
+     * body would arrive without its gzip header and the browser could not
+     * decode it (admin#2524). JSON still parses with a leading newline or BOM,
+     * so such a response goes out uncompressed instead.
+     */
+    public static function bufferedOutputLength(): int
+    {
+        $total = 0;
+        foreach (ob_get_status(true) as $status) {
+            $total += (int) ($status['buffer_used'] ?? 0);
+        }
+
+        return $total;
     }
 
     protected function outputIsCompressedElsewhere(): bool

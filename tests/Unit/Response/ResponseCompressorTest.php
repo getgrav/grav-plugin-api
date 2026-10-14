@@ -97,6 +97,25 @@ class ResponseCompressorTest extends TestCase
     }
 
     #[Test]
+    public function stray_output_already_buffered_disables_compression(): void
+    {
+        // A theme or plugin file with a blank line before `<?php` leaves this
+        // in the buffer, and Grav sends it ahead of the body (admin#2524).
+        ob_start();
+        echo "\n";
+        try {
+            $out = (new ResponseCompressor())->compress($this->gzipRequest(), $this->large());
+        } finally {
+            ob_end_clean();
+        }
+
+        self::assertFalse($out->hasHeader('Content-Encoding'));
+        self::assertSame('Accept-Encoding', $out->getHeaderLine('Vary'));
+        self::assertSame(0, ResponseCompressor::bufferedOutputLength());
+        self::assertSame('gzip', (new ResponseCompressor())->compress($this->gzipRequest(), $this->large())->getHeaderLine('Content-Encoding'));
+    }
+
+    #[Test]
     public function existing_vary_is_extended_not_replaced(): void
     {
         $response = $this->large()->withHeader('Vary', 'Origin');

@@ -3,6 +3,7 @@
 
 1. [](#bugfix)
     * The Add Plugin dialog in Admin2 loads again on sites whose API settings still carry the old 100-item page limit, instead of spinning forever. Each page of the plugin and theme directory now starts where the previous one ended, so no plugin is listed twice [getgrav/grav-admin-next#38](https://github.com/getgrav/grav-admin-next/issues/38)
+    * Admin2 pages no longer fail with "Decoding failed" when a theme or plugin file prints a stray blank line or byte-order mark. The API now sends those responses uncompressed instead of sending compressed data the browser can't read [getgrav/grav-plugin-admin#2524](https://github.com/getgrav/grav-plugin-admin/issues/2524)
 
 # v1.0.49
 ## 10/14/2026
