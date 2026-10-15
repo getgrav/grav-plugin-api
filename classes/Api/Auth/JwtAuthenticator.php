@@ -480,14 +480,32 @@ class JwtAuthenticator implements AuthenticatorInterface
 
         $locator = $this->grav['locator'];
         $configFolder = $locator->findResource('config://', true) ?: $locator->findResource('config://', true, true);
-        $privateFile = "{$configFolder}/plugins/api-private.php";
+        // One secret per site, in base user/config. `config://` resolves to the
+        // environment overlay first, so keeping it there gave every new
+        // user/env/<host>/ folder a fresh secret and signed everyone out.
+        $baseFolder = $locator->findResource('user://config', true) ?: $configFolder;
+        $privateFile = "{$baseFolder}/plugins/api-private.php";
 
-        if (is_file($privateFile)) {
-            $value = @include $privateFile;
-            if (is_string($value) && $value !== '') {
+        $value = $this->readSecretFile($privateFile);
+        if ($value !== null) {
+            return $this->secret = $value;
+        }
+
+        // Earlier versions wrote the secret into the environment overlay when
+        // one existed. Move that copy to base so tokens it signed stay valid.
+        foreach ((array) $locator->findResources('config://', true) as $folder) {
+            if (realpath((string) $folder) === realpath((string) $baseFolder)) {
+                continue;
+            }
+            $copy = "{$folder}/plugins/api-private.php";
+            $value = $this->readSecretFile($copy);
+            if ($value !== null) {
+                if ($this->writeSecret($privateFile, $value)) {
+                    @unlink($copy);
+                }
+
                 return $this->secret = $value;
             }
-            // Corrupt/empty file — fall through to regenerate.
         }
 
         // One-time migration out of Config for installs that persisted the
@@ -539,6 +557,20 @@ class JwtAuthenticator implements AuthenticatorInterface
      * any I/O failure so the caller can degrade to a per-request secret rather
      * than failing the login outright.
      */
+    /**
+     * The secret a private file returns, or null when it is missing, corrupt
+     * or empty (which then counts as no secret and is regenerated).
+     */
+    protected function readSecretFile(string $path): ?string
+    {
+        if (!is_file($path)) {
+            return null;
+        }
+        $value = @include $path;
+
+        return is_string($value) && $value !== '' ? $value : null;
+    }
+
     protected function writeSecret(string $path, string $value): bool
     {
         $escaped = var_export($value, true);
