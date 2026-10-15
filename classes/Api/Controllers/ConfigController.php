@@ -15,7 +15,7 @@ use Grav\Plugin\Api\Services\ConfigDiffer;
 use Grav\Plugin\Api\Services\ConfigScopes;
 use Grav\Plugin\Api\Services\ConfigSecretMasker;
 use Grav\Plugin\Api\Services\ConfigShadows;
-use Grav\Plugin\Api\Services\EnvironmentService;
+use Grav\Plugin\Api\Services\ConfigStore;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -30,7 +30,7 @@ class ConfigController extends AbstractApiController
      * straight into a Symfony Process by Job::run(), so write access to this
      * scope is arbitrary command execution. The Scheduler tool is super-only in
      * admin-classic, and these scopes are already excluded from index() listing
-     * because they "belong to tools" — but resolveConfigKey()/scopeFileName()
+     * because they "belong to tools" — but resolveConfigKey()/ConfigStore::filePath()
      * still accept them, so without this guard a user holding only
      * api.config.write could escalate to RCE (GHSA-wx62). Require API super
      * authority for these scopes regardless of the generic config permission.
@@ -377,11 +377,9 @@ class ConfigController extends AbstractApiController
         // Update in-memory config
         $this->config->set($configKey, $merged);
 
-        // Persist to the appropriate YAML file
-        $this->writeConfigFile($scope, $merged, $targetEnv);
-
-        // Clear config cache
-        $this->grav['cache']->clearCache('standard');
+        // Persist only the delta to the target's YAML file and clear the
+        // config cache (ConfigStore::save()).
+        $this->configStore()->save($scope, $merged, $targetEnv);
 
         $this->fireAdminEvent('onAdminAfterSave', ['object' => $obj]);
         $this->fireEvent('onApiConfigUpdated', ['scope' => $scope, 'data' => $merged]);
@@ -434,8 +432,7 @@ class ConfigController extends AbstractApiController
         // booted the request, and already re-applies GRAV_CONFIG__* env-var
         // overrides; blueprint field defaults are filled client-side from the
         // blueprint, so the form stays complete.
-        $data = (new ConfigDiffer($this->grav))->effective($scope, $targetEnv);
-        return is_array($data) ? $data : ['value' => $data];
+        return $this->configStore()->effective($scope, $targetEnv);
     }
 
     /**
@@ -443,7 +440,7 @@ class ConfigController extends AbstractApiController
      * that override the parent), NOT the full merged config.
      *
      * The delta is the only representation that survives the save→reload round-trip.
-     * writeConfigFile() stores only the delta, so a value equal to its default
+     * ConfigStore::save() stores only the delta, so a value equal to its default
      * (e.g. `system.pages.events.twig: true`) is present in the in-memory
      * config right after config->set() but absent once the file is reloaded
      * from disk on the next request. Hashing the full config therefore yielded
@@ -496,7 +493,7 @@ class ConfigController extends AbstractApiController
     private function resolveConfigFile(string $scope, ?string $targetEnv = null): ?string
     {
         try {
-            return $this->resolveWriteDir($targetEnv) . '/' . $this->scopeFileName($scope);
+            return $this->configStore()->filePath($scope, $targetEnv);
         } catch (\Throwable) {
             return null;
         }
@@ -591,42 +588,6 @@ class ConfigController extends AbstractApiController
     }
 
     /**
-     * Resolve the scope to a filesystem path and write the YAML config file.
-     *
-     * We persist only the delta vs the parent (defaults for base writes;
-     * defaults+base for env writes). This mirrors how developers hand-edit
-     * Grav configs — every file contains only the values that actually
-     * override something lower in the stack.
-     */
-    private function writeConfigFile(string $scope, mixed $data, ?string $targetEnv = null): void
-    {
-        $filePath = $this->resolveWriteDir($targetEnv) . '/' . $this->scopeFileName($scope);
-
-        $full = is_array($data) ? $data : ['value' => $data];
-        $differ = new ConfigDiffer($this->grav);
-        // Never persist values supplied through GRAV_CONFIG__* env vars (.env);
-        // they're re-applied at runtime and writing them would leak secrets to disk.
-        $full = $differ->stripEnvironmentOverrides($full, $scope);
-        $parent = $differ->parent($scope, $targetEnv);
-        $delta = $differ->diff($full, $parent, $scope);
-
-        // No overrides and no pre-existing file → don't create an empty placeholder.
-        if ($delta === [] && !is_file($filePath)) {
-            return;
-        }
-
-        // Only ever create plugin/theme sub-dirs inside an existing base or env
-        // write dir. We never create env roots — those must be opted into
-        // explicitly via POST /system/environments.
-        $dir = dirname($filePath);
-        if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
-            throw new \RuntimeException(sprintf('Unable to create directory "%s"', $dir));
-        }
-
-        file_put_contents($filePath, Yaml::dump($delta));
-    }
-
-    /**
      * Where config writes land.
      *
      * Base user/config/ by default. When $targetEnv is set, EnvironmentService
@@ -635,19 +596,7 @@ class ConfigController extends AbstractApiController
      */
     private function resolveWriteDir(?string $targetEnv = null): string
     {
-        if ($targetEnv !== null && $targetEnv !== '') {
-            $dir = (new EnvironmentService($this->grav))->envConfigRoot($targetEnv);
-            if ($dir === null) {
-                throw new ValidationException("Environment '{$targetEnv}' does not exist. Create it first via POST /system/environments.");
-            }
-            return $dir;
-        }
-
-        $userConfig = $this->grav['locator']->findResource('user://config', true);
-        if (!$userConfig) {
-            throw new \RuntimeException('Base user/config directory not found.');
-        }
-        return $userConfig;
+        return $this->configStore()->writeDir($targetEnv);
     }
 
     /**
@@ -670,33 +619,15 @@ class ConfigController extends AbstractApiController
      */
     private function resolveTargetEnv(ServerRequestInterface $request): ?string
     {
-        if (!$request->hasHeader('X-Config-Environment')) {
-            return (new EnvironmentService($this->grav))->activeEnvironment();
-        }
-
-        $name = trim($request->getHeaderLine('X-Config-Environment'));
-        if ($name === '' || EnvironmentService::isReservedName($name)) {
-            return null;
-        }
-
-        if (!EnvironmentService::isValidName($name)) {
-            throw new ValidationException("Invalid X-Config-Environment header: '{$name}'.");
-        }
-        return $name;
+        return $this->configStore()->targetFor($request);
     }
 
     /**
-     * Filename for a scope, relative to a config directory.
+     * Shared target/read/write logic, public so plugins with their own
+     * settings endpoints save to the same layer this controller does.
      */
-    private function scopeFileName(string $scope): string
+    private function configStore(): ConfigStore
     {
-        return match (true) {
-            in_array($scope, ConfigScopes::CORE, true) => $scope . '.yaml',
-            str_starts_with($scope, 'plugins/') => 'plugins/' . substr($scope, 8) . '.yaml',
-            str_starts_with($scope, 'themes/') => 'themes/' . substr($scope, 7) . '.yaml',
-            ConfigScopes::isCustom($this->grav, $scope) => $scope . '.yaml',
-            default => throw new NotFoundException("Unknown configuration scope '{$scope}'."),
-        };
+        return new ConfigStore($this->grav);
     }
-
 }

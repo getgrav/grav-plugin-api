@@ -3,6 +3,7 @@
 
 1. [](#new)
     * Settings and plugin details now say when a value is overridden by the site's environment folder or by a server variable, so Admin2 can warn that a change saved under Default won't take effect, and the environment's copy can be removed with the existing revert request [getgrav/grav-plugin-sync-mercure#1](https://github.com/getgrav/grav-plugin-sync-mercure/issues/1)
+    * Plugins with their own settings pages can now save to the environment picked in Admin2 through a shared helper, storing only the values that differ from the layer beneath it
 2. [](#bugfix)
     * Adding an environment folder such as `user/env/<host>/` no longer signs everyone out of Admin2. The API's signing secret stays in `user/config`, and a copy an earlier version put in an environment folder is moved there
     * The Add Plugin dialog in Admin2 loads again on sites whose API settings still carry the old 100-item page limit, instead of spinning forever. Each page of the plugin and theme directory now starts where the previous one ended, so no plugin is listed twice [getgrav/grav-admin-next#38](https://github.com/getgrav/grav-admin-next/issues/38)
