@@ -911,6 +911,9 @@ class GpmController extends AbstractApiController
             $requested = min(2000, (int) $query['per_page']);
             $pagination['per_page'] = $requested;
             $pagination['limit'] = $requested;
+            // getPagination() worked the offset out from the smaller, capped
+            // page size; page 2 must start after this page size, not that one.
+            $pagination['offset'] = ($pagination['page'] - 1) * $requested;
         }
         $gpm = $this->getGpm();
 
@@ -963,6 +966,9 @@ class GpmController extends AbstractApiController
             $requested = min(2000, (int) $query['per_page']);
             $pagination['per_page'] = $requested;
             $pagination['limit'] = $requested;
+            // getPagination() worked the offset out from the smaller, capped
+            // page size; page 2 must start after this page size, not that one.
+            $pagination['offset'] = ($pagination['page'] - 1) * $requested;
         }
         $gpm = $this->getGpm();
 

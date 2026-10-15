@@ -14,9 +14,11 @@ use Grav\Framework\Collection\ArrayCollection;
 use Grav\Framework\Flex\FlexDirectory;
 use Grav\Framework\Flex\Interfaces\FlexCollectionInterface;
 use Grav\Plugin\Api\Auth\ApiKeyManager;
+use Grav\Plugin\Api\Exceptions\ApiException;
 use Grav\Plugin\Api\Exceptions\ConflictException;
 use Grav\Plugin\Api\Exceptions\ForbiddenException;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
+use Grav\Plugin\Api\Exceptions\TooManyRequestsException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\FlexBackend;
 use Grav\Plugin\Api\PermissionResolver;
@@ -1151,10 +1153,33 @@ class UsersController extends AbstractApiController
         if ($isSuper) {
             $allowedFields = array_merge($allowedFields, $superFields);
         }
+
+        // Someone changing their own address has to prove the new one first,
+        // whatever permissions they hold, so it waits as `email_pending` until
+        // the link mailed to it is opened. Checked before anything is written,
+        // so a refused or rate limited change leaves the rest of the request
+        // unsaved too. An admin editing another account saves at once.
+        $oldEmail = mb_strtolower(trim((string) $user->get('email', '')));
+        $pendingEmail = null;
+        if ($isSelf && isset($body['email']) && is_string($body['email'])) {
+            $pendingEmail = $this->screenOwnEmailChange($user, $body['email']);
+        }
+
         foreach ($allowedFields as $field) {
+            if ($field === 'email' && $pendingEmail !== null) {
+                continue;
+            }
             if (array_key_exists($field, $body)) {
                 $user->set($field, $body[$field]);
             }
+        }
+
+        // An address saved straight away makes any waiting change out of date,
+        // and its link would otherwise overwrite this edit when opened.
+        if ($pendingEmail === null && isset($body['email']) && is_string($body['email'])
+            && mb_strtolower(trim($body['email'])) !== $oldEmail
+            && isset($this->grav['login']) && method_exists($this->grav['login'], 'clearEmailChange')) {
+            $this->grav['login']->clearEmailChange($user);
         }
 
         // Same lockout through `access` or `groups`: a super admin who drops
@@ -1204,6 +1229,13 @@ class UsersController extends AbstractApiController
         $this->fireAdminEvent('onAdminAfterSave', ['object' => $user]);
         $this->fireEvent('onApiUserUpdated', ['user' => $user]);
 
+        // The rest of the request is saved; now start the email change, which
+        // saves the pending address itself and mails the link.
+        $meta = null;
+        if ($pendingEmail !== null) {
+            $meta = ['message' => $this->startEmailChange($user, $pendingEmail)];
+        }
+
         $data = $this->serializeUser($user);
 
         return $this->respondWithEtag(
@@ -1215,6 +1247,180 @@ class UsersController extends AbstractApiController
             200,
             ['users:update:' . $username, 'users:list'],
             $this->generateEtag($data),
+            $meta,
+        );
+    }
+
+    /**
+     * The Login plugin's service when it can confirm email changes (3.10.0 or
+     * later) and the site has that turned on, otherwise null. Older Login
+     * versions and sites without the plugin keep saving an address at once.
+     *
+     * @return object|null
+     */
+    private function emailChangeLogin(): ?object
+    {
+        if (!isset($this->grav['login'])) {
+            return null;
+        }
+
+        $login = $this->grav['login'];
+        if (!method_exists($login, 'requestEmailChange') || !method_exists($login, 'clearEmailChange')
+            || !method_exists($login, 'emailBelongsToAnother') || !method_exists($login, 'getRateLimiter')) {
+            return null;
+        }
+
+        if (!$this->config->get('plugins.login.profile.verify_email_change', true)) {
+            return null;
+        }
+
+        return $login;
+    }
+
+    /**
+     * Decide whether a change to the caller's own address has to wait for
+     * confirmation, and refuse it up front when it can't go ahead. Answers
+     * like the Login plugin's profile form does.
+     *
+     * @return string|null The new address to keep as pending, or null when the
+     *                     address is unchanged or confirmation is not in use.
+     */
+    private function screenOwnEmailChange(UserInterface $user, string $email): ?string
+    {
+        $login = $this->emailChangeLogin();
+        if ($login === null) {
+            return null;
+        }
+
+        $newEmail = trim($email);
+        $oldEmail = trim((string) $user->get('email', ''));
+        if ($newEmail === '' || mb_strtolower($newEmail) === mb_strtolower($oldEmail)) {
+            return null;
+        }
+
+        if (!filter_var($newEmail, FILTER_VALIDATE_EMAIL)) {
+            throw new ValidationException('Invalid email address.', [['field' => 'email', 'message' => 'Invalid email address.']]);
+        }
+
+        $limiter = $login->getRateLimiter('email_changes');
+        if ($limiter->hasReachedLimit($user->username)) {
+            $minutes = (int) $limiter->getInterval();
+            throw new TooManyRequestsException(
+                sprintf('Too many email change requests. Please try again in %d minutes.', $minutes),
+                $minutes * 60,
+            );
+        }
+
+        // With activation by email on, registration doesn't say whether an
+        // address is taken (GHSA-crh8-xm27-j9g9), so neither does this: the
+        // change shows as waiting and no link goes out.
+        $hideTaken = (bool) $this->config->get('plugins.login.user_registration.options.send_activation_email', false);
+        if (!$hideTaken && $login->emailBelongsToAnother($user, $newEmail)) {
+            $message = sprintf('Email address %s already exists, please pick another email address', $newEmail);
+            throw new ValidationException($message, [['field' => 'email', 'message' => $message]]);
+        }
+
+        return $newEmail;
+    }
+
+    /**
+     * Keep a new address as pending and mail the confirmation link to it.
+     *
+     * @return string The message to hand back to the client.
+     */
+    private function startEmailChange(UserInterface $user, string $email): string
+    {
+        $login = $this->emailChangeLogin();
+        if ($login === null) {
+            throw new ApiException(500, 'Email Change Unavailable', 'The Login plugin cannot confirm email changes.');
+        }
+
+        $login->getRateLimiter('email_changes')->registerRateLimitedAction($user->username);
+
+        try {
+            $login->requestEmailChange($user, $email);
+        } catch (\RuntimeException $e) {
+            throw new ApiException(500, 'Email Not Sent', $e->getMessage(), [], $e);
+        }
+
+        return sprintf('We sent a confirmation link to %s. The email address changes once the link is opened.', $email);
+    }
+
+    /**
+     * DELETE /users/{username}/email-change: drop the caller's waiting email
+     * change. The account keeps its current address.
+     */
+    public function cancelEmailChange(ServerRequestInterface $request): ResponseInterface
+    {
+        [$user, $login] = $this->ownPendingEmailChange($request);
+
+        $login->clearEmailChange($user);
+        $user->save();
+
+        return $this->emailChangeResponse($user);
+    }
+
+    /**
+     * POST /users/{username}/email-change/resend: mail the confirmation link
+     * for the caller's waiting email change again, with a fresh day to use it.
+     */
+    public function resendEmailChange(ServerRequestInterface $request): ResponseInterface
+    {
+        [$user, $login] = $this->ownPendingEmailChange($request);
+
+        $limiter = $login->getRateLimiter('email_changes');
+        if ($limiter->hasReachedLimit($user->username)) {
+            $minutes = (int) $limiter->getInterval();
+            throw new TooManyRequestsException(
+                sprintf('Too many email change requests. Please try again in %d minutes.', $minutes),
+                $minutes * 60,
+            );
+        }
+
+        $message = $this->startEmailChange($user, (string) $user->get('email_pending'));
+
+        return $this->emailChangeResponse($user, ['message' => $message]);
+    }
+
+    /**
+     * Shared checks for the cancel and resend routes: the caller's own account
+     * only, with a change actually waiting.
+     *
+     * @return array{0: UserInterface, 1: object}
+     */
+    private function ownPendingEmailChange(ServerRequestInterface $request): array
+    {
+        $this->requirePermission($request, 'api.access');
+
+        $username = $this->getRouteParam($request, 'username');
+        if ($this->getUser($request)->username !== $username) {
+            throw new ForbiddenException('You can only manage the email change on your own account.');
+        }
+
+        $login = $this->emailChangeLogin();
+        if ($login === null) {
+            throw new NotFoundException('Email changes are not confirmed on this site.');
+        }
+
+        $user = $this->loadUserOrFail($username);
+        if ((string) $user->get('email_pending', '') === '') {
+            throw new NotFoundException('There is no email change waiting.');
+        }
+
+        return [$user, $login];
+    }
+
+    /** @param array<string, mixed>|null $meta */
+    private function emailChangeResponse(UserInterface $user, ?array $meta = null): ResponseInterface
+    {
+        $data = $this->serializeUser($user);
+
+        return $this->respondWithEtag(
+            $this->withTwofaCapability($data),
+            200,
+            ['users:update:' . $user->username, 'users:list'],
+            $this->generateEtag($data),
+            $meta,
         );
     }
 

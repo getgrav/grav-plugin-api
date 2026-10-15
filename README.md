@@ -383,6 +383,8 @@ A scope qualifies as custom when it is a flat slug (`^[a-z0-9][a-z0-9_-]*$` — 
 | `POST` | `/users/{username}/avatar` | Upload user avatar |
 | `DELETE` | `/users/{username}/avatar` | Remove user avatar |
 | `POST` | `/users/{username}/2fa` | Generate 2FA secret + QR code |
+| `DELETE` | `/users/{username}/email-change` | Cancel your own waiting email change |
+| `POST` | `/users/{username}/email-change/resend` | Mail the email change link again |
 | `GET` | `/users/{username}/api-keys` | List API keys |
 | `POST` | `/users/{username}/api-keys` | Generate an API key |
 | `DELETE` | `/users/{username}/api-keys/{keyId}` | Revoke an API key |
@@ -940,6 +942,23 @@ public function onApiRegisterRoutes(Event $event): void
 ```
 
 Your controller should extend `AbstractApiController` to get access to all the standard helpers (auth, pagination, response building, etc).
+
+### Saving plugin settings
+
+A plugin with its own settings endpoint should not write to `config://plugins/<slug>.yaml`: that stream resolves to the environment overlay of the host the request came in on, not the environment picked in Admin2's selector. `Grav\Plugin\Api\Services\ConfigStore` (API 1.0.50+) does what `/config/{scope}` does: it reads the `X-Config-Environment` header, resolves the effective config for that layer, and saves only the values that differ from the layer beneath it.
+
+```php
+use Grav\Plugin\Api\Services\ConfigStore;
+
+$store  = new ConfigStore($this->grav);
+$target = $store->targetFor($request);            // env name, or null for base user/config
+$store->writeDir($target);                        // 422 when the named environment doesn't exist
+$data   = $store->effective('plugins/my-plugin', $target);
+$data   = array_replace_recursive($data, $this->getRequestBody($request));
+$store->save('plugins/my-plugin', $data, $target); // writes the delta, clears the cache
+```
+
+`filePath($scope, $target)` gives the yaml path a save would write. If your plugin also has to run with an older API plugin, wrap it in `class_exists(ConfigStore::class)` and keep your previous save code as the fallback; only reference `ConfigStore` from your API controller, never from code that loads without the API plugin.
 
 ### Admin-Next Integration
 

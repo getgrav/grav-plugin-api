@@ -830,6 +830,8 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('POST', '/users/{username}/2fa', [UsersController::class, 'generate2fa']);
         $r->addRoute('POST', '/users/{username}/2fa/enable', [UsersController::class, 'enable2fa']);
         $r->addRoute('POST', '/users/{username}/2fa/disable', [UsersController::class, 'disable2fa']);
+        $r->addRoute('DELETE', '/users/{username}/email-change', [UsersController::class, 'cancelEmailChange']);
+        $r->addRoute('POST', '/users/{username}/email-change/resend', [UsersController::class, 'resendEmailChange']);
         $r->addRoute('GET', '/users/{username}/api-keys', [UsersController::class, 'apiKeys']);
         $r->addRoute('POST', '/users/{username}/api-keys', [UsersController::class, 'createApiKey']);
         $r->addRoute('DELETE', '/users/{username}/api-keys/{keyId}', [UsersController::class, 'deleteApiKey']);
