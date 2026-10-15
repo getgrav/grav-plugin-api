@@ -1,7 +1,9 @@
 # v1.0.50
 ## 10/14/2026
 
-1. [](#bugfix)
+1. [](#new)
+    * Settings and plugin details now say when a value is overridden by the site's environment folder or by a server variable, so Admin2 can warn that a change saved under Default won't take effect, and the environment's copy can be removed with the existing revert request [getgrav/grav-plugin-sync-mercure#1](https://github.com/getgrav/grav-plugin-sync-mercure/issues/1)
+2. [](#bugfix)
     * The Add Plugin dialog in Admin2 loads again on sites whose API settings still carry the old 100-item page limit, instead of spinning forever. Each page of the plugin and theme directory now starts where the previous one ended, so no plugin is listed twice [getgrav/grav-admin-next#38](https://github.com/getgrav/grav-admin-next/issues/38)
     * Admin2 pages no longer fail with "Decoding failed" when a theme or plugin file prints a stray blank line or byte-order mark. The API now sends those responses uncompressed instead of sending compressed data the browser can't read [getgrav/grav-plugin-admin#2524](https://github.com/getgrav/grav-plugin-admin/issues/2524)
 

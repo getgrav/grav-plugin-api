@@ -552,7 +552,7 @@ class ConfigDiffer
      * environment (or file) doesn't exist. EnvironmentService owns Grav's
      * stream/configured-path resolution and the legacy fallbacks.
      */
-    private function envFilePath(string $scope, string $targetEnv): ?string
+    public function envFilePath(string $scope, string $targetEnv): ?string
     {
         $root = (new EnvironmentService($this->grav))->envConfigRoot($targetEnv);
         if ($root === null) return null;

@@ -3552,7 +3552,9 @@ paths:
         selected by `X-Config-Environment` (see below), recomputed from the
         YAML files, with secret values (passwords, API keys, tokens) masked.
         `meta` lists the leaf paths the target layer overrides and the value
-        each would fall back to.
+        each would fall back to, and in `shadowed` the values a layer above
+        the target decides: the active environment's file when the target is
+        base, and `GRAV_CONFIG__*` server variables for any target.
 
         The response includes an `ETag` header for optimistic concurrency on
         subsequent PATCH requests. It is computed from the persisted
@@ -3595,6 +3597,11 @@ paths:
                         type: object
                         additionalProperties: true
                         description: For each override, the value it would revert to.
+                      shadowed:
+                        type: array
+                        description: Values a layer above the target decides (the booted environment over base, or a `GRAV_CONFIG__*` server variable over any target), so a save to the target does not change them. Always present; empty when nothing is shadowed.
+                        items:
+                          $ref: "#/components/schemas/ShadowedConfigValue"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -3682,6 +3689,11 @@ paths:
                         type: object
                         additionalProperties: true
                         description: For each override, the value it would revert to.
+                      shadowed:
+                        type: array
+                        description: Values a layer above the target decides (the booted environment over base, or a `GRAV_CONFIG__*` server variable over any target), so a save to the target does not change them. Always present; empty when nothing is shadowed.
+                        items:
+                          $ref: "#/components/schemas/ShadowedConfigValue"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -3799,7 +3811,7 @@ paths:
       summary: Revert configuration overrides
       description: |
         Drops overrides from the active configuration layer so the values fall back to the parent layer (defaults for a base write, defaults plus base for an environment write). Requires `api.config.write`. Writes to `system`, `security` and `plugins/api` also need an API super user, and the tool-managed `scheduler` and `backups` scopes are super-only for reading and writing.
-        Send `keys` (dotted paths) to remove individual overrides, or `reset: true` to delete the layer's file for that scope entirely. The target layer follows the same rules as `PATCH /config/{scope}`: the `X-Config-Environment` header picks it, an empty value (or `default` / `base`) means the base `user/config`, and when absent the active environment is used if it has a config folder.
+        Send `keys` (dotted paths) to remove individual overrides, or `reset: true` to delete the layer's file for that scope entirely. To remove an environment value listed in `meta.shadowed`, revert it with `X-Config-Environment` set to that environment; `If-Match` is optional, so this needs no prior read of the environment. A file left empty is deleted, but the environment folder stays. The target layer follows the same rules as `PATCH /config/{scope}`: the `X-Config-Environment` header picks it, an empty value (or `default` / `base`) means the base `user/config`, and when absent the active environment is used if it has a config folder.
         The response is the effective configuration after the revert, with secrets masked, and `meta` lists the paths that still override the parent layer. Reverting something the layer does not override (for example `reset: true` when the layer has no file) is still a 200, but `meta.reverted` is false and no `onApiConfigUpdated` event (so no `config.updated` webhook) fires.
       parameters:
         - $ref: "#/components/parameters/configScope"
@@ -3859,6 +3871,11 @@ paths:
                         type: object
                         additionalProperties: true
                         description: For each remaining override, the value it would revert to.
+                      shadowed:
+                        type: array
+                        description: Values a layer above the target decides (the booted environment over base, or a `GRAV_CONFIG__*` server variable over any target), so a save to the target does not change them. Always present; empty when nothing is shadowed.
+                        items:
+                          $ref: "#/components/schemas/ShadowedConfigValue"
                       reverted:
                         type: boolean
                         description: Whether anything on disk changed. False when the layer did not override what was asked.
@@ -5277,6 +5294,11 @@ paths:
         page of a plugin it extends) also carries `settings_route` and, when
         that page belongs to another plugin, `settings_page`.
 
+        `enabled_source` is `null` unless the plugin's live `enabled` value
+        comes from the environment Grav booted with or from a
+        `GRAV_CONFIG__*` server variable, in which case enabling or disabling
+        it in base `user/config` does not take effect.
+
         Requires `api.gpm.read`.
       responses:
         "200":
@@ -5305,6 +5327,7 @@ paths:
                     homepage: https://github.com/getgrav/grav-plugin-api
                     enabled: true
                     is_symlink: false
+                    enabled_source: null
                     keywords: [api, rest]
                     updatable: false
         "401":
@@ -13461,6 +13484,35 @@ components:
         debugger:
           enabled: false
 
+    ShadowedConfigValue:
+      type: object
+      description: |
+        A config value that a layer above the write target decides, so saving it to the target does not change what the site uses. `environment`: the write target is base `user/config` and the environment Grav booted with (for example the hostname folder `user/env/<host>/`) sets this leaf in its own file for the scope. Every leaf that file sets is listed, even one that currently equals base, because it wins over any later save to base. `server`: a `GRAV_CONFIG__*` server environment variable sets it, which wins over every file layer for any target. A path set by both is listed once, as `server`.
+      required: [path, source, environment, file, value]
+      properties:
+        path:
+          type: string
+          description: Dotted leaf path relative to the scope, in the same format as `meta.overrides`. Lists are a single leaf.
+          example: enabled
+        source:
+          type: string
+          enum: [environment, server]
+          description: Which layer decides the value.
+          example: environment
+        environment:
+          type: string
+          nullable: true
+          description: The environment whose file sets the value. `null` for `server`.
+          example: example.com
+        file:
+          type: string
+          nullable: true
+          description: That environment's file for the scope, relative to the Grav root (the full path when it lives outside it). `null` for `server`.
+          example: user/env/example.com/config/plugins/sync-mercure.yaml
+        value:
+          description: The value the site actually uses (any type), with secrets masked the same way as the response body.
+          example: false
+
     # -- System ---------------------------------------------------------------
     SystemInfo:
       type: object
@@ -14178,7 +14230,7 @@ components:
       description: |
         A Grav plugin or theme package. Which optional fields appear depends
         on the endpoint: installed-package responses carry `enabled`,
-        `is_symlink` and `updatable`; repository responses carry `installed`;
+        `is_symlink` and `updatable` (installed plugins also `enabled_source`); repository responses carry `installed`;
         optional blueprint fields (`docs`, `bugs`, `dependencies`,
         `compatibility`, `keywords`, `icon`, premium info) appear only when
         the package sets them.
@@ -14249,6 +14301,27 @@ components:
           type: boolean
           description: Installed packages only. Whether the package folder is a symlink.
           example: false
+        enabled_source:
+          type: object
+          nullable: true
+          description: Installed plugins only (not themes). `null` unless the live `enabled` value comes from a layer above base, in which case a change saved to base `user/config` does not take effect.
+          required: [source, environment, file]
+          properties:
+            source:
+              type: string
+              enum: [environment, server]
+              description: "`environment`: the booted environment's file for the plugin sets `enabled`. `server`: a `GRAV_CONFIG__*` server environment variable does."
+              example: environment
+            environment:
+              type: string
+              nullable: true
+              description: The environment whose file sets it. `null` for `server`.
+              example: example.com
+            file:
+              type: string
+              nullable: true
+              description: That file, relative to the Grav root. `null` for `server`.
+              example: user/env/example.com/config/plugins/sync-mercure.yaml
         updatable:
           type: boolean
           description: Installed packages only. Whether a newer version is available in the repository.

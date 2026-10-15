@@ -6,11 +6,15 @@ namespace Grav\Plugin\Api\Serializers;
 
 use Closure;
 use Grav\Common\GPM\Licenses;
+use Grav\Plugin\Api\Services\ConfigShadows;
 use Parsedown;
 
 class PackageSerializer implements SerializerInterface
 {
     private static ?Parsedown $parsedown = null;
+
+    /** Shared across a listing so the active env and server keys resolve once. */
+    private ?ConfigShadows $shadows = null;
 
     /**
      * @param Closure(string):?string|null $translator Resolves a package-level
@@ -59,6 +63,9 @@ class PackageSerializer implements SerializerInterface
         if ($options['installed'] ?? false) {
             $data['enabled'] = $this->isEnabled($resource, $options);
             $data['is_symlink'] = $this->isSymlinked($resource, $options);
+            if (($options['type'] ?? 'plugin') === 'plugin') {
+                $data['enabled_source'] = $this->enabledSource($resource, $options);
+            }
         }
 
         // Include update info if available
@@ -197,6 +204,25 @@ class PackageSerializer implements SerializerInterface
         }
 
         return null;
+    }
+
+    /**
+     * Where a plugin's live `enabled` comes from when it is not base config:
+     * the booted environment's file or a GRAV_CONFIG__* server variable. Null
+     * otherwise. Without this the admin shows a toggle that saves to base and
+     * changes nothing (getgrav/grav-plugin-sync-mercure#1).
+     *
+     * @return array{source: string, environment: ?string, file: ?string}|null
+     */
+    private function enabledSource(object $resource, array $options): ?array
+    {
+        $slug = (string) ($resource->slug ?? $options['slug_key'] ?? '');
+        try {
+            $this->shadows ??= new ConfigShadows(\Grav\Common\Grav::instance());
+            return $this->shadows->pluginEnabledSource($slug);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     private function isEnabled(object $resource, array $options): bool

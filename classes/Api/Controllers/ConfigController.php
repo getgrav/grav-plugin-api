@@ -14,6 +14,7 @@ use Grav\Plugin\Api\Response\ApiResponse;
 use Grav\Plugin\Api\Services\ConfigDiffer;
 use Grav\Plugin\Api\Services\ConfigScopes;
 use Grav\Plugin\Api\Services\ConfigSecretMasker;
+use Grav\Plugin\Api\Services\ConfigShadows;
 use Grav\Plugin\Api\Services\EnvironmentService;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -258,7 +259,11 @@ class ConfigController extends AbstractApiController
      * Override metadata for the active layer: which dotted leaf paths the
      * target's file actually overrides, and the value each would revert to.
      *
-     * @return array{overrides: list<string>, fallback: array<string, mixed>}
+     * `shadowed` is the other direction: leaves a layer ABOVE the target sets
+     * (the booted env overlay over base, or a GRAV_CONFIG__* server variable
+     * over anything), so a value saved to the target is not what the site uses.
+     *
+     * @return array{overrides: list<string>, fallback: array<string, mixed>, shadowed: list<array<string, mixed>>}
      */
     private function overrideMeta(string $scope, ?string $targetEnv): array
     {
@@ -272,7 +277,9 @@ class ConfigController extends AbstractApiController
             $fallback[$path] = ConfigDiffer::valueAtPath($parent, $path);
         }
 
-        return ['overrides' => $overrides, 'fallback' => $fallback];
+        $shadowed = (new ConfigShadows($this->grav))->forScope($scope, $targetEnv, $this->loadBlueprint($scope));
+
+        return ['overrides' => $overrides, 'fallback' => $fallback, 'shadowed' => $shadowed];
     }
 
     public function update(ServerRequestInterface $request): ResponseInterface
