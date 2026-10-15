@@ -3680,7 +3680,7 @@
                 }
               ]
             },
-            "description": "Drops overrides from the active configuration layer so the values fall back to the parent layer (defaults for a base write, defaults plus base for an environment write). Requires `api.config.write`. Writes to `system`, `security` and `plugins/api` also need an API super user, and the tool-managed `scheduler` and `backups` scopes are super-only for reading and writing.\nSend `keys` (dotted paths) to remove individual overrides, or `reset: true` to delete the layer's file for that scope entirely. The target layer follows the same rules as `PATCH /config/{scope}`: the `X-Config-Environment` header picks it, an empty value (or `default` / `base`) means the base `user/config`, and when absent the active environment is used if it has a config folder.\nThe response is the effective configuration after the revert, with secrets masked, and `meta` lists the paths that still override the parent layer. Reverting something the layer does not override (for example `reset: true` when the layer has no file) is still a 200, but `meta.reverted` is false and no `onApiConfigUpdated` event (so no `config.updated` webhook) fires.",
+            "description": "Drops overrides from the active configuration layer so the values fall back to the parent layer (defaults for a base write, defaults plus base for an environment write). Requires `api.config.write`. Writes to `system`, `security` and `plugins/api` also need an API super user, and the tool-managed `scheduler` and `backups` scopes are super-only for reading and writing.\nSend `keys` (dotted paths) to remove individual overrides, or `reset: true` to delete the layer's file for that scope entirely. To remove an environment value listed in `meta.shadowed`, revert it with `X-Config-Environment` set to that environment; `If-Match` is optional, so this needs no prior read of the environment. A file left empty is deleted, but the environment folder stays. The target layer follows the same rules as `PATCH /config/{scope}`: the `X-Config-Environment` header picks it, an empty value (or `default` / `base`) means the base `user/config`, and when absent the active environment is used if it has a config folder.\nThe response is the effective configuration after the revert, with secrets masked, and `meta` lists the paths that still override the parent layer. Reverting something the layer does not override (for example `reset: true` when the layer has no file) is still a 200, but `meta.reverted` is false and no `onApiConfigUpdated` event (so no `config.updated` webhook) fires.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"keys\": [\n    \"pages.theme\",\n    \"debugger.enabled\"\n  ],\n  \"reset\": false\n}",
@@ -4486,6 +4486,107 @@
                 }
               }
             }
+          }
+        },
+        {
+          "id": "openapi:cancelUserEmailChange",
+          "name": "Cancel a waiting email change",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Generated from openapi.yaml by tests/newman/sync-collection.php; the Newman suite skips it.",
+                  "if (pm.variables.get('newman_suite')) { pm.execution.skipRequest(); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "API Key authentication"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/users/:username/email-change",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "users",
+                ":username",
+                "email-change"
+              ],
+              "variable": [
+                {
+                  "key": "username",
+                  "value": "{{test_username}}",
+                  "description": "The username of the user account."
+                }
+              ]
+            },
+            "description": "Drop the email change that is waiting for confirmation on your own\naccount (see `PATCH /users/{username}`). The account keeps its current\naddress and the link that was mailed stops working. Needs `api.access`\nand works only on your own account (403 otherwise). Returns 404 when\nno change is waiting, or the site does not confirm email changes."
+          }
+        },
+        {
+          "id": "openapi:resendUserEmailChange",
+          "name": "Mail the email change link again",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Generated from openapi.yaml by tests/newman/sync-collection.php; the Newman suite skips it.",
+                  "if (pm.variables.get('newman_suite')) { pm.execution.skipRequest(); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "API Key authentication"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/users/:username/email-change/resend",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "users",
+                ":username",
+                "email-change",
+                "resend"
+              ],
+              "variable": [
+                {
+                  "key": "username",
+                  "value": "{{test_username}}",
+                  "description": "The username of the user account."
+                }
+              ]
+            },
+            "description": "Send the confirmation link for your waiting email change again, with a\nfresh day to use it. Any earlier link stops working. Counts toward the\nLogin plugin's hourly limit of email changes (429 with `Retry-After`\nonce it is used up). Needs `api.access` and works only on your own\naccount (403 otherwise). Returns 404 when no change is waiting."
           }
         },
         {

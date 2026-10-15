@@ -383,6 +383,8 @@ A scope qualifies as custom when it is a flat slug (`^[a-z0-9][a-z0-9_-]*$` — 
 | `POST` | `/users/{username}/avatar` | Upload user avatar |
 | `DELETE` | `/users/{username}/avatar` | Remove user avatar |
 | `POST` | `/users/{username}/2fa` | Generate 2FA secret + QR code |
+| `DELETE` | `/users/{username}/email-change` | Cancel your own waiting email change |
+| `POST` | `/users/{username}/email-change/resend` | Mail the email change link again |
 | `GET` | `/users/{username}/api-keys` | List API keys |
 | `POST` | `/users/{username}/api-keys` | Generate an API key |
 | `DELETE` | `/users/{username}/api-keys/{keyId}` | Revoke an API key |

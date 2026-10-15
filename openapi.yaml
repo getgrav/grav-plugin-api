@@ -4090,6 +4090,22 @@ paths:
         stale value returns 409. The submitted fields are validated against
         the account blueprint (422 on failure), and a new `password` must meet
         the password policy from `GET /auth/password-policy`.
+
+        **Changing your own email.** When the Login plugin (3.10.0 or later)
+        is installed and `plugins.login.profile.verify_email_change` is on, a
+        change to your own address does not save at once, whatever permissions
+        you hold. The new address is kept as `email_pending`, a confirmation
+        link is mailed to it, and `email` changes once the link is opened. The
+        rest of the request saves normally, and the response is the user with
+        `email_pending` set, plus `meta.message` saying where the link went.
+        An address that belongs to another account is refused with 422 (or
+        answered the same quiet way, with no mail, when the site finishes
+        registration over email), and more than the Login plugin's hourly
+        limit of changes returns 429 with `Retry-After`. An admin with
+        `api.users.write` changing someone else's address saves it at once,
+        and so does a site without the Login plugin or with the setting off.
+        Use `DELETE /users/{username}/email-change` to cancel a waiting change
+        and `POST /users/{username}/email-change/resend` to mail the link again.
       parameters:
         - $ref: "#/components/parameters/username"
         - $ref: "#/components/parameters/ifMatch"
@@ -4706,6 +4722,81 @@ paths:
           $ref: "#/components/responses/NotFound"
         "422":
           $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /users/{username}/email-change:
+    delete:
+      operationId: cancelUserEmailChange
+      tags: [Users]
+      summary: Cancel a waiting email change
+      description: |
+        Drop the email change that is waiting for confirmation on your own
+        account (see `PATCH /users/{username}`). The account keeps its current
+        address and the link that was mailed stops working. Needs `api.access`
+        and works only on your own account (403 otherwise). Returns 404 when
+        no change is waiting, or the site does not confirm email changes.
+      parameters:
+        - $ref: "#/components/parameters/username"
+      responses:
+        "200":
+          description: Change cancelled. The user is returned without `email_pending`.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /users/{username}/email-change/resend:
+    post:
+      operationId: resendUserEmailChange
+      tags: [Users]
+      summary: Mail the email change link again
+      description: |
+        Send the confirmation link for your waiting email change again, with a
+        fresh day to use it. Any earlier link stops working. Counts toward the
+        Login plugin's hourly limit of email changes (429 with `Retry-After`
+        once it is used up). Needs `api.access` and works only on your own
+        account (403 otherwise). Returns 404 when no change is waiting.
+      parameters:
+        - $ref: "#/components/parameters/username"
+      responses:
+        "200":
+          description: Link sent. `meta.message` says where it went.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/User"
+                  meta:
+                    type: object
+                    properties:
+                      message:
+                        type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
@@ -13384,6 +13475,14 @@ components:
           format: email
           nullable: true
           example: admin@example.com
+        email_pending:
+          type: string
+          format: email
+          description: |
+            A new address waiting to be confirmed. Only present while a change
+            is waiting; `email` keeps the old address until the link mailed to
+            this one is opened. See `PATCH /users/{username}`.
+          example: new-address@example.com
         fullname:
           type: string
           nullable: true
@@ -14076,7 +14175,9 @@ components:
 
         Field gates: `email`, `fullname`, `title`, `language`,
         `content_editor` and `password` are open to anyone
-        allowed to edit the account (including the account owner). `twofa_enabled`
+        allowed to edit the account (including the account owner). On your own
+        account a new `email` waits for confirmation when the Login plugin
+        confirms email changes (see `PATCH /users/{username}`). `twofa_enabled`
         and `twofa_secret` are ignored here: two-factor state only changes through
         the `/users/{username}/2fa` endpoints, which check a code. `state` and
         `access` require `api.users.write` (403 when sent without it).
