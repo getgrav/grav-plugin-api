@@ -560,6 +560,19 @@ class PagesController extends AbstractApiController
     }
 
     /**
+     * The page's folder name without its numeric order prefix (`02.typography`
+     * gives `typography`). Not slug(): a `slug:` in the frontmatter changes the
+     * route but never the folder, so a rename built from slug() turned
+     * `02.typography` into `03.my-slug` (getgrav/grav-admin-next#40).
+     *
+     * @param PageInterface $page
+     */
+    private static function folderName(object $page): string
+    {
+        return ltrim(PageOrdering::parse(basename((string) $page->path()))[1], '.');
+    }
+
+    /**
      * Structural route of a page's parent, resolved from the real hierarchy.
      *
      * Never derive a parent by string-splitting the public route(): when
@@ -1282,7 +1295,9 @@ class PagesController extends AbstractApiController
         // filesystem: Folder::move() has no containment check of its own, so an
         // unvalidated slug like '01.home/../../../tmp/evil' would relocate the
         // page directory outside user/pages (GHSA-qjq4-jp55-4mx2).
-        $rawSlug = $body['slug'] ?? $page->slug();
+        // Despite its name, `slug` is the folder name without its order prefix;
+        // when it is left out the folder keeps its own name, not the header slug.
+        $rawSlug = $body['slug'] ?? self::folderName($page);
         $this->assertSinglePathSegment($rawSlug, 'slug');
         $newSlug = ltrim($rawSlug, '.');
         if ($newSlug === '') {
@@ -2267,7 +2282,7 @@ class PagesController extends AbstractApiController
             // keeps the width it already used; one landing in another folder
             // takes the width that folder's numbered pages use, so `005.x`
             // doesn't arrive among `01.`, `02.` (or the reverse).
-            $slug = ltrim($page->slug(), '.');
+            $slug = self::folderName($page);
             $ownDigits = PageOrdering::digitsFromFolder(basename($page->path()));
             $digits = ($newParentRoute !== $currentParentRoute && $newParentPath !== null
                     ? $this->siblingDigits($newParentPath)
@@ -3369,7 +3384,9 @@ class PagesController extends AbstractApiController
 
         foreach ($order as $slug) {
             $currentDir = $childMap[$slug];
-            $newDir = PageOrdering::key($position, $slug, $digits);
+            // Renumber the folder's own name: `order` lists slugs, and a `slug:`
+            // header must not rename the folder (getgrav/grav-admin-next#40).
+            $newDir = PageOrdering::key($position, PageOrdering::parse($currentDir)[1], $digits);
 
             if ($currentDir !== $newDir && is_dir($parentPath . '/' . $currentDir)) {
                 $tempDir = '_temp_' . $position . '_' . $slug;
