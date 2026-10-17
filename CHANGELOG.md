@@ -1,3 +1,9 @@
+# v1.0.51
+## 10/16/2026
+
+1. [](#bugfix)
+    * `bin/plugin api keys:revoke` revokes the key you pick from the list again, instead of failing with "No key ID provided" [#60](https://github.com/getgrav/grav-plugin-api/issues/60)
+
 # v1.0.50
 ## 10/14/2026
 

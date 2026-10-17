@@ -8,8 +8,11 @@ use Grav\Common\Grav;
 use Grav\Common\User\Interfaces\UserCollectionInterface;
 use Grav\Console\ConsoleCommand;
 use Grav\Plugin\Api\Auth\ApiKeyManager;
+use Symfony\Component\Console\Helper\QuestionHelper;
 use Symfony\Component\Console\Input\InputArgument;
+use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
@@ -65,26 +68,7 @@ class KeysRevokeCommand extends ConsoleCommand
         // Get key ID
         $keyId = $this->input->getArgument('key-id');
         if (!$keyId) {
-            // Let user pick from a list
-            $choices = [];
-            foreach ($keys as $key) {
-                $choices[$key['id']] = sprintf('%s (%s) - %s', $key['name'], $key['prefix'], $key['id']);
-            }
-
-            $question = new ChoiceQuestion(
-                'Select the key to revoke:',
-                $choices
-            );
-            $selected = $helper->ask($this->input, $this->output, $question);
-
-            // Extract the key ID from the selected choice
-            foreach ($keys as $key) {
-                $label = sprintf('%s (%s) - %s', $key['name'], $key['prefix'], $key['id']);
-                if ($label === $selected) {
-                    $keyId = $key['id'];
-                    break;
-                }
-            }
+            $keyId = self::askForKey($helper, $this->input, $this->output, $keys);
         }
 
         if (!$keyId) {
@@ -121,5 +105,34 @@ class KeysRevokeCommand extends ConsoleCommand
         }
 
         return 0;
+    }
+
+    /**
+     * Let the user pick a key from a list and return its ID.
+     *
+     * The choices are keyed by key ID, so Symfony hands back the ID rather than
+     * the label. It hands back the label instead when every ID is numeric (PHP
+     * turns those keys into integers, which makes the list non-associative), so
+     * both are accepted.
+     *
+     * @param array<int, array<string, mixed>> $keys
+     */
+    public static function askForKey(QuestionHelper $helper, InputInterface $input, OutputInterface $output, array $keys): ?string
+    {
+        $choices = [];
+        foreach ($keys as $key) {
+            $choices[$key['id']] = sprintf('%s (%s) - %s', $key['name'], $key['prefix'], $key['id']);
+        }
+
+        $question = new ChoiceQuestion('Select the key to revoke:', $choices);
+        $selected = (string) $helper->ask($input, $output, $question);
+
+        foreach ($choices as $id => $label) {
+            if ($selected === (string) $id || $selected === $label) {
+                return (string) $id;
+            }
+        }
+
+        return null;
     }
 }
