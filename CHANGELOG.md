@@ -1,7 +1,9 @@
 # v1.0.51
 ## 10/16/2026
 
-1. [](#bugfix)
+1. [](#improved)
+    * Editable Metadata Fields in the API settings can now be set up as Select fields, with their options entered in the form instead of by editing `api.yaml` by hand. Thanks to [@phmg701](https://github.com/phmg701) for finding it and working out the change [#40](https://github.com/getgrav/grav-plugin-api/issues/40)
+2. [](#bugfix)
     * `bin/plugin api keys:revoke` revokes the key you pick from the list again, instead of failing with "No key ID provided" [#60](https://github.com/getgrav/grav-plugin-api/issues/60)
     * Moving, renumbering or reordering a page that has a `slug:` in its frontmatter no longer renames its folder after the slug [getgrav/grav-admin-next#40](https://github.com/getgrav/grav-admin-next/issues/40)
 
