@@ -15826,6 +15826,10 @@ components:
           type: boolean
           description: Show the "Powered by Grav CMS" line on the login and setup screens.
           example: true
+        showCredit:
+          type: boolean
+          description: Show the "Grav was coded with love by Trilby Media" credit at the bottom of the Admin2 sidebar.
+          example: true
         favicon:
           type: string
           description: Basename of a custom favicon inside `user/media/admin-next/`, or empty for the generated accent-colored favicon.
@@ -15951,6 +15955,7 @@ components:
           title: ""
           subtitle: ""
           showPoweredBy: true
+          showCredit: true
           favicon: ""
         branding_urls:
           light: ""

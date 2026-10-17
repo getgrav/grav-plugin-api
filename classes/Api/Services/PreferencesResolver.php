@@ -153,6 +153,9 @@ class PreferencesResolver
             // Hide the "Powered by Grav CMS" line on the login/setup screens.
             // Same anti-fingerprinting rationale as withholding versions pre-auth.
             'showPoweredBy' => true,
+            // Show the "Grav was coded with love by Trilby Media" credit at the
+            // bottom of the Admin2 sidebar.
+            'showCredit' => true,
             // Custom favicon (basename only, stored alongside the logos). Empty =
             // the SPA's generated accent-coloured favicon.
             'favicon' => '',
@@ -559,6 +562,11 @@ class PreferencesResolver
             $showPoweredBy = is_scalar($showPoweredBy) ? (bool) $showPoweredBy : $defaults['showPoweredBy'];
         }
 
+        $showCredit = $input['showCredit'] ?? $defaults['showCredit'];
+        if (!is_bool($showCredit)) {
+            $showCredit = is_scalar($showCredit) ? (bool) $showCredit : $defaults['showCredit'];
+        }
+
         $logoHeight = $input['logoHeight'] ?? $defaults['logoHeight'];
         $logoHeight = is_numeric($logoHeight) && (int) $logoHeight > 0
             ? max(self::LOGO_HEIGHT_MIN, min(self::LOGO_HEIGHT_MAX, (int) $logoHeight))
@@ -573,6 +581,7 @@ class PreferencesResolver
             'title' => substr($title, 0, 64),
             'subtitle' => substr($subtitle, 0, 128),
             'showPoweredBy' => $showPoweredBy,
+            'showCredit' => $showCredit,
             'favicon' => $this->sanitizeLogoPath($input['favicon'] ?? ''),
         ];
     }

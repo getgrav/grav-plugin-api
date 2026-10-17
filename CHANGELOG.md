@@ -1,3 +1,9 @@
+# v1.0.52
+## 10/17/2026
+
+1. [](#new)
+    * Admin2 branding has a new setting to hide the "Grav was coded with love by Trilby Media" credit at the bottom of the sidebar. It's on by default
+
 # v1.0.51
 ## 10/16/2026
 

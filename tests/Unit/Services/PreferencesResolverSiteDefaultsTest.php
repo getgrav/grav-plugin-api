@@ -60,6 +60,21 @@ class PreferencesResolverSiteDefaultsTest extends TestCase
     }
 
     #[Test]
+    public function the_sidebar_credit_shows_until_a_site_turns_it_off(): void
+    {
+        $resolver = $this->resolver();
+
+        self::assertTrue($resolver->siteBranding()['showCredit']);
+
+        $resolver->saveSiteBranding(array_replace($resolver->siteBranding(), ['showCredit' => false]));
+        self::assertFalse($resolver->siteBranding()['showCredit']);
+        self::assertTrue($resolver->siteBranding()['showPoweredBy']);
+
+        $resolver->saveSiteBranding(array_replace($resolver->siteBranding(), ['showCredit' => 'true']));
+        self::assertTrue($resolver->siteBranding()['showCredit']);
+    }
+
+    #[Test]
     public function dark_shade_defaults_to_graphite(): void
     {
         $resolver = $this->resolver();
