@@ -3,6 +3,7 @@
 
 1. [](#bugfix)
     * `bin/plugin api keys:revoke` revokes the key you pick from the list again, instead of failing with "No key ID provided" [#60](https://github.com/getgrav/grav-plugin-api/issues/60)
+    * Moving, renumbering or reordering a page that has a `slug:` in its frontmatter no longer renames its folder after the slug [getgrav/grav-admin-next#40](https://github.com/getgrav/grav-admin-next/issues/40)
 
 # v1.0.50
 ## 10/14/2026
