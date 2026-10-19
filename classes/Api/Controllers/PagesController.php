@@ -15,7 +15,9 @@ use Grav\Common\Page\Page;
 use Grav\Common\Page\PageOrdering;
 use Grav\Common\Security;
 use Grav\Framework\Flex\FlexDirectory;
+use Grav\Plugin\Api\Demo\DemoPolicy;
 use Grav\Plugin\Api\Exceptions\ApiException;
+use Grav\Plugin\Api\Exceptions\DemoModeException;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\TwigContentForbiddenException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
@@ -744,6 +746,7 @@ class PagesController extends AbstractApiController
             // mutate the header — reject the create up-front if the request
             // wants process.twig:true and the user isn't allowed.
             $this->guardTwigContent($request, null, $header);
+            $header = $this->demoSafeHeader($request, (array) $header);
 
             // Fire before event — plugins can modify $header/$content or throw to cancel
             $this->fireEvent('onApiBeforePageCreate', [
@@ -1105,6 +1108,10 @@ class PagesController extends AbstractApiController
                 if (array_key_exists('visible', $incoming)) {
                     $page->visible((bool) $incoming['visible']);
                 }
+            }
+
+            if ($this->isDemoUser($request)) {
+                $page->header((object) $this->demoSafeHeader($request, $this->headerToArray($page->header())));
             }
 
             // Template change requires renaming the page file (e.g. default.md → post.md)
@@ -1545,6 +1552,7 @@ class PagesController extends AbstractApiController
             // turn on Twig-in-content (SSTI) that create()/update() would reject.
             // (GHSA-w94c-jmg4-w4c9, follow-up to GHSA-96xv-p87j-58mx)
             $this->guardTwigContent($request, null, is_array($body['header'] ?? null) ? $body['header'] : []);
+            $header = $this->demoSafeHeader($request, $header);
 
             $this->fireEvent('onApiBeforePageTranslate', [
                 'page' => $page,
@@ -1837,6 +1845,7 @@ class PagesController extends AbstractApiController
             // is not a standalone injection path, but every page-write entry point
             // should apply the same guards. (GHSA-w94c-jmg4-w4c9)
             $this->guardTwigContent($request, $targetPage, $sourceHeader);
+            $sourceHeader = $this->demoSafeHeader($request, $sourceHeader);
 
             // Overwrite the target with source data
             $targetPage->header((object) $sourceHeader);
@@ -2063,6 +2072,7 @@ class PagesController extends AbstractApiController
 
         $body = $this->getRequestBody($request);
         $this->requireFields($body, ['operation', 'routes']);
+        $this->requireDemoGrant($request, DemoPolicy::batchGrant((string) $body['operation']));
 
         $operation = $body['operation'];
         $routes = $body['routes'];
@@ -3898,6 +3908,50 @@ class PagesController extends AbstractApiController
             }
             $this->assertDescendantsNotDenied($request, $child, ...$actions);
         }
+    }
+
+    /**
+     * The header a page saved by a demo account is written with.
+     *
+     * A public demo that lets visitors edit pages lets them put anything on
+     * those pages, so a demo account never saves a page that would run Twig,
+     * whether its own header asks for it or the site runs Twig in every page
+     * or in frontmatter. With `plugins.api.demo.escape_html` on (the default)
+     * the page renders its raw HTML as text, which needs Markdown processing,
+     * so a page that turns Markdown off is refused too. Markdown, code blocks
+     * and images work as before. Only pages a demo account saves are
+     * affected, and the next reset puts the owner's own header back.
+     *
+     * @param array<mixed> $header
+     * @return array<mixed>
+     */
+    private function demoSafeHeader(ServerRequestInterface $request, array $header): array
+    {
+        if (!$this->isDemoUser($request)) {
+            return $header;
+        }
+
+        $process = is_array($header['process'] ?? null) ? $header['process'] : [];
+        $gate = (bool) $this->config->get('security.twig_content.process_enabled', false);
+        $twig = (bool) ($process['twig'] ?? $this->config->get('system.pages.process.twig', false));
+
+        // Without the gate Grav renders no editor-authored Twig, so only a page
+        // asking for it outright is refused there.
+        if ((bool) ($process['twig'] ?? false) || ($gate && $twig)) {
+            throw new DemoModeException('Pages that run Twig cannot be saved in this demo.');
+        }
+        if ($gate && $this->config->get('system.pages.frontmatter.process_twig') === true) {
+            throw new DemoModeException('This site runs Twig in page frontmatter, so pages cannot be saved in this demo.');
+        }
+
+        if ((bool) $this->config->get('plugins.api.demo.escape_html', true)) {
+            if (!(bool) ($process['markdown'] ?? $this->config->get('system.pages.process.markdown', true))) {
+                throw new DemoModeException('Pages that skip Markdown cannot be saved in this demo.');
+            }
+            $header['markdown'] = array_merge((array) ($header['markdown'] ?? []), ['escape_markup' => true]);
+        }
+
+        return $header;
     }
 
     /**

@@ -92,18 +92,35 @@ rate_limit:
 demo:
   # Demo mode is activated per-account via the `access.api.demo` flag, not by a
   # global switch — a demo account browses everything (typically also granted
-  # access.api.super) but all writes are blocked except the resources listed
-  # below, and operational/secret data is redacted on read. These settings only
-  # tune the writable allowlist and the reset engine; they do nothing until an
-  # account is flagged and a baseline has been captured.
+  # access.api.super) but every change it tries is refused except what is
+  # granted below, and operational/secret data is redacted on read. These
+  # settings do nothing until an account is flagged.
   #
-  # Permissions a demo account may still write. Leave EMPTY ([]) for a fully
-  # read-only demo; use just [api.pages.write] to allow page editing without
-  # media uploads. A small hard denylist (config, users, gpm, system, backups,
-  # webhooks, and demo itself) is always blocked regardless of what's listed here.
-  writable:
-    - api.pages.write
-    - api.media.write
+  # What a demo account may change. Empty is a read-only demo. Each shorthand
+  # stands for its three finer grants, so list those instead to allow part:
+  #   api.pages.write  = api.pages.create, api.pages.update, api.pages.delete
+  #   api.media.write  = api.media.upload, api.media.update, api.media.delete
+  #   api.config.write = api.config.site, api.config.plugins, api.config.themes
+  # e.g. [api.pages.create, api.pages.update, api.media.upload] lets visitors
+  # write and edit pages and add images, but never delete anything. Users,
+  # groups, packages, system tools, backups, webhooks and the system, security,
+  # media, scheduler and backups settings are always refused, as are the
+  # settings of the API, Admin, Login and Email plugins.
+  writable: []
+  # Other routes a demo account may write to, below the API prefix: `METHOD
+  # /path` or `/path`, `*` matching anything. For a plugin's own routes, e.g.
+  # 'POST /courses/*/progress'. Cannot open the locked routes above.
+  allow_routes: []
+  # Render raw HTML in pages a demo account saves as text, so a visitor cannot
+  # put scripts or hidden links on the public site. A demo account can never
+  # save a page that runs Twig, whatever this is set to.
+  escape_html: true
+  # Also restore user/plugins and user/themes on every reset. Symlinked plugins
+  # and themes are left as they are.
+  include_code: false
+  # More user:// folders to restore on every reset, e.g. user://data for what
+  # visitors do on the site itself, or user://accounts for sign-ups.
+  extra_roots: []
   # Minutes between automatic resets of the demo content back to the captured
   # baseline. Only takes effect once a baseline exists.
   reset_interval: 30

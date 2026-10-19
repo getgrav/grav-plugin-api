@@ -267,6 +267,7 @@ paths:
                         demo_mode:
                           enabled: false
                           writable: []
+                          grants: []
                           reset_interval: 30
                           seconds_until_reset: null
                 challenge:
@@ -14991,7 +14992,12 @@ components:
               description: Whether this is a demo account whose writes are blocked.
             writable:
               type: array
-              description: Routes a demo account may still write to. Empty for normal accounts.
+              description: What a demo account may change, with each shorthand (api.pages.write, api.media.write, api.config.write) included whenever any of its finer grants is. Empty for normal accounts and read-only demos.
+              items:
+                type: string
+            grants:
+              type: array
+              description: The finer grants a demo account holds, with every shorthand spelled out (api.pages.create, api.pages.update, api.pages.delete, api.media.upload, api.media.update, api.media.delete, api.config.site, api.config.plugins, api.config.themes). Empty for normal accounts.
               items:
                 type: string
             reset_interval:
