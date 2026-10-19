@@ -181,4 +181,54 @@ class PagesControllerMergeHeaderTest extends TestCase
         $this->assertStringNotContainsString("'2':", $yaml);
         $this->assertStringNotContainsString("'3':", $yaml);
     }
+
+    #[Test]
+    public function a_file_removed_from_a_file_field_does_not_come_back(): void
+    {
+        $existing = [
+            'hero' => [
+                'user/pages/01.home/a.jpg' => ['name' => 'a.jpg', 'type' => 'image/jpeg', 'size' => 10, 'path' => 'user/pages/01.home/a.jpg'],
+                'user/pages/01.home/b.jpg' => ['name' => 'b.jpg', 'type' => 'image/jpeg', 'size' => 20, 'path' => 'user/pages/01.home/b.jpg'],
+            ],
+            'title' => 'Home',
+        ];
+        // The admin sends the field's full remaining set after b.jpg is removed.
+        $incoming = [
+            'hero' => [
+                'user/pages/01.home/a.jpg' => ['name' => 'a.jpg', 'type' => 'image/jpeg', 'size' => 10, 'path' => 'user/pages/01.home/a.jpg'],
+            ],
+        ];
+
+        $merged = $this->invoke($existing, $incoming);
+
+        $this->assertSame(['user/pages/01.home/a.jpg'], array_keys($merged['hero']));
+        $this->assertSame('Home', $merged['title']);
+    }
+
+    #[Test]
+    public function swapping_a_file_replaces_the_old_entry(): void
+    {
+        $existing = [
+            'logo' => ['user/pages/01.home/old.png' => ['name' => 'old.png', 'path' => 'user/pages/01.home/old.png']],
+        ];
+        $incoming = [
+            'logo' => ['user/pages/01.home/new.png' => ['name' => 'new.png', 'path' => 'user/pages/01.home/new.png']],
+        ];
+
+        $merged = $this->invoke($existing, $incoming);
+
+        $this->assertSame(['user/pages/01.home/new.png'], array_keys($merged['logo']));
+    }
+
+    #[Test]
+    public function ordinary_nested_maps_still_merge(): void
+    {
+        $existing = ['taxonomy' => ['category' => ['news'], 'tag' => ['a']], 'og' => ['title' => 'T', 'image' => 'x.jpg']];
+        $incoming = ['og' => ['title' => 'New title']];
+
+        $merged = $this->invoke($existing, $incoming);
+
+        $this->assertSame(['title' => 'New title', 'image' => 'x.jpg'], $merged['og']);
+        $this->assertSame(['category' => ['news'], 'tag' => ['a']], $merged['taxonomy']);
+    }
 }

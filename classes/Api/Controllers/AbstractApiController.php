@@ -520,6 +520,8 @@ abstract class AbstractApiController
                 && is_array($existing[$key])
                 && !array_is_list($value)
                 && !array_is_list($existing[$key])
+                && !$this->isFileFieldValue($value)
+                && !$this->isFileFieldValue($existing[$key])
             ) {
                 $existing[$key] = $this->mergePatch($existing[$key], $value);
             } else {
@@ -527,6 +529,29 @@ abstract class AbstractApiController
             }
         }
         return $existing;
+    }
+
+    /**
+     * Whether a value is the stored form of a `type: file` field: a map of
+     * file entries keyed by path, each carrying at least `name` and `path`.
+     *
+     * A file field always sends its complete set of files, so it has to replace
+     * the stored set rather than merge into it. Merging kept every file the user
+     * had removed with the field's remove button, because the removed entry was
+     * simply absent from the incoming map and so survived the merge.
+     */
+    protected function isFileFieldValue(array $value): bool
+    {
+        if ($value === [] || array_is_list($value)) {
+            return false;
+        }
+        foreach ($value as $entry) {
+            if (!is_array($entry) || !isset($entry['name'], $entry['path'])
+                || !is_string($entry['name']) || !is_string($entry['path'])) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
