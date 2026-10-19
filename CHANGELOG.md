@@ -1,3 +1,9 @@
+# v1.0.54
+## 10/19/2026
+
+1. [](#bugfix)
+    * The API only answers at its own address (`/api/v1` by default). Any path starting with `/api` used to reach it, with the start cut off by length, so `/api/v2/users/x` and `/apixy/users/x` were both served as `/users/x`. That let requests past plugins that guard the API by its real address, and took over a site's own pages whose route starts with `/api`, such as `/apiary`
+
 # v1.0.53
 ## 10/19/2026
 
