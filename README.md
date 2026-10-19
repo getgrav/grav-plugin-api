@@ -973,7 +973,7 @@ A reset restores the folders a demo account can change: `user/pages` for pages, 
 - `demo.include_code: true` also restores `user/plugins` and `user/themes`.
 - `demo.extra_roots` lists more `user://` folders, such as `user://data` for what visitors do on the site itself, or `user://accounts` for sign-ups.
 
-`user/data/api` (API keys, the audit log and the demo's own files) and anything symlinked are never saved or restored. Change what a demo account may do, then run `demo:baseline` again so the saved state matches.
+`user/data/api` (API keys, the audit log and the demo's own files) and anything symlinked are never saved or restored. An extra folder that overlaps the settings folders, or sits in `user/data/api`, is ignored with a warning in the log. Change what a demo account may do, then run `demo:baseline` again so the saved state matches.
 
 ## Extending the API
 

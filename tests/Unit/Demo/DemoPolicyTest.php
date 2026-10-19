@@ -40,6 +40,8 @@ class DemoPolicyTest extends TestCase
         yield 'upload to a page' => ['POST', '/pages/blog/first/media', 'api.media.upload'];
         yield 'delete page media' => ['DELETE', '/pages/blog/first/media/a.jpg', 'api.media.delete'];
         yield 'edit page media details' => ['PATCH', '/pages/blog/first/media/a.jpg/meta', 'api.media.update'];
+        yield 'clear page media details' => ['DELETE', '/pages/blog/first/media/a.jpg/meta', 'api.media.update'];
+        yield 'a file called meta is a delete, as the router reads it' => ['DELETE', '/pages/foo/media/media/meta', 'api.media.delete'];
         yield 'upload site media' => ['POST', '/media', 'api.media.upload'];
         yield 'new media folder' => ['POST', '/media/folders', 'api.media.upload'];
         yield 'rename site media' => ['POST', '/media/rename', 'api.media.update'];
@@ -64,7 +66,7 @@ class DemoPolicyTest extends TestCase
 
         yield 'users' => ['PATCH', '/users/demo', DemoPolicy::DENY];
         yield 'packages' => ['POST', '/gpm/install', DemoPolicy::DENY];
-        yield 'system tools' => ['DELETE', '/cache', DemoPolicy::DENY];
+        yield 'clearing the cache' => ['DELETE', '/cache', DemoPolicy::DENY];
         yield 'backups' => ['POST', '/system/backup', DemoPolicy::DENY];
         yield 'demo controls' => ['POST', '/demo/baseline', DemoPolicy::DENY];
         yield 'a plugin route' => ['POST', '/courses/1/progress', DemoPolicy::DENY];
@@ -141,8 +143,20 @@ class DemoPolicyTest extends TestCase
 
         // Not even a catch-all opens the routes that are locked.
         self::assertFalse(DemoPolicy::allows('POST', '/gpm/install', [], ['*']));
+        self::assertFalse(DemoPolicy::allows('DELETE', '/cache', [], ['*']));
         self::assertFalse(DemoPolicy::allows('PATCH', '/config/site', [], ['*']));
         self::assertFalse(DemoPolicy::allows('DELETE', '/pages/home', [], ['*']));
+    }
+
+    #[Test]
+    public function an_allowed_route_never_passes_the_apis_own_permission_checks(): void
+    {
+        self::assertTrue(DemoPolicy::isCorePermission('api.system.write'));
+        self::assertTrue(DemoPolicy::isCorePermission('api.config.write'));
+        self::assertTrue(DemoPolicy::isCorePermission('admin.super'));
+        self::assertFalse(DemoPolicy::isCorePermission('api.lms.write'));
+        self::assertFalse(DemoPolicy::isCorePermission('api.access'));
+        self::assertFalse(DemoPolicy::isCorePermission('api.pagesx.write'));
     }
 
     #[Test]

@@ -50,7 +50,18 @@ final class DemoPolicy
      */
     private const LOCKED_PREFIXES = [
         '/users', '/groups', '/invitations', '/gpm', '/system', '/backups',
-        '/webhooks', '/audit', '/demo', '/scheduler',
+        '/webhooks', '/audit', '/demo', '/scheduler', '/cache',
+    ];
+
+    /**
+     * Permission families the API itself checks. A route opened by
+     * `allow_routes` is let past a plugin's own permission checks, never past
+     * one of these: listing a core route there cannot unlock what it guards.
+     */
+    private const CORE_FAMILIES = [
+        'api.pages', 'api.media', 'api.config', 'api.users', 'api.system', 'api.translations',
+        'api.gpm', 'api.scheduler', 'api.reports', 'api.webhooks', 'api.super', 'api.demo',
+        'admin.super',
     ];
 
     /** Settings scopes no grant opens. See the class comment. */
@@ -254,6 +265,18 @@ final class DemoPolicy
         return self::LOCKED_CONFIG_SCOPES;
     }
 
+    /** Whether $permission belongs to a family the API itself checks. */
+    public static function isCorePermission(string $permission): bool
+    {
+        foreach (self::CORE_FAMILIES as $family) {
+            if ($permission === $family || str_starts_with($permission, $family . '.')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /** The group a settings scope belongs to, or null when it is locked. */
     public static function configGroup(string $scope): ?string
     {
@@ -293,15 +316,17 @@ final class DemoPolicy
 
     private static function pageGrant(string $method, string $path): string
     {
-        // Page media first, the way the router registers it.
+        // Page media first, in the order the router registers it: a file
+        // delete is matched before a details delete, so DELETE
+        // /pages/x/media/media/meta deletes a file called `meta`.
         if ($method === 'POST' && str_ends_with($path, '/media')) {
             return 'api.media.upload';
         }
-        if (preg_match('#^/pages/.+/media/[^/]+/meta$#', $path)) {
-            return in_array($method, ['PATCH', 'DELETE'], true) ? 'api.media.update' : self::DENY;
-        }
         if ($method === 'DELETE' && preg_match('#^/pages/.+/media/[^/]+$#', $path)) {
             return 'api.media.delete';
+        }
+        if (preg_match('#^/pages/.+/media/[^/]+/meta$#', $path)) {
+            return in_array($method, ['PATCH', 'DELETE'], true) ? 'api.media.update' : self::DENY;
         }
 
         if ($method === 'POST') {

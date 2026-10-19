@@ -80,10 +80,12 @@ class DemoManager
             $streams['user://plugins'] = 'plugins';
             $streams['user://themes'] = 'themes';
         }
+        $extraKeys = [];
         foreach ((array) $this->demoConfig('extra_roots', []) as $stream) {
             $stream = rtrim(trim((string) $stream), '/');
             if (preg_match('#^user://([A-Za-z0-9_\-][A-Za-z0-9_\-/.]*)$#', $stream, $m) && !str_contains($m[1], '..')) {
                 $streams[$stream] = $m[1];
+                $extraKeys[$m[1]] = $stream;
             } elseif ($stream !== '') {
                 $this->grav['log']->warning("api.demo: extra_roots entry '{$stream}' is not a user:// folder; ignored.");
             }
@@ -101,14 +103,40 @@ class DemoManager
         // A settings save lands in whichever environment the site booted
         // under, so with settings writable every environment's folder resets
         // too, whichever process (a request, the scheduler, the CLI) runs it.
+        $settingsDirs = [];
+        $config = $this->grav['locator']->findResource('user://config', true);
+        if ($config && ($real = realpath($config))) {
+            $settingsDirs['config'] = $real;
+        }
+        $environments = new EnvironmentService($this->grav);
+        foreach ($environments->listEnvironments() as $name) {
+            $dir = $environments->envConfigRoot((string) $name);
+            $real = $dir ? realpath($dir) : false;
+            if ($real && is_dir($real)) {
+                $settingsDirs['environments/' . $name] = $real;
+            }
+        }
         if (isset($streams['user://config'])) {
-            $environments = new EnvironmentService($this->grav);
-            foreach ($environments->listEnvironments() as $name) {
-                $dir = $environments->envConfigRoot((string) $name);
-                $real = $dir ? realpath($dir) : false;
-                if ($real && is_dir($real)) {
-                    $roots['environments/' . $name] = $real;
-                }
+            $roots += $settingsDirs;
+        }
+
+        // An extra root may not hold settings (they reset only through the
+        // settings grants, which know what to leave alone) or sit at or inside
+        // the API's own data, which a reset must never roll back.
+        $apiData = $this->grav['locator']->findResource('user://data/api', true);
+        $apiData = $apiData ? (realpath($apiData) ?: null) : null;
+        foreach ($extraKeys as $key => $stream) {
+            if (!isset($roots[$key]) || isset($settingsDirs[$key])) {
+                continue;
+            }
+            $abs = $roots[$key];
+            $refused = $apiData !== null && self::within($abs, $apiData);
+            foreach ($settingsDirs as $dir) {
+                $refused = $refused || self::within($abs, $dir) || self::within($dir, $abs);
+            }
+            if ($refused) {
+                unset($roots[$key]);
+                $this->grav['log']->warning("api.demo: extra_roots entry '{$stream}' overlaps settings or the API's own data; ignored.");
             }
         }
 
@@ -374,7 +402,7 @@ class DemoManager
      */
     private function keptPaths(string $root, string $key = ''): array
     {
-        $kept = $key === 'config' || str_starts_with($key, 'environments/') ? $this->lockedConfigPaths() : [];
+        $kept = $key === 'config' || str_starts_with($key, 'environments/') ? $this->settingsKeptPaths($root) : [];
 
         $apiData = $this->grav['locator']->findResource('user://data/api', true);
         $apiData = $apiData ? (realpath($apiData) ?: $apiData) : null;
@@ -401,24 +429,80 @@ class DemoManager
             }
         }
 
-        return array_values(array_unique($kept));
+        return self::outermost($kept);
     }
 
     /**
-     * The files in a settings folder a demo account cannot write.
+     * $paths without any path inside another one on the list. Keeping both
+     * `plugins` and `plugins/api.yaml` would move the file across and then
+     * replace the folder it was moved into.
+     *
+     * @param list<string> $paths
+     * @return list<string>
+     */
+    private static function outermost(array $paths): array
+    {
+        $paths = array_values(array_unique($paths));
+        usort($paths, static fn (string $a, string $b): int => strlen($a) <=> strlen($b));
+
+        $out = [];
+        foreach ($paths as $path) {
+            foreach ($out as $kept) {
+                if (str_starts_with($path . '/', $kept . '/')) {
+                    continue 2;
+                }
+            }
+            $out[] = $path;
+        }
+
+        return $out;
+    }
+
+    /**
+     * Everything in a settings folder a demo account cannot write: whatever
+     * is on disk now, and the locked and ungranted names even when they are
+     * not, so a reset never brings back a copy the owner has since deleted.
      *
      * @return list<string>
      */
-    private function lockedConfigPaths(): array
+    private function settingsKeptPaths(string $root): array
     {
         $grants = DemoPolicy::expand((array) $this->demoConfig('writable', []));
+        $granted = static fn (string $group): bool => in_array('api.config.' . $group, $grants, true);
+        $groups = ['site.yaml' => 'site', 'plugins' => 'plugins', 'themes' => 'themes'];
+
         $paths = [];
         foreach (DemoPolicy::lockedConfigScopes() as $scope) {
             $paths[] = $scope . '.yaml';
         }
-        foreach (['site' => 'site.yaml', 'plugins' => 'plugins', 'themes' => 'themes'] as $group => $path) {
-            if (!in_array('api.config.' . $group, $grants, true)) {
+        foreach ($groups as $path => $group) {
+            if (!$granted($group)) {
                 $paths[] = $path;
+            }
+        }
+
+        foreach (glob($root . '/{,.}*', GLOB_BRACE) ?: [] as $child) {
+            $name = basename($child);
+            if ($name === '.' || $name === '..') {
+                continue;
+            }
+            $group = $groups[$name] ?? null;
+            if ($group === null || !$granted($group)) {
+                $paths[] = $name;
+                continue;
+            }
+            if ($group === 'site' || !is_dir($child)) {
+                continue;
+            }
+            foreach (glob($child . '/{,.}*', GLOB_BRACE) ?: [] as $file) {
+                $leaf = basename($file);
+                if ($leaf === '.' || $leaf === '..') {
+                    continue;
+                }
+                $scope = $name . '/' . substr($leaf, 0, -5);
+                if (!str_ends_with($leaf, '.yaml') || DemoPolicy::configGroup($scope) === null) {
+                    $paths[] = $name . '/' . $leaf;
+                }
             }
         }
 
@@ -451,6 +535,12 @@ class DemoManager
                 copy($child, $dest . '/' . $name);
             }
         }
+    }
+
+    /** Whether $path is $dir or inside it. */
+    private static function within(string $path, string $dir): bool
+    {
+        return str_starts_with($path . '/', rtrim($dir, '/') . '/');
     }
 
     /** Remove a file, a symlink (never what it points at) or a folder. */

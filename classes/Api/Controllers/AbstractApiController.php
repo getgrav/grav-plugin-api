@@ -231,7 +231,9 @@ abstract class AbstractApiController
      * grant it was let through on (see DemoModeMiddleware), and that decision
      * stands for the permission family it was made for: a PATCH on a page let
      * through on `api.pages.update` satisfies this controller's coarser
-     * `api.pages.write`. Anything else needs the permission itself granted.
+     * `api.pages.write`. A route the owner opened with `allow_routes` passes a
+     * plugin's own permission checks but none of the API's. Anything else
+     * needs the permission itself granted.
      */
     protected function demoWriteBlocked(string $permission, ?ServerRequestInterface $request = null): bool
     {
@@ -245,7 +247,7 @@ abstract class AbstractApiController
         }
 
         $grant = $request?->getAttribute(DemoModeMiddleware::ATTRIBUTE);
-        if ($grant === 'allow_routes') {
+        if ($grant === 'allow_routes' && !DemoPolicy::isCorePermission($permission)) {
             return false;
         }
         if (is_string($grant) && self::permissionFamily($grant) === self::permissionFamily($permission)) {
