@@ -912,6 +912,69 @@ bin/plugin api keys:list --user=admin
 bin/plugin api keys:revoke --user=admin [key-id]
 ```
 
+Demo mode has `demo:baseline`, `demo:status` and `demo:reset`; see [Demo Mode](#demo-mode).
+
+## Demo Mode
+
+Demo mode lets you put a Grav site online for anyone to try: visitors sign in to the admin with a shared account, look at everything, and change only what you allow. The site then resets itself to a saved starting state on a timer.
+
+It is turned on per account. Give the account the **Demo Mode** permission (`access.api.demo: true`), usually alongside `api.super` so it can see every screen. Your own accounts are not affected.
+
+### What a demo account may change
+
+`demo.writable` in the API settings lists what demo accounts may change. Empty, the default, is a read-only demo.
+
+| Grant | Lets a demo account |
+|---|---|
+| `api.pages.create` | create, copy and translate pages |
+| `api.pages.update` | edit, move, reorder, publish and unpublish pages |
+| `api.pages.delete` | delete pages |
+| `api.media.upload` | upload media and create media folders |
+| `api.media.update` | rename media, reorder it and edit its details |
+| `api.media.delete` | delete media |
+| `api.config.site` | change the site settings |
+| `api.config.plugins` | change plugin settings |
+| `api.config.themes` | change theme settings |
+
+`api.pages.write`, `api.media.write` and `api.config.write` are shorthand for the three grants under each. So a demo where visitors can write and edit pages and add images, but never delete anything, is:
+
+```yaml
+demo:
+  writable: [api.pages.create, api.pages.update, api.media.upload]
+```
+
+Admin2 follows the grants: the editor offers Save but not Delete when only `api.pages.update` is granted, and shows a banner with the time until the next reset.
+
+Some things are always refused, whatever is granted: users and groups, packages, system tools, backups, webhooks, the demo controls themselves, the system, security, media, scheduler and backups settings, and the settings of the API, Admin, Login and Email plugins. Server paths, logs and backups are also hidden from demo accounts.
+
+A plugin's own API routes are refused too unless you list them in `demo.allow_routes`, as `METHOD /path` or `/path` below the API prefix, with `*` matching anything:
+
+```yaml
+demo:
+  allow_routes: ['POST /courses/*/progress']
+```
+
+### Pages visitors edit
+
+With `demo.escape_html` on (the default), pages a demo account saves show their raw HTML as text, so a visitor cannot put scripts or hidden links on the public site. Markdown, code blocks and images work as normal. A demo account can never save a page that runs Twig.
+
+### Saving and resetting
+
+```bash
+bin/plugin api demo:baseline   # save the current state as the one to reset to
+bin/plugin api demo:status     # what is allowed, when the next reset is, what has changed
+bin/plugin api demo:reset      # reset now
+```
+
+The same actions are in Admin2 under **Set Baseline / Reset Now**. Resets run every `demo.reset_interval` minutes (30 by default), both from the Grav scheduler (`bin/grav scheduler` in cron) and, for sites without one, on the first request after the interval has passed. Before each reset a safety copy of the current state is kept in `user/data/api/demo`, the last `demo.keep_safety_snapshots` of them (5 by default).
+
+A reset restores the folders a demo account can change: `user/pages` for pages, `user/pages` and `user/media` for media, and `user/config` plus each environment's settings folder for settings. In a settings folder only the settings a demo account can change are restored, so your own later changes to anything else, these demo settings included, are kept. Two more options add folders:
+
+- `demo.include_code: true` also restores `user/plugins` and `user/themes`.
+- `demo.extra_roots` lists more `user://` folders, such as `user://data` for what visitors do on the site itself, or `user://accounts` for sign-ups.
+
+`user/data/api` (API keys, the audit log and the demo's own files) and anything symlinked are never saved or restored. Change what a demo account may do, then run `demo:baseline` again so the saved state matches.
+
 ## Extending the API
 
 Other Grav plugins can register their own API routes by listening to the `onApiRegisterRoutes` event:

@@ -313,7 +313,13 @@ class ApiRouter extends ProcessorBase
             // dispatch so it uniformly catches core AND plugin-registered routes,
             // and before any controller executes. No-op for non-demo users.
             if ($user) {
-                (new DemoModeMiddleware())->check($user, $request->getMethod(), $apiRoutePath, $isPublic);
+                $demoGrant = (new DemoModeMiddleware(
+                    (array) $this->config->get('plugins.api.demo.writable', []),
+                    (array) $this->config->get('plugins.api.demo.allow_routes', []),
+                ))->check($user, $request->getMethod(), $apiRoutePath, $isPublic);
+                if ($demoGrant !== null) {
+                    $request = $request->withAttribute(DemoModeMiddleware::ATTRIBUTE, $demoGrant);
+                }
             }
 
             // Opportunistically reset stale demo content back to the baseline.

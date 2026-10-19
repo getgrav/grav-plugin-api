@@ -8,6 +8,7 @@ use Grav\Common\Config\Config;
 use Grav\Common\Filesystem\Archiver;
 use Grav\Common\Filesystem\Folder;
 use Grav\Common\Grav;
+use Grav\Plugin\Api\Services\EnvironmentService;
 use RocketTheme\Toolbox\Event\Event;
 
 /**
@@ -24,10 +25,19 @@ use RocketTheme\Toolbox\Event\Event;
  * / reset_on_schedule on by default is safe.
  *
  * Which roots are snapshot/reset is derived from the writable allowlist:
- *   api.pages.write  -> user/pages
- *   api.media.write  -> user/pages (page media) + user/media (site media)
- *   api.flex.*.write -> user/data
- * (accounts are never writable in demo mode, so never reset.)
+ *   api.pages.*   -> user/pages
+ *   api.media.*   -> user/pages (page media) + user/media (site media)
+ *   api.config.*  -> user/config, and each environment's config folder
+ *   api.flex.*    -> user/data
+ * plus user/plugins and user/themes with `include_code`, and any `user://`
+ * folder listed in `extra_roots` (where a plugin keeps what visitors do on the
+ * site itself, say). Accounts are never writable in demo mode, so they are only
+ * reset when `extra_roots` lists them.
+ *
+ * Two things inside a root are never archived or restored, and survive every
+ * reset as they are: user/data/api (API keys, the audit log, and this engine's
+ * own baseline and state), and anything that is a symlink, which is managed
+ * somewhere else. A root that is itself a symlink is reset at its target.
  */
 class DemoManager
 {
@@ -43,8 +53,9 @@ class DemoManager
     private function streamsForPermission(string $permission): array
     {
         return match (true) {
-            $permission === 'api.pages.write' => ['user://pages' => 'pages'],
-            $permission === 'api.media.write' => ['user://pages' => 'pages', 'user://media' => 'media'],
+            str_starts_with($permission, 'api.pages.') => ['user://pages' => 'pages'],
+            str_starts_with($permission, 'api.media.') => ['user://pages' => 'pages', 'user://media' => 'media'],
+            str_starts_with($permission, 'api.config.') => ['user://config' => 'config'],
             str_starts_with($permission, 'api.flex') => ['user://data' => 'data'],
             default => [],
         };
@@ -60,21 +71,60 @@ class DemoManager
     public function writableRoots(): array
     {
         $streams = [];
-        foreach ((array) $this->demoConfig('writable', []) as $permission) {
-            foreach ($this->streamsForPermission((string) $permission) as $stream => $key) {
+        foreach (DemoPolicy::expand((array) $this->demoConfig('writable', [])) as $permission) {
+            foreach ($this->streamsForPermission($permission) as $stream => $key) {
                 $streams[$stream] = $key;
+            }
+        }
+        if ($this->demoConfig('include_code', false)) {
+            $streams['user://plugins'] = 'plugins';
+            $streams['user://themes'] = 'themes';
+        }
+        foreach ((array) $this->demoConfig('extra_roots', []) as $stream) {
+            $stream = rtrim(trim((string) $stream), '/');
+            if (preg_match('#^user://([A-Za-z0-9_\-][A-Za-z0-9_\-/.]*)$#', $stream, $m) && !str_contains($m[1], '..')) {
+                $streams[$stream] = $m[1];
+            } elseif ($stream !== '') {
+                $this->grav['log']->warning("api.demo: extra_roots entry '{$stream}' is not a user:// folder; ignored.");
             }
         }
 
         $roots = [];
         foreach ($streams as $stream => $key) {
             $abs = $this->grav['locator']->findResource($stream, true);
-            if ($abs && is_dir($abs)) {
-                $roots[$key] = $abs;
+            $real = $abs ? realpath($abs) : false;
+            if ($real && is_dir($real)) {
+                $roots[$key] = $real;
             }
         }
 
-        return $roots;
+        // A settings save lands in whichever environment the site booted
+        // under, so with settings writable every environment's folder resets
+        // too, whichever process (a request, the scheduler, the CLI) runs it.
+        if (isset($streams['user://config'])) {
+            $environments = new EnvironmentService($this->grav);
+            foreach ($environments->listEnvironments() as $name) {
+                $dir = $environments->envConfigRoot((string) $name);
+                $real = $dir ? realpath($dir) : false;
+                if ($real && is_dir($real)) {
+                    $roots['environments/' . $name] = $real;
+                }
+            }
+        }
+
+        // A root inside another root is already covered by it.
+        $kept = [];
+        foreach ($roots as $key => $abs) {
+            foreach ($roots as $otherKey => $other) {
+                if ($otherKey !== $key && str_starts_with($abs . '/', $other . '/') && strlen($other) < strlen($abs)) {
+                    continue 2;
+                }
+            }
+            $kept[$key] = $abs;
+        }
+        ksort($kept);
+
+        return $kept;
     }
 
     // ---- Baseline capture ---------------------------------------------------
@@ -136,6 +186,16 @@ class DemoManager
         if (!$this->demoConfig('reset_on_request', true)) {
             return;
         }
+        $this->resetIfStale();
+    }
+
+    /**
+     * Reset when the interval has passed, re-checked under the lock so a
+     * request and the scheduler arriving together reset once. Skips rather
+     * than waits when a reset is already running. Never throws.
+     */
+    private function resetIfStale(): void
+    {
         if (!$this->baselineExists() || !$this->isStale()) {
             return;
         }
@@ -173,7 +233,7 @@ class DemoManager
                 if (!is_dir($restored)) {
                     continue;
                 }
-                $this->swapInto($abs, $restored);
+                $this->swapInto($abs, $restored, $key);
             }
         } finally {
             Folder::delete($staging);
@@ -196,7 +256,7 @@ class DemoManager
      * half-restored or empty root. This closes the read-window and the
      * "failed restore strands the site empty" gap.
      */
-    private function swapInto(string $live, string $restored): void
+    private function swapInto(string $live, string $restored, string $key = ''): void
     {
         $parent = dirname($live);
         $suffix = bin2hex(random_bytes(6));
@@ -206,7 +266,26 @@ class DemoManager
         // Build the replacement beside the live root.
         Folder::rcopy($restored, $incoming);
 
+        // What a reset never touches moves across from the live root as it is,
+        // symlinks included, in place of whatever the baseline holds there.
+        $carried = [];
         try {
+            foreach ($this->keptPaths($live, $key) as $relative) {
+                $target = $incoming . '/' . $relative;
+                $this->removePath($target);
+                $source = $live . '/' . $relative;
+                if (!file_exists($source) && !is_link($source)) {
+                    continue;
+                }
+                if (!is_dir(dirname($target))) {
+                    Folder::create(dirname($target));
+                }
+                if (!@rename($source, $target)) {
+                    throw new \RuntimeException("demo reset: could not keep {$source}");
+                }
+                $carried[] = $relative;
+            }
+
             if (!@rename($live, $old)) {
                 throw new \RuntimeException("demo reset: could not move live root aside: {$live}");
             }
@@ -215,13 +294,19 @@ class DemoManager
                 throw new \RuntimeException("demo reset: could not move restored content into place: {$live}");
             }
         } catch (\Throwable $e) {
+            // Put back what was carried across, then drop the replacement.
+            if (is_dir($live)) {
+                foreach ($carried as $relative) {
+                    @rename($incoming . '/' . $relative, $live . '/' . $relative);
+                }
+            }
             if (is_dir($incoming)) {
-                Folder::delete($incoming);
+                $this->removeTree($incoming);
             }
             throw $e;
         }
 
-        Folder::delete($old);
+        $this->removeTree($old);
     }
 
     /**
@@ -267,7 +352,7 @@ class DemoManager
         $staging = $this->tempDir('baseline');
         try {
             foreach ($roots as $key => $abs) {
-                Folder::rcopy($abs, $staging . '/' . $key);
+                $this->copyTree($abs, $staging . '/' . $key, $this->keptPaths($abs, $key));
             }
             if (is_file($destZip)) {
                 @unlink($destZip);
@@ -276,6 +361,207 @@ class DemoManager
         } finally {
             Folder::delete($staging);
         }
+    }
+
+    /**
+     * Paths under $root, relative to it, that a reset leaves exactly as they
+     * are: the API plugin's own data folder, every symlink directly inside the
+     * root or one level down (user/plugins/foo, user/pages/01.home), and in a
+     * settings folder every file a demo account cannot write, so the owner's
+     * own later changes there (to these demo settings, say) survive a reset.
+     *
+     * @return list<string>
+     */
+    private function keptPaths(string $root, string $key = ''): array
+    {
+        $kept = $key === 'config' || str_starts_with($key, 'environments/') ? $this->lockedConfigPaths() : [];
+
+        $apiData = $this->grav['locator']->findResource('user://data/api', true);
+        $apiData = $apiData ? (realpath($apiData) ?: $apiData) : null;
+        if ($apiData && str_starts_with($apiData . '/', $root . '/') && $apiData !== $root) {
+            $kept[] = substr($apiData, strlen($root) + 1);
+        }
+
+        foreach (glob($root . '/{,.}*', GLOB_BRACE) ?: [] as $child) {
+            $name = basename($child);
+            if ($name === '.' || $name === '..') {
+                continue;
+            }
+            if (is_link($child)) {
+                $kept[] = $name;
+                continue;
+            }
+            if (is_dir($child)) {
+                foreach (glob($child . '/{,.}*', GLOB_BRACE) ?: [] as $grandchild) {
+                    $leaf = basename($grandchild);
+                    if ($leaf !== '.' && $leaf !== '..' && is_link($grandchild)) {
+                        $kept[] = $name . '/' . $leaf;
+                    }
+                }
+            }
+        }
+
+        return array_values(array_unique($kept));
+    }
+
+    /**
+     * The files in a settings folder a demo account cannot write.
+     *
+     * @return list<string>
+     */
+    private function lockedConfigPaths(): array
+    {
+        $grants = DemoPolicy::expand((array) $this->demoConfig('writable', []));
+        $paths = [];
+        foreach (DemoPolicy::lockedConfigScopes() as $scope) {
+            $paths[] = $scope . '.yaml';
+        }
+        foreach (['site' => 'site.yaml', 'plugins' => 'plugins', 'themes' => 'themes'] as $group => $path) {
+            if (!in_array('api.config.' . $group, $grants, true)) {
+                $paths[] = $path;
+            }
+        }
+
+        return $paths;
+    }
+
+    /**
+     * Copy a folder, leaving out $skip (paths relative to $src) and never
+     * following a symlink.
+     *
+     * @param list<string> $skip
+     */
+    private function copyTree(string $src, string $dest, array $skip, string $prefix = ''): void
+    {
+        if (!is_dir($dest)) {
+            Folder::create($dest);
+        }
+        foreach (glob($src . '/{,.}*', GLOB_BRACE) ?: [] as $child) {
+            $name = basename($child);
+            if ($name === '.' || $name === '..' || is_link($child)) {
+                continue;
+            }
+            $relative = $prefix . $name;
+            if (in_array($relative, $skip, true)) {
+                continue;
+            }
+            if (is_dir($child)) {
+                $this->copyTree($child, $dest . '/' . $name, $skip, $relative . '/');
+            } else {
+                copy($child, $dest . '/' . $name);
+            }
+        }
+    }
+
+    /** Remove a file, a symlink (never what it points at) or a folder. */
+    private function removePath(string $path): void
+    {
+        if (is_link($path) || is_file($path)) {
+            @unlink($path);
+        } elseif (is_dir($path)) {
+            $this->removeTree($path);
+        }
+    }
+
+    /**
+     * Delete a folder without following symlinks inside it. A reset moves
+     * symlinks out before the old root is deleted, but this is the one place a
+     * mistake would delete files somewhere else, so it never relies on that.
+     */
+    private function removeTree(string $dir): void
+    {
+        if (is_link($dir)) {
+            @unlink($dir);
+            return;
+        }
+        foreach (glob($dir . '/{,.}*', GLOB_BRACE) ?: [] as $child) {
+            $name = basename($child);
+            if ($name === '.' || $name === '..') {
+                continue;
+            }
+            if (is_link($child) || !is_dir($child)) {
+                @unlink($child);
+            } else {
+                $this->removeTree($child);
+            }
+        }
+        @rmdir($dir);
+    }
+
+    /**
+     * What differs between the live roots and the baseline, by path inside the
+     * archive (`pages/02.blog/item.md`). Compared by size and CRC32, so it is
+     * cheap enough to run from the CLI on a site of any normal size.
+     *
+     * @return array{added: list<string>, changed: list<string>, removed: list<string>}|null
+     *         null when there is no baseline
+     */
+    public function changes(): ?array
+    {
+        if (!$this->baselineExists()) {
+            return null;
+        }
+
+        $zip = new \ZipArchive();
+        if ($zip->open($this->baselinePath()) !== true) {
+            throw new \RuntimeException('demo status: could not open the baseline archive.');
+        }
+
+        $archived = [];
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $stat = $zip->statIndex($i);
+            if ($stat === false || str_ends_with($stat['name'], '/')) {
+                continue;
+            }
+            $archived[$stat['name']] = [$stat['size'], $stat['crc']];
+        }
+        $zip->close();
+
+        $live = [];
+        foreach ($this->writableRoots() as $key => $abs) {
+            $kept = $this->keptPaths($abs, $key);
+            $iterator = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($abs, \FilesystemIterator::SKIP_DOTS)
+            );
+            foreach ($iterator as $file) {
+                /** @var \SplFileInfo $file */
+                if (!$file->isFile()) {
+                    continue;
+                }
+                $relative = substr($file->getPathname(), strlen($abs) + 1);
+                foreach ($kept as $skip) {
+                    if ($relative === $skip || str_starts_with($relative, $skip . '/')) {
+                        continue 2;
+                    }
+                }
+                $live[$key . '/' . $relative] = $file->getPathname();
+            }
+        }
+
+        $added = $changed = [];
+        foreach ($live as $name => $path) {
+            if (!isset($archived[$name])) {
+                $added[] = $name;
+                continue;
+            }
+            [$size, $crc] = $archived[$name];
+            if (filesize($path) !== $size || (int) hexdec(hash_file('crc32b', $path)) !== ($crc & 0xFFFFFFFF)) {
+                $changed[] = $name;
+            }
+        }
+        $removed = array_values(array_diff(array_keys($archived), array_keys($live)));
+
+        sort($added);
+        sort($changed);
+        sort($removed);
+
+        return ['added' => $added, 'changed' => $changed, 'removed' => $removed];
+    }
+
+    public function baselineCapturedAt(): ?int
+    {
+        $value = $this->readState()['baseline_at'] ?? null;
+        return is_int($value) ? $value : null;
     }
 
     // ---- Timing / status ----------------------------------------------------
@@ -329,6 +615,7 @@ class DemoManager
     {
         return [
             'baseline_exists' => $this->baselineExists(),
+            'baseline_at' => $this->baselineCapturedAt(),
             'writable' => array_values((array) $this->demoConfig('writable', [])),
             'roots' => array_keys($this->writableRoots()),
             'reset_interval' => $this->resetIntervalMinutes(),
@@ -342,9 +629,13 @@ class DemoManager
     // ---- Scheduler ----------------------------------------------------------
 
     /**
-     * Register a recurring reset job for installs that run `bin/grav scheduler`.
+     * Register a reset job for installs that run `bin/grav scheduler`.
      * Belt-and-suspenders with the lazy per-request path — either alone keeps a
      * demo fresh; the lock serializes them if both fire.
+     *
+     * The job runs every minute and resets only once the interval has passed,
+     * so any interval is kept exactly. A cron step expression cannot do that:
+     * `*\/45` fires at :00 and :45.
      */
     public function onSchedulerInitialized(Event $event): void
     {
@@ -352,14 +643,9 @@ class DemoManager
             return;
         }
 
-        $interval = $this->resetIntervalMinutes();
-        // Sub-hourly intervals map to a step expression; >=60 falls back to
-        // hourly (the lazy path keeps exact timing regardless).
-        $at = $interval >= 60 ? '0 * * * *' : '*/' . $interval . ' * * * *';
-
         $scheduler = $event['scheduler'];
         $job = $scheduler->addFunction(self::class . '::runScheduledReset', [], 'api-demo-reset');
-        $job->at($at);
+        $job->at('* * * * *');
         $job->output('logs/api-demo-reset.out');
     }
 
@@ -370,7 +656,7 @@ class DemoManager
     public static function runScheduledReset(): void
     {
         $grav = Grav::instance();
-        (new self($grav, $grav['config']))->reset(false);
+        (new self($grav, $grav['config']))->resetIfStale();
     }
 
     // ---- Paths / state / lock ----------------------------------------------

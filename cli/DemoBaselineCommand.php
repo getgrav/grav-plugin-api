@@ -36,7 +36,7 @@ class DemoBaselineCommand extends ConsoleCommand
 
         $roots = $manager->writableRoots();
         if ($roots === []) {
-            $io->error('No writable demo resources are configured (plugins.api.demo.writable is empty or maps to no existing folders). Nothing to capture.');
+            $io->error('Nothing to capture: plugins.api.demo.writable grants no changes, and neither include_code nor extra_roots adds a folder. A read-only demo has nothing to reset.');
             return 1;
         }
 
