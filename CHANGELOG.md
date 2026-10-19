@@ -1,3 +1,9 @@
+# v1.0.53
+## 10/19/2026
+
+1. [](#bugfix)
+    * On pages, a file removed from a file field no longer comes back after saving, and a new upload to a `self@` file field is recorded with the page's real folder (`01.home`) so it shows on the site. Thanks @sami [#62](https://github.com/getgrav/grav-plugin-api/pull/62)
+
 # v1.0.52
 ## 10/17/2026
 

@@ -35,14 +35,23 @@ class BlueprintPathResolverPageFolderTest extends TestCase
     protected function tearDown(): void
     {
         Grav::resetInstance();
+        $this->removeTree($this->root);
+    }
+
+    private function removeTree(string $dir): void
+    {
+        if (is_link($dir)) {
+            unlink($dir);
+            return;
+        }
         $it = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator($this->root, \FilesystemIterator::SKIP_DOTS),
+            new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS),
             \RecursiveIteratorIterator::CHILD_FIRST
         );
         foreach ($it as $f) {
-            $f->isDir() ? rmdir((string) $f) : unlink((string) $f);
+            ($f->isDir() && !$f->isLink()) ? rmdir((string) $f) : unlink((string) $f);
         }
-        rmdir($this->root);
+        rmdir($dir);
     }
 
     private function resolver(array $routes): BlueprintPathResolver
@@ -59,18 +68,22 @@ class BlueprintPathResolverPageFolderTest extends TestCase
                 return str_contains($uri, '://');
             }
         };
-        $pages = new class ($routes, $user) {
-            public function __construct(private array $routes, private string $user) {}
+        $pages = new class ($routes, $user, $this->root) {
+            public function __construct(private array $routes, private string $user, private string $root) {}
             public function find(string $route): ?object
             {
                 $folder = $this->routes[$route] ?? null;
                 if ($folder === null) {
                     return null;
                 }
+                // Like core, the page path is built from the pages stream and
+                // never run through realpath, and relativePagePath() is that
+                // path relative to the Grav root.
                 $path = $this->user . '/pages/' . $folder;
-                return new class ($path) {
-                    public function __construct(private string $path) {}
+                return new class ($path, $this->root) {
+                    public function __construct(private string $path, private string $root) {}
                     public function path(): string { return $this->path; }
+                    public function relativePagePath(): string { return substr($this->path, strlen($this->root) + 1); }
                 };
             }
         };
@@ -95,6 +108,20 @@ class BlueprintPathResolverPageFolderTest extends TestCase
             'pages/02.blog/03.my-post/images',
             $resolver->logicalParent('self@:images', 'pages/blog/my-post')
         );
+    }
+
+    #[Test]
+    public function a_symlinked_pages_folder_keeps_the_numbered_folder(): void
+    {
+        // user/pages is a symlink to a content folder outside user/, as on
+        // shared-content and deploy setups.
+        $this->removeTree($this->root . '/user/pages');
+        mkdir($this->root . '/content/pages/01.home', 0777, true);
+        symlink($this->root . '/content/pages', $this->root . '/user/pages');
+
+        $resolver = $this->resolver(['/home' => '01.home']);
+
+        $this->assertSame('pages/01.home', $resolver->logicalParent('self@', 'pages/home'));
     }
 
     #[Test]

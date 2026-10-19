@@ -286,25 +286,30 @@ class BlueprintPathResolver
      * route `home`. A page's route drops the folder's order prefix, so building
      * the path from the route pointed uploads at a folder that does not exist
      * (`pages/home`) while the file itself was written to `pages/01.home`.
-     * Falls back to the route-based form when the page can't be found.
+     *
+     * Uses the page's own relativePagePath(), the same value core's `self@`
+     * token and classic admin store, which is not run through realpath so a
+     * symlinked `user/pages` keeps its logical path. Falls back to the
+     * route-based form when the page can't be found.
      */
     private function pageLogicalDir(string $route): string
     {
-        $fallback = 'pages/' . trim($route, '/');
-        $absolute = $this->resolvePageScope($route);
-        $userRoot = $this->userRoot();
-        if ($absolute === null || $userRoot === null) {
-            return $fallback;
-        }
-        $absolute = rtrim(str_replace('\\', '/', realpath($absolute) ?: $absolute), '/');
-        $userRoot = rtrim(str_replace('\\', '/', $userRoot), '/');
-        if (!str_starts_with($absolute, $userRoot . '/')) {
-            return $fallback;
-        }
-        return substr($absolute, strlen($userRoot) + 1);
+        $relative = str_replace('\\', '/', (string) ($this->findPage($route)?->relativePagePath() ?? ''));
+
+        return str_starts_with($relative, 'user/')
+            ? rtrim(substr($relative, 5), '/')
+            : 'pages/' . trim($route, '/');
     }
 
     private function resolvePageScope(string $route): ?string
+    {
+        return $this->findPage($route)?->path() ?: null;
+    }
+
+    /**
+     * @return PageInterface|null
+     */
+    private function findPage(string $route)
     {
         if ($route === '') return null;
 
@@ -315,7 +320,7 @@ class BlueprintPathResolver
 
         /** @var PageInterface|null $page */
         $page = $pages->find('/' . ltrim($route, '/'));
-        return $page?->path() ?: null;
+        return $page;
     }
 
     /**
