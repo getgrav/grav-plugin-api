@@ -167,7 +167,7 @@ class BlueprintPathResolver
                 'plugins' => $name ? "plugins/{$name}" : null,
                 'themes' => $name ? "themes/{$name}" : null,
                 'users' => 'accounts',
-                'pages' => $name ? "pages/{$name}" : null,
+                'pages' => $name ? $this->pageLogicalDir($name) : null,
                 default => null,
             };
             if ($parent === null) return null;
@@ -279,6 +279,29 @@ class BlueprintPathResolver
         if ($name === '') return null;
         $resolved = $locator->findResource($stream . $name, true, true);
         return is_string($resolved) ? $resolved : null;
+    }
+
+    /**
+     * User-rooted folder of the page at `$route`, e.g. `pages/01.home` for the
+     * route `home`. A page's route drops the folder's order prefix, so building
+     * the path from the route pointed uploads at a folder that does not exist
+     * (`pages/home`) while the file itself was written to `pages/01.home`.
+     * Falls back to the route-based form when the page can't be found.
+     */
+    private function pageLogicalDir(string $route): string
+    {
+        $fallback = 'pages/' . trim($route, '/');
+        $absolute = $this->resolvePageScope($route);
+        $userRoot = $this->userRoot();
+        if ($absolute === null || $userRoot === null) {
+            return $fallback;
+        }
+        $absolute = rtrim(str_replace('\\', '/', realpath($absolute) ?: $absolute), '/');
+        $userRoot = rtrim(str_replace('\\', '/', $userRoot), '/');
+        if (!str_starts_with($absolute, $userRoot . '/')) {
+            return $fallback;
+        }
+        return substr($absolute, strlen($userRoot) + 1);
     }
 
     private function resolvePageScope(string $route): ?string
