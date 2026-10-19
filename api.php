@@ -265,7 +265,7 @@ class ApiPlugin extends Plugin
             $currentPath = substr($currentPath, strlen($gravBase)) ?: '/';
         }
 
-        if (str_starts_with($currentPath, $this->base)) {
+        if ($currentPath === $this->base || str_starts_with($currentPath, $this->base . '/')) {
             $this->active = true;
         }
     }
@@ -602,7 +602,11 @@ class ApiPlugin extends Plugin
         $route = $event->getRoute();
         $path = $route->getRoute();
 
-        if (str_starts_with($path, $this->base)) {
+        // Only the versioned base. The router cuts that base off by length, so
+        // a looser match handed it `/api/v2/users/x` or `/apiary/users/x` as
+        // `/users/x`, past any plugin that guards the API by its real address,
+        // and took over a site's own pages whose route starts with `/api`.
+        if ($path === $this->apiRoute || str_starts_with($path, $this->apiRoute . '/')) {
             $event->addMiddleware('api_router', new ApiRouter($this->grav, $this->config));
         }
     }
