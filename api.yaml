@@ -157,10 +157,17 @@ media_metadata:
   # and site media manager). Each entry's `key` is the exact key written to the
   # `<filename>.meta.yaml` sidecar next to the media file. Order is preserved in
   # the editor. `type` is `text` (single line), `textarea` (multi-line),
-  # `tags` (a list of values, stored as a YAML sequence), or `select` (one of
+  # `tags` (a list of values, stored as a YAML sequence), `select` (one of
   # the entries in `options`, a map of stored value to display label, e.g.
   # `options: { generated: 'AI generated', none: 'No AI' }`; a select without
-  # options is ignored).
+  # options is ignored), `number` (stored as a YAML number, with optional `min`
+  # and `max` bounds), `date` (`YYYY-MM-DD`, stored quoted so it stays a string)
+  # or `boolean` (stored as `true`; clearing it removes the key, since a stored
+  # 'false' string is truthy in Twig).
+  #
+  # `required: true` means a save cannot empty the field. A request that leaves
+  # the key out altogether still leaves the stored value alone, and clearing all
+  # metadata ignores `required`.
   #
   # Any keys NOT listed here — EXIF data, width/height, the `upload` block core
   # writes, image-action keys like `resize`/`quality` — are left untouched when
