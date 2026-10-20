@@ -1,3 +1,11 @@
+# v1.0.55
+## 10/20/2026
+
+1. [](#new)
+    * Media metadata fields can now be a number (with an optional minimum and maximum), a date or a yes/no toggle, and any field can be marked required so a save can't leave it empty. Thanks @phmg701 [#63](https://github.com/getgrav/grav-plugin-api/pull/63)
+2. [](#improved)
+    * Saving metadata to several media files at once now checks the values first and refuses the whole batch when one is invalid, instead of reporting the same error for every file
+
 # v1.0.54
 ## 10/20/2026
 

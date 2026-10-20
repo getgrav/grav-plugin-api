@@ -3362,7 +3362,7 @@ paths:
       tags: [Media]
       summary: Apply metadata to several site media files
       description: |
-        Write the same metadata fields to many site media files at once. Only the configured fields present in `fields` change; each file keeps its other values. Every file is handled on its own, so one failure is reported in `results` without stopping the rest. The number of files is capped by `plugins.api.batch.max_items` (default 50). Requires `api.media.write`.
+        Write the same metadata fields to many site media files at once. Only the configured fields present in `fields` change; each file keeps its other values. The field values are checked once before anything is written, so an invalid value (or a `required` field sent empty) fails the whole request with a 422. Each file is then handled on its own, so a per-file problem such as a missing file is reported in `results` without stopping the rest. The number of files is capped by `plugins.api.batch.max_items` (default 50). Requires `api.media.write`.
       requestBody:
         required: true
         content:
@@ -3382,10 +3382,12 @@ paths:
                   additionalProperties:
                     oneOf:
                       - type: string
+                      - type: number
+                      - type: boolean
                       - type: array
                         items:
                           type: string
-                  description: Metadata field key to value. An empty string (or empty array for a `tags` field) clears that field.
+                  description: Metadata field key to value, validated the same way as a single-file write. An empty string (or empty array for a `tags` field) clears that field.
             example:
               files: [photos/beach.jpg, photos/dunes.jpg]
               fields:

@@ -480,14 +480,23 @@ form:
                   type: number
                   label: PLUGIN_API.NUMBER_MIN
                   help: PLUGIN_API.NUMBER_MIN_HELP
+                  step: any
                 .max:
                   type: number
                   label: PLUGIN_API.NUMBER_MAX
                   help: PLUGIN_API.NUMBER_MAX_HELP
+                  step: any
                 .required:
                   type: toggle
                   label: PLUGIN_API.REQUIRED
                   help: PLUGIN_API.REQUIRED_HELP
+                  highlight: 1
+                  default: 0
+                  options:
+                    1: PLUGIN_ADMIN.YES
+                    0: PLUGIN_ADMIN.NO
+                  validate:
+                    type: bool
 
             section_popularity:
               type: section

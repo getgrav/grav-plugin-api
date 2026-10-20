@@ -21,7 +21,7 @@ use Symfony\Component\Yaml\Yaml;
 /**
  * The typed `number`, `date` and `boolean` types of the configurable
  * `media_metadata.fields`, plus the `required` flag: values are stored as
- * native YAML scalars, read back in the same shape, and a batch validates the
+ * native YAML scalars, read back the same way, and a batch validates the
  * shared field map once before it writes anything.
  */
 #[CoversClass(MediaController::class)]
