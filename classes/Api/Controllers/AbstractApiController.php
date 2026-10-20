@@ -12,7 +12,9 @@ use Grav\Common\Page\Interfaces\PageInterface;
 use Grav\Common\User\Interfaces\UserInterface;
 use Grav\Plugin\Api\Auth\JwtAuthenticator;
 use Grav\Plugin\Api\Demo\DemoManager;
+use Grav\Plugin\Api\Demo\DemoPolicy;
 use Grav\Plugin\Api\Exceptions\DemoModeException;
+use Grav\Plugin\Api\Middleware\DemoModeMiddleware;
 use Grav\Plugin\Api\Exceptions\ForbiddenException;
 use Grav\Plugin\Api\Exceptions\UnauthorizedException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
@@ -76,7 +78,7 @@ abstract class AbstractApiController
         // distinguished correctly even though they share the /pages route prefix.
         // Enforced BEFORE the super-admin short-circuit because a demo account is
         // typically also super. Reads are never blocked (browsing stays open).
-        if ($this->isDemoUser($request) && $this->demoWriteBlocked($permission)) {
+        if ($this->isDemoUser($request) && $this->demoWriteBlocked($permission, $request)) {
             throw new DemoModeException();
         }
 
@@ -221,19 +223,63 @@ abstract class AbstractApiController
     }
 
     /**
-     * Whether demo mode blocks the given permission. Read permissions (`*.read`)
-     * are always allowed so a demo account can browse everything; any other
-     * (mutating) permission is blocked unless it's in `plugins.api.demo.writable`.
-     * This is the single source of truth for the writable allowlist — the router
-     * middleware is only a coarse fail-closed backstop.
+     * Whether demo mode blocks the given permission. Reads (`*.read`, and any
+     * request that is not a POST, PUT, PATCH or DELETE) are always allowed so a
+     * demo account can browse everything.
+     *
+     * A write the router already matched against the demo grants carries the
+     * grant it was let through on (see DemoModeMiddleware), and that decision
+     * stands for the permission family it was made for: a PATCH on a page let
+     * through on `api.pages.update` satisfies this controller's coarser
+     * `api.pages.write`. A route the owner opened with `allow_routes` passes a
+     * plugin's own permission checks but none of the API's. Anything else
+     * needs the permission itself granted.
      */
-    protected function demoWriteBlocked(string $permission): bool
+    protected function demoWriteBlocked(string $permission, ?ServerRequestInterface $request = null): bool
     {
         if (str_ends_with($permission, '.read')) {
             return false;
         }
-        $writable = (array) $this->config->get('plugins.api.demo.writable', []);
+        // A GET is never a write, whatever permission it asks for: GET /me asks
+        // for api.access, and a demo account must still be able to sign in.
+        if ($request !== null && !DemoPolicy::isMutating($request->getMethod())) {
+            return false;
+        }
+
+        $grant = $request?->getAttribute(DemoModeMiddleware::ATTRIBUTE);
+        if ($grant === 'allow_routes' && !DemoPolicy::isCorePermission($permission)) {
+            return false;
+        }
+        if (is_string($grant) && self::permissionFamily($grant) === self::permissionFamily($permission)) {
+            return false;
+        }
+
+        $writable = DemoPolicy::expand((array) $this->config->get('plugins.api.demo.writable', []));
+
         return !in_array($permission, $writable, true);
+    }
+
+    /**
+     * Refuse a demo account's write unless $grant is granted. For the writes
+     * whose grant is only known once the body is read (a page batch).
+     */
+    protected function requireDemoGrant(ServerRequestInterface $request, string $grant): void
+    {
+        if (!$this->isDemoUser($request)) {
+            return;
+        }
+        $writable = DemoPolicy::expand((array) $this->config->get('plugins.api.demo.writable', []));
+        if ($grant === DemoPolicy::DENY || !in_array($grant, $writable, true)) {
+            throw new DemoModeException();
+        }
+    }
+
+    /** `api.pages.update` → `api.pages`. */
+    private static function permissionFamily(string $permission): string
+    {
+        $dot = strrpos($permission, '.');
+
+        return $dot === false ? $permission : substr($permission, 0, $dot);
     }
 
     /**
@@ -394,7 +440,7 @@ abstract class AbstractApiController
             throw new ForbiddenException("API key is not authorized for: {$permission}");
         }
 
-        if ($this->isDemoUser($request) && $this->demoWriteBlocked($permission)) {
+        if ($this->isDemoUser($request) && $this->demoWriteBlocked($permission, $request)) {
             throw new DemoModeException();
         }
 
@@ -450,7 +496,7 @@ abstract class AbstractApiController
         $user = $this->getUser($request);
 
         if ($this->isSuperWithinScope($request)) {
-            return array_fill_keys(PageAcl::ACTIONS, true);
+            return $this->demoCapPageActions($request, array_fill_keys(PageAcl::ACTIONS, true));
         }
 
         if (!$this->hasPermission($user, 'api.access')) {
@@ -458,8 +504,7 @@ abstract class AbstractApiController
         }
 
         $read = $this->hasPermissionWithinScope($request, 'api.pages.read');
-        $write = $this->hasPermissionWithinScope($request, 'api.pages.write')
-            && !($this->isDemoUser($request) && $this->demoWriteBlocked('api.pages.write'));
+        $write = $this->hasPermissionWithinScope($request, 'api.pages.write');
 
         $base = [
             'create' => $write,
@@ -475,8 +520,7 @@ abstract class AbstractApiController
         // A page grant never escapes the credential's own limits (see
         // authorizePageAction()), so cap writes the same way here — otherwise
         // the UI offers a Save button the server would reject.
-        if (!$this->scopeAllows($request, 'api.pages.write')
-            || ($this->isDemoUser($request) && $this->demoWriteBlocked('api.pages.write'))) {
+        if (!$this->scopeAllows($request, 'api.pages.write')) {
             foreach (['create', 'update', 'delete', 'publish'] as $action) {
                 $capabilities[$action] = false;
             }
@@ -484,6 +528,36 @@ abstract class AbstractApiController
         if (!$this->scopeAllows($request, 'api.pages.read')) {
             $capabilities['read'] = false;
             $capabilities['list'] = false;
+        }
+
+        return $this->demoCapPageActions($request, $capabilities);
+    }
+
+    /**
+     * Cap a demo account's page actions at its demo grants, one action at a
+     * time, so the editor offers Save but not Delete when only `update` is
+     * granted. Applies to super users too: a demo account usually is one.
+     *
+     * @param array<string, bool> $capabilities
+     * @return array<string, bool>
+     */
+    private function demoCapPageActions(ServerRequestInterface $request, array $capabilities): array
+    {
+        if (!$this->isDemoUser($request)) {
+            return $capabilities;
+        }
+
+        $grants = DemoPolicy::expand((array) $this->config->get('plugins.api.demo.writable', []));
+        $needs = [
+            'create' => 'api.pages.create',
+            'update' => 'api.pages.update',
+            'publish' => 'api.pages.update',
+            'delete' => 'api.pages.delete',
+        ];
+        foreach ($needs as $action => $grant) {
+            if (!in_array($grant, $grants, true)) {
+                $capabilities[$action] = false;
+            }
         }
 
         return $capabilities;
@@ -1071,7 +1145,10 @@ abstract class AbstractApiController
 
         return [
             'enabled' => $enabled,
-            'writable' => $enabled ? array_values((array) $this->config->get('plugins.api.demo.writable', [])) : [],
+            // Shorthand grants included whenever a finer one is, which is what
+            // admin2 checks to open an editor at all; `grants` is the full list.
+            'writable' => $enabled ? DemoPolicy::coarse((array) $this->config->get('plugins.api.demo.writable', [])) : [],
+            'grants' => $enabled ? DemoPolicy::expand((array) $this->config->get('plugins.api.demo.writable', [])) : [],
             'reset_interval' => $manager->resetIntervalMinutes(),
             'seconds_until_reset' => $enabled ? $manager->secondsUntilReset() : null,
         ];

@@ -1,7 +1,7 @@
 name: API
 slug: api
 type: plugin
-version: 1.0.53
+version: 1.0.54
 description: RESTful API for Grav CMS. Provides headless access to pages, media, configuration, users, and system management.
 icon: plug
 author:
@@ -671,12 +671,56 @@ form:
               multiple: true
               label: PLUGIN_API.WRITABLE_RESOURCES
               help: PLUGIN_API.WRITABLE_RESOURCES_HELP
-              default:
-                - api.pages.write
-                - api.media.write
+              default: []
               options:
-                api.pages.write: PLUGIN_API.PAGES
-                api.media.write: PLUGIN_API.MEDIA
+                api.pages.create: PLUGIN_API.DEMO_GRANT_PAGES_CREATE
+                api.pages.update: PLUGIN_API.DEMO_GRANT_PAGES_UPDATE
+                api.pages.delete: PLUGIN_API.DEMO_GRANT_PAGES_DELETE
+                api.media.upload: PLUGIN_API.DEMO_GRANT_MEDIA_UPLOAD
+                api.media.update: PLUGIN_API.DEMO_GRANT_MEDIA_UPDATE
+                api.media.delete: PLUGIN_API.DEMO_GRANT_MEDIA_DELETE
+                api.config.site: PLUGIN_API.DEMO_GRANT_CONFIG_SITE
+                api.config.plugins: PLUGIN_API.DEMO_GRANT_CONFIG_PLUGINS
+                api.config.themes: PLUGIN_API.DEMO_GRANT_CONFIG_THEMES
+                api.pages.write: PLUGIN_API.DEMO_GRANT_PAGES_ALL
+                api.media.write: PLUGIN_API.DEMO_GRANT_MEDIA_ALL
+                api.config.write: PLUGIN_API.DEMO_GRANT_CONFIG_ALL
+
+            demo.allow_routes:
+              type: array
+              label: PLUGIN_API.DEMO_ALLOW_ROUTES
+              help: PLUGIN_API.DEMO_ALLOW_ROUTES_HELP
+              placeholder_value: 'POST /courses/*'
+              value_only: true
+
+            demo.escape_html:
+              type: toggle
+              label: PLUGIN_API.DEMO_ESCAPE_HTML
+              help: PLUGIN_API.DEMO_ESCAPE_HTML_HELP
+              default: 1
+              options:
+                1: PLUGIN_ADMIN.ENABLED
+                0: PLUGIN_ADMIN.DISABLED
+              validate:
+                type: bool
+
+            demo.include_code:
+              type: toggle
+              label: PLUGIN_API.DEMO_INCLUDE_CODE
+              help: PLUGIN_API.DEMO_INCLUDE_CODE_HELP
+              default: 0
+              options:
+                1: PLUGIN_ADMIN.ENABLED
+                0: PLUGIN_ADMIN.DISABLED
+              validate:
+                type: bool
+
+            demo.extra_roots:
+              type: array
+              label: PLUGIN_API.DEMO_EXTRA_ROOTS
+              help: PLUGIN_API.DEMO_EXTRA_ROOTS_HELP
+              placeholder_value: 'user://data'
+              value_only: true
 
             demo.reset_interval:
               type: text

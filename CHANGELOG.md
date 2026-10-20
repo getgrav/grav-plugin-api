@@ -1,3 +1,22 @@
+# v1.0.54
+## 10/20/2026
+
+1. [](#new)
+    * Demo mode can now allow part of an area: create and edit pages but not delete them, upload media but not delete it, and so on, with `api.pages.create`, `api.pages.update`, `api.pages.delete`, `api.media.upload`, `api.media.update` and `api.media.delete`. The old `api.pages.write` and `api.media.write` still mean all three. Admin2 hides the actions that aren't allowed
+    * Demo accounts can now be allowed to change site, plugin or theme settings (`api.config.site`, `api.config.plugins`, `api.config.themes`). The system, security, media, scheduler and backups settings and the API, Admin, Login and Email plugin settings stay refused
+    * `demo.allow_routes` lets a demo account write to a plugin's own API routes, which are refused by default
+    * `bin/plugin api demo:status` shows what demo accounts may change, when the last and next reset are, and which files have changed since the baseline
+    * `demo.include_code` also restores `user/plugins` and `user/themes` on every reset, and `demo.extra_roots` adds more `user://` folders, such as `user://data` for what visitors do on the site itself
+2. [](#improved)
+    * Demo mode is read-only by default. It used to let demo accounts edit pages and media unless `demo.writable` was changed
+    * Pages a demo account saves show raw HTML as text (`demo.escape_html`, on by default), and a demo account can't save a page that runs Twig
+    * The scheduled demo reset now keeps the configured interval exactly. Intervals that don't divide an hour used to reset early, at the top of every hour
+    * A reset only restores the settings a demo account can change, so the owner's own later changes to other settings, the demo settings included, are kept. Settings saved in an environment folder are reset as well
+3. [](#bugfix)
+    * Demo accounts can sign in to Admin2 again. Every request that checked `api.access`, `GET /me` included, was refused as if it were a write
+    * A demo reset no longer rolls back `user/data/api` (API keys, the audit log and the demo's own baseline and safety copies), and leaves symlinked folders alone instead of replacing them with copies
+    * The API only answers at its own address (`/api/v1` by default). Any path starting with `/api` used to reach it, with the start cut off by length, so `/api/v2/users/x` and `/apixy/users/x` were both served as `/users/x`. That let requests past plugins that guard the API by its real address, and took over a site's own pages whose route starts with `/api`, such as `/apiary`
+
 # v1.0.53
 ## 10/19/2026
 
