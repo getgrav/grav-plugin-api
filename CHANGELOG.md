@@ -1,5 +1,5 @@
 # v1.0.54
-## 10/19/2026
+## 10/20/2026
 
 1. [](#new)
     * Demo mode can now allow part of an area: create and edit pages but not delete them, upload media but not delete it, and so on, with `api.pages.create`, `api.pages.update`, `api.pages.delete`, `api.media.upload`, `api.media.update` and `api.media.delete`. The old `api.pages.write` and `api.media.write` still mean all three. Admin2 hides the actions that aren't allowed
