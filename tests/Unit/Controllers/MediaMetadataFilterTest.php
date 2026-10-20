@@ -26,6 +26,7 @@ class MediaMetadataFilterTest extends TestCase
         'title' => 'text',
         'rating' => 'text',
         'tags' => 'tags',
+        'featured' => 'boolean',
     ];
 
     private MediaController $controller;
@@ -105,5 +106,29 @@ class MediaMetadataFilterTest extends TestCase
     {
         // strip_tags removes markup; the parser never emits raw HTML.
         $this->assertSame(['title', '==', 'hello'], $this->parse('title:==:<b>hello</b>'));
+    }
+
+    #[Test]
+    public function boolean_filter_value_becomes_a_real_bool(): void
+    {
+        // A boolean is stored natively, so `?filter=featured:true` has to
+        // compare against `true` rather than the string 'true'.
+        $this->assertSame(['featured', '==', true], $this->parse('featured:true'));
+        $this->assertSame(['featured', '==', true], $this->parse('featured:1'));
+        $this->assertSame(['featured', '==', false], $this->parse('featured:false'));
+        $this->assertSame(['featured', '==', false], $this->parse('featured:0'));
+    }
+
+    #[Test]
+    public function boolean_in_filter_coerces_each_value(): void
+    {
+        $this->assertSame(['featured', 'in', [true, false]], $this->parse('featured:in:1,0'));
+    }
+
+    #[Test]
+    public function boolean_filter_rejects_another_value(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->parse('featured:yes');
     }
 }

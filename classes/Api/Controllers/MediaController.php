@@ -617,8 +617,12 @@ class MediaController extends AbstractApiController
      *
      * Body: `{"files": ["a.jpg", "sub/b.png"], "fields": {"tags": ["hero"]}}`.
      * Files are listed by path (relative to the media root) rather than via
-     * `?path=` because a batch targets many files. Each file is validated and
-     * written independently; a failure on one is reported without aborting the
+     * `?path=` because a batch targets many files.
+     *
+     * The field map is validated once up front, so an invalid value fails the
+     * whole request with a 422 instead of repeating the same error for every
+     * file. Each file is then written independently; a per-file problem such as
+     * a missing file is reported in its own result row without aborting the
      * rest.
      */
     public function batchSiteMediaMeta(ServerRequestInterface $request): ResponseInterface
@@ -643,6 +647,11 @@ class MediaController extends AbstractApiController
             throw new ValidationException("Batch metadata updates are limited to {$maxBatch} files.");
         }
 
+        // The same fields apply to every file, so validate them once: an
+        // invalid value (or a required field sent empty) fails the whole
+        // request instead of producing one identical error row per file.
+        $changes = $this->sanitizeMetaInput($fields);
+
         $mediaPath = $this->getSiteMediaPath();
         $results = [];
         $parents = [];
@@ -660,7 +669,7 @@ class MediaController extends AbstractApiController
                     throw new NotFoundException('Media file not found.');
                 }
 
-                $this->applyMetaWrite($filePath, $fields);
+                $this->applyMetaChanges($filePath, $changes);
                 $this->fireEvent('onApiMediaMetadataUpdated', ['path' => $relativePath, 'filename' => basename($relativePath)]);
 
                 $results[] = ['path' => $relativePath, 'status' => 'success'];
@@ -1369,13 +1378,15 @@ class MediaController extends AbstractApiController
 
     /**
      * The configured editable metadata fields, normalized to a list of
-     * `['key' => string, 'label' => string, 'type' => 'text'|'textarea'|'tags'|'select']`.
+     * `['key' => string, 'label' => string, 'type' => string]` where the type
+     * is `text`, `textarea`, `tags`, `select`, `number`, `date` or `boolean`.
      * Entries with an unsafe/reserved key are dropped, an unknown type becomes
-     * `text`, and a `select` also carries `options` (stored value => display
-     * label) and is dropped when it has no usable options. An empty or absent
-     * config falls back to the built-in defaults.
+     * `text`, a `select` also carries `options` (stored value => display
+     * label) and is dropped when it has no usable options, a `number` may carry
+     * `min`/`max` bounds, and a `required` field carries `required => true`. An
+     * empty or absent config falls back to the built-in defaults.
      *
-     * @return list<array{key: string, label: string, type: string, options?: array<string, string>}>
+     * @return list<array{key: string, label: string, type: string, options?: array<string, string>, min?: int|float, max?: int|float, required?: true}>
      */
     private function getMetadataFieldDefs(): array
     {
@@ -1397,7 +1408,7 @@ class MediaController extends AbstractApiController
                 continue;
             }
             $type = (string) ($entry['type'] ?? 'text');
-            if (!in_array($type, ['text', 'textarea', 'tags', 'select'], true)) {
+            if (!in_array($type, ['text', 'textarea', 'tags', 'select', 'number', 'date', 'boolean'], true)) {
                 $type = 'text';
             }
             $label = trim((string) ($entry['label'] ?? '')) ?: $key;
@@ -1409,6 +1420,19 @@ class MediaController extends AbstractApiController
                     continue;
                 }
                 $def['options'] = $options;
+            }
+            if ($type === 'number') {
+                $min = $this->normalizeNumberBound($entry['min'] ?? null);
+                if ($min !== null) {
+                    $def['min'] = $min;
+                }
+                $max = $this->normalizeNumberBound($entry['max'] ?? null);
+                if ($max !== null) {
+                    $def['max'] = $max;
+                }
+            }
+            if (!empty($entry['required'])) {
+                $def['required'] = true;
             }
 
             $seen[$key] = true;
@@ -1443,6 +1467,25 @@ class MediaController extends AbstractApiController
         }
 
         return $normalized;
+    }
+
+    /**
+     * Normalize a `number` field's configured `min`/`max` bound. Accepts an
+     * int, a float, or a numeric string; anything else (including an empty
+     * value or a non-finite number) means "no bound".
+     */
+    private function normalizeNumberBound(mixed $bound): int|float|null
+    {
+        if (is_int($bound) || is_float($bound)) {
+            return is_finite((float) $bound) ? $bound : null;
+        }
+        if (!is_string($bound) || !is_numeric(trim($bound))) {
+            return null;
+        }
+
+        $number = trim($bound) + 0;
+
+        return is_float($number) && !is_finite($number) ? null : $number;
     }
 
     /**
@@ -1557,7 +1600,7 @@ class MediaController extends AbstractApiController
      * unknown operator, or an operator disallowed for the field's type.
      *
      * @param array<string, string> $typeByKey field key => field type
-     * @return array{0: string, 1: string, 2: string|list<string>}|null
+     * @return array{0: string, 1: string, 2: string|bool|list<string|bool>}|null
      */
     private function parseFilterClause(string $clause, array $typeByKey, int $maxLen): ?array
     {
@@ -1607,7 +1650,31 @@ class MediaController extends AbstractApiController
             $value = $this->sanitizeFilterValue($rawValue, $maxLen);
         }
 
+        // A boolean is stored natively, so filter on a real bool too.
+        if ($type === 'boolean') {
+            $value = is_array($value)
+                ? array_map(fn($v) => $this->normalizeFilterBoolean($v), $value)
+                : $this->normalizeFilterBoolean($value);
+        }
+
         return [$field, $operator, $value];
+    }
+
+    /**
+     * Normalize a `boolean` filter value to a real bool, so
+     * `?filter=featured:true` matches the native `true` stored in the sidecar.
+     */
+    private function normalizeFilterBoolean(string $value): bool
+    {
+        $str = strtolower(trim($value));
+        if (in_array($str, ['true', '1'], true)) {
+            return true;
+        }
+        if (in_array($str, ['false', '0'], true)) {
+            return false;
+        }
+
+        throw new ValidationException('A boolean filter accepts true, false, 1 or 0.');
     }
 
     /**
@@ -1683,6 +1750,158 @@ class MediaController extends AbstractApiController
         }
 
         return $str;
+    }
+
+    /**
+     * Whether a field type is stored as a native YAML scalar (or a date string)
+     * rather than sanitized text.
+     */
+    private function isTypedMetadataType(string $type): bool
+    {
+        return $type === 'number' || $type === 'date' || $type === 'boolean';
+    }
+
+    /**
+     * Sanitize a value for a typed (`number`, `date`, `boolean`) field. These
+     * are stored as native YAML scalars so the sidecar reads the way a person
+     * would write it by hand: an int/float for `number`, a quoted `Y-m-d`
+     * string for `date`, and `true` for `boolean`. Returns `null` when the
+     * value clears the field, so `0` and `false` stay valid values.
+     *
+     * @param array<string, mixed> $def Field definition from getMetadataFieldDefs().
+     */
+    private function sanitizeTypedMetadataValue(mixed $value, array $def): mixed
+    {
+        if (is_array($value) || is_object($value)) {
+            throw new ValidationException('Metadata values must be plain text.');
+        }
+
+        $type = $def['type'];
+
+        if ($type === 'boolean') {
+            return $this->sanitizeBooleanValue($value);
+        }
+
+        if ($type === 'date') {
+            $str = trim((string) $value);
+            if ($str === '') {
+                return null;
+            }
+            if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $str, $parts)
+                || !checkdate((int) $parts[2], (int) $parts[3], (int) $parts[1])) {
+                throw new ValidationException('Metadata value must be a valid date in YYYY-MM-DD form.');
+            }
+
+            return $str;
+        }
+
+        // number
+        $raw = is_string($value) ? trim($value) : $value;
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+        if (is_bool($raw) || !is_numeric($raw)) {
+            throw new ValidationException('Metadata value must be a number.');
+        }
+
+        $number = $raw + 0;
+        if (is_float($number) && !is_finite($number)) {
+            throw new ValidationException('Metadata value must be a finite number.');
+        }
+        if (isset($def['min']) && $number < $def['min']) {
+            throw new ValidationException(sprintf('Metadata value must be at least %s.', $def['min']));
+        }
+        if (isset($def['max']) && $number > $def['max']) {
+            throw new ValidationException(sprintf('Metadata value must be at most %s.', $def['max']));
+        }
+
+        return $number;
+    }
+
+    /**
+     * Normalize a `boolean` write value: `true`/`1` store `true`, while
+     * `false`/`0` and an empty value clear the field — a stored `'false'`
+     * string is truthy in Twig. Anything else is rejected.
+     */
+    private function sanitizeBooleanValue(mixed $value): ?bool
+    {
+        if (is_bool($value)) {
+            return $value ?: null;
+        }
+        if ($value === null) {
+            return null;
+        }
+        if (is_int($value) || is_float($value)) {
+            if ($value == 1) {
+                return true;
+            }
+            if ($value == 0) {
+                return null;
+            }
+        }
+        if (is_string($value)) {
+            $str = strtolower(trim($value));
+            if (in_array($str, ['true', '1'], true)) {
+                return true;
+            }
+            if (in_array($str, ['false', '0', ''], true)) {
+                return null;
+            }
+        }
+
+        throw new ValidationException('Metadata value must be true or false.');
+    }
+
+    /**
+     * Read a typed field's stored value for the response. A `number` comes back
+     * as a JSON number and a `boolean` as a JSON boolean; a `date` comes back as
+     * `Y-m-d`, with a hand-written timestamp integer turned back into its day.
+     * A stored value that does not fit the type is returned as-is rather than
+     * rejected, so a curator can fix it in the editor.
+     */
+    private function readTypedMetadataValue(mixed $raw, string $type): mixed
+    {
+        if ($type === 'boolean') {
+            if (is_bool($raw)) {
+                return $raw;
+            }
+            if ($raw === null || $raw === '') {
+                return false;
+            }
+            if (is_int($raw) || is_float($raw)) {
+                return $raw != 0;
+            }
+            if (is_string($raw)) {
+                $str = strtolower(trim($raw));
+                if (in_array($str, ['true', '1'], true)) {
+                    return true;
+                }
+                if (in_array($str, ['false', '0'], true)) {
+                    return false;
+                }
+            }
+
+            return $raw;
+        }
+
+        if ($type === 'date') {
+            // A hand-written `taken: 2026-10-19` arrives from YAML as a Unix
+            // timestamp; show the day rather than the integer.
+            return is_int($raw) ? gmdate('Y-m-d', $raw) : ($raw ?? '');
+        }
+
+        // number
+        if ($raw === null) {
+            return '';
+        }
+        if (is_int($raw) || is_float($raw)) {
+            return $raw;
+        }
+        if (is_string($raw) && is_numeric(trim($raw))) {
+            return trim($raw) + 0;
+        }
+
+        return $raw;
     }
 
     /**
@@ -1791,6 +2010,8 @@ class MediaController extends AbstractApiController
                         $raw,
                     ), static fn($t) => $t !== ''))
                     : (is_scalar($raw) && $raw !== '' ? [(string) $raw] : []);
+            } elseif ($this->isTypedMetadataType($def['type'])) {
+                $value = $this->readTypedMetadataValue($raw, $def['type']);
             } else {
                 $value = is_scalar($raw) ? (string) $raw : '';
             }
@@ -1804,6 +2025,14 @@ class MediaController extends AbstractApiController
             if ($def['type'] === 'select') {
                 // An object, so numeric option keys never serialize as a JSON list.
                 $field['options'] = (object) $def['options'];
+            }
+            foreach (['min', 'max'] as $bound) {
+                if (isset($def[$bound])) {
+                    $field[$bound] = $def[$bound];
+                }
+            }
+            if (!empty($def['required'])) {
+                $field['required'] = true;
             }
             $fields[] = $field;
         }
@@ -1826,15 +2055,34 @@ class MediaController extends AbstractApiController
 
     /**
      * Apply an incoming field map to a media file's sidecar. Only configured,
-     * non-reserved fields present in the input are changed (empty value clears
-     * the key); all other keys are preserved. An emptied sidecar is removed.
+     * non-reserved fields present in the input are changed (an empty value
+     * clears the key); all other keys are preserved. An emptied sidecar is
+     * removed.
      *
      * @param array<string, mixed> $input
      */
     private function applyMetaWrite(string $filePath, array $input): void
     {
-        $stored = $this->readMetaSidecar($filePath);
+        $this->applyMetaChanges($filePath, $this->sanitizeMetaInput($input));
+    }
+
+    /**
+     * Validate and normalize an incoming field map against the configured
+     * fields. Returns only the keys that were sent, mapped to the value to
+     * store, or `null` when the field is cleared. Throws
+     * {@see ValidationException} for an invalid value, or for a `required`
+     * field that was sent empty.
+     *
+     * A key absent from the map is never touched, so a request that only sends
+     * `alt` leaves a required `copyright` as it was.
+     *
+     * @param array<string, mixed> $input
+     * @return array<string, mixed>
+     */
+    private function sanitizeMetaInput(array $input): array
+    {
         $maxLen = $this->getMetadataMaxLength();
+        $changes = [];
 
         foreach ($this->getMetadataFieldDefs() as $def) {
             $key = $def['key'];
@@ -1844,16 +2092,37 @@ class MediaController extends AbstractApiController
 
             if ($def['type'] === 'tags') {
                 $tags = $this->sanitizeMetadataList($input[$key], $maxLen);
-                if ($tags === []) {
-                    unset($stored[$key]);
-                } else {
-                    $stored[$key] = $tags;
-                }
-                continue;
+                $value = $tags === [] ? null : $tags;
+            } elseif ($this->isTypedMetadataType($def['type'])) {
+                $value = $this->sanitizeTypedMetadataValue($input[$key], $def);
+            } else {
+                $text = $this->sanitizeMetadataValue($input[$key], $def['type'], $maxLen, $def['options'] ?? []);
+                $value = $text === '' ? null : $text;
             }
 
-            $value = $this->sanitizeMetadataValue($input[$key], $def['type'], $maxLen, $def['options'] ?? []);
-            if ($value === '') {
+            if ($value === null && !empty($def['required'])) {
+                throw new ValidationException(sprintf("Metadata field '%s' is required and cannot be empty.", $key));
+            }
+
+            $changes[$key] = $value;
+        }
+
+        return $changes;
+    }
+
+    /**
+     * Write an already-sanitized change map (as returned by
+     * {@see sanitizeMetaInput()}) to a media file's sidecar. A `null` value
+     * removes the key.
+     *
+     * @param array<string, mixed> $changes key => value, null to clear
+     */
+    private function applyMetaChanges(string $filePath, array $changes): void
+    {
+        $stored = $this->readMetaSidecar($filePath);
+
+        foreach ($changes as $key => $value) {
+            if ($value === null) {
                 unset($stored[$key]);
             } else {
                 $stored[$key] = $value;

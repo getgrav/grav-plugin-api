@@ -12489,6 +12489,8 @@ components:
                 additionalProperties:
                   oneOf:
                     - type: string
+                    - type: number
+                    - type: boolean
                     - type: array
                       items:
                         type: string
@@ -12498,9 +12500,13 @@ components:
                   for a `tags` field) clears a field. A `tags` field accepts an
                   array of strings, or a comma-separated string. A `select`
                   field accepts only one of its `options` keys (or an empty
-                  string); any other value is rejected with a 422. A bare
-                  `{key: value}` object (without the `fields` wrapper) is also
-                  accepted.
+                  string); any other value is rejected with a 422. A `number`
+                  field takes a number, bounded by the field's `min`/`max`; a
+                  `date` field takes a `YYYY-MM-DD` string; a `boolean` field
+                  takes a boolean, and `false` clears the key. A field marked
+                  `required` cannot be sent empty, though leaving it out of the
+                  map leaves the stored value alone. A bare `{key: value}` object
+                  (without the `fields` wrapper) is also accepted.
                 example:
                   alt: A dog running on the beach
                   title: Beach Day
@@ -12538,7 +12544,7 @@ components:
                 example: Alt Text
               type:
                 type: string
-                enum: [text, textarea, tags, select]
+                enum: [text, textarea, tags, select, number, date, boolean]
                 example: text
               options:
                 type: object
@@ -12551,13 +12557,35 @@ components:
                   generated: AI generated
                   altered: AI altered
                   none: No AI
+              min:
+                type: number
+                description: |
+                  Only present on a `number` field: the smallest accepted value.
+                example: 0
+              max:
+                type: number
+                description: |
+                  Only present on a `number` field: the largest accepted value.
+                example: 10
+              required:
+                type: boolean
+                description: |
+                  Only present (as `true`) on a field that a save cannot empty.
+                  Leaving the key out of a write still leaves the stored value
+                  alone.
+                example: true
               value:
                 description: |
-                  A string for `text`/`textarea`/`select` fields, or an array of
-                  strings for a `tags` field. A `select` value is one of its
-                  `options` keys, or an empty string.
+                  A string for `text`/`textarea`/`select` fields, a `YYYY-MM-DD`
+                  string for a `date` field, a number for a `number` field, a
+                  boolean for a `boolean` field, or an array of strings for a
+                  `tags` field. A `select` value is one of its `options` keys, or
+                  an empty string. A stored value that does not fit its field's
+                  type is returned as-is.
                 oneOf:
                   - type: string
+                  - type: number
+                  - type: boolean
                   - type: array
                     items:
                       type: string
