@@ -1677,8 +1677,10 @@ paths:
         at a new route. The destination parent must exist and the target
         route must not already be occupied (422 otherwise). If the source
         declares a `slug:` in its frontmatter, the copy's is rewritten to the
-        new folder name. If the copy cannot be resolved afterwards, only
-        `route` and `slug` are returned.
+        new folder name. A copy of a numbered page (`01.bar`) is numbered
+        after the last numbered page in the destination; a copy of an
+        unnumbered page stays unnumbered. If the copy cannot be resolved
+        afterwards, only `route` and `slug` are returned.
 
         Requires `api.pages.write`, subject to the source page's `read` rule
         and the destination parent's `create` rule.
@@ -1694,8 +1696,23 @@ paths:
               properties:
                 route:
                   type: string
-                  description: The full route for the copied page.
+                  description: |
+                    The full route for the copied page. The last segment may
+                    carry an order prefix (`/blog/03.my-post-copy`), which
+                    names the folder and is left out of the route.
                   example: /blog/my-post-copy
+                order:
+                  oneOf:
+                    - type: integer
+                      nullable: true
+                    - type: string
+                      enum: [auto]
+                  description: |
+                    Order prefix for the copy's folder. `auto` takes the next
+                    number after the destination's numbered pages (none when
+                    it has none) and null leaves the folder unnumbered.
+                    Omitted, a numbered source is numbered `auto` (starting
+                    at 1) and an unnumbered one is not.
             example:
               route: /blog/my-post-copy
       responses:
@@ -1915,6 +1932,17 @@ paths:
                         Appended to each page's slug to name the copy. Must be
                         a single path segment.
                       example: "-copy"
+                    order:
+                      oneOf:
+                        - type: integer
+                          nullable: true
+                        - type: string
+                          enum: [auto]
+                      description: |
+                        Order prefix for each copy, as on
+                        `POST /pages/{route}/copy`. Omitted, a numbered page's
+                        copy is numbered after the destination's last numbered
+                        page.
             example:
               operation: publish
               routes:

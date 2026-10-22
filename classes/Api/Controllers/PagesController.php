@@ -1415,8 +1415,14 @@ class PagesController extends AbstractApiController
         $this->requireFields($body, ['route']);
 
         $destRoute = '/' . trim($body['route'], '/');
-        $destSlug = self::routeBasename($destRoute);
         $destParentRoute = self::routeParent($destRoute);
+        // An order prefix in the last segment (`02.bar-2`) belongs to the folder,
+        // never the route, the same as on create.
+        [$routePrefix, $destSlug] = self::splitOrderPrefix(self::routeBasename($destRoute));
+        if ($destSlug === '') {
+            throw new ValidationException("Invalid route: '{$destRoute}' has an order prefix but no page name.");
+        }
+        $destRoute = ($destParentRoute === '/' ? '' : $destParentRoute) . '/' . $destSlug;
 
         // Resolve destination parent path
         if ($destParentRoute === '/') {
@@ -1434,7 +1440,7 @@ class PagesController extends AbstractApiController
 
         $this->authorizePageAction($request, $destParent, 'create', self::PERMISSION_WRITE);
 
-        $destPath = $destParentPath . '/' . $destSlug;
+        $destPath = $destParentPath . '/' . $this->copyFolderName($page, $destSlug, $destParentPath, $body, $routePrefix);
 
         if (($clash = $this->findSlugClash($destParentPath, $destSlug)) !== null) {
             throw new ValidationException("A page already exists at route: {$destRoute} (folder '{$clash}').");
@@ -3315,7 +3321,7 @@ class PagesController extends AbstractApiController
             $this->assertPageNotDenied($request, $parent, 'create');
         }
 
-        $destPath = $destParentPath . '/' . $destSlug;
+        $destPath = $destParentPath . '/' . $this->copyFolderName($page, $destSlug, $destParentPath, $options);
         if ($this->findSlugClash($destParentPath, $destSlug) !== null) {
             throw new ValidationException("A page already exists at the copy destination for: {$page->route()}");
         }
@@ -3324,6 +3330,39 @@ class PagesController extends AbstractApiController
         $this->rewriteCopiedSlug($destPath, $destSlug, $page->extension());
 
         return ($destParent === '/' ? '' : rtrim($destParent, '/')) . '/' . $destSlug;
+    }
+
+    /**
+     * Folder name for a copy answering to $slug under $parentPath.
+     *
+     * A copy of a numbered page is numbered after the last numbered sibling,
+     * as admin-classic's taskCopy() did. Without it, duplicating `01.bar` gave
+     * `bar-2`, which drops out of the menu (getgrav/grav#4367). A copy of an
+     * unnumbered page stays unnumbered. An `order` in the request wins (a
+     * number, `"auto"` as on create, or null for none), then a prefix typed
+     * into the route.
+     *
+     * @param PageInterface        $page    The source page.
+     * @param array<string, mixed> $options Request body or batch options.
+     */
+    private function copyFolderName(object $page, string $slug, string $parentPath, array $options, string $routePrefix = ''): string
+    {
+        if (array_key_exists('order', $options)) {
+            $order = $options['order'];
+            if (is_string($order) && strtolower($order) === 'auto') {
+                $order = $this->nextOrderInParent($parentPath);
+            }
+        } elseif ($routePrefix !== '') {
+            return $routePrefix . $slug;
+        } else {
+            $order = PageOrdering::parse(basename((string) $page->path()))[0] !== null
+                ? ($this->nextOrderInParent($parentPath) ?? 1)
+                : null;
+        }
+
+        return $order !== null
+            ? PageOrdering::key($order, $slug, $this->siblingDigits($parentPath))
+            : $slug;
     }
 
     /**

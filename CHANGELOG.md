@@ -1,3 +1,9 @@
+# v1.0.56
+## 10/22/2026
+
+1. [](#bugfix)
+    * Duplicating a page that has a number in its folder name now numbers the copy too, so it keeps its place in the menu instead of disappearing from navigation [grav#4367](https://github.com/getgrav/grav/issues/4367)
+
 # v1.0.55
 ## 10/22/2026
 

@@ -408,8 +408,66 @@ class PagesControllerSlugClashTest extends TestCase
         $page->method('header')->willReturn((object) ['title' => $slug]);
         $page->method('children')->willReturn(new \ArrayIterator([]));
         $page->method('parent')->willReturn(null);
+        $page->method('extension')->willReturn('.md');
 
         return $page;
+    }
+
+    // -------------------------------------------------------
+    // getgrav/grav#4367: a copy of a numbered page is numbered
+    // -------------------------------------------------------
+
+    /** Copy /parent/bar (in folder $sourceFolder) to $body['route']. */
+    private function copyBar(string $sourceFolder, array $siblings, array $body): void
+    {
+        $this->folders($siblings);
+        file_put_contents($this->dir . '/parent/' . $sourceFolder . '/default.md', "---\ntitle: Bar\n---\n");
+        $controller = $this->controller(
+            $this->parentPage($this->dir . '/parent', $siblings),
+            null,
+            ['/parent/bar' => $this->pageAt('/parent/bar', 'bar', $this->dir . '/parent/' . $sourceFolder)],
+        );
+
+        $controller->copy($this->request($body, ['route' => 'parent/bar']));
+    }
+
+    #[Test]
+    public function a_copy_of_a_numbered_page_goes_after_the_last_numbered_sibling(): void
+    {
+        $this->copyBar('01.bar', ['01.bar', '02.baz', 'qux'], ['route' => '/parent/bar-2']);
+
+        self::assertSame(['01.bar', '02.baz', '03.bar-2', 'qux'], $this->listing());
+    }
+
+    #[Test]
+    public function a_copy_of_an_unnumbered_page_stays_unnumbered(): void
+    {
+        $this->copyBar('bar', ['bar', '01.baz'], ['route' => '/parent/bar-2']);
+
+        self::assertSame(['01.baz', 'bar', 'bar-2'], $this->listing());
+    }
+
+    #[Test]
+    public function an_explicit_order_or_route_prefix_wins_on_copy(): void
+    {
+        $this->copyBar('01.bar', ['01.bar'], ['route' => '/parent/bar-2', 'order' => 7]);
+        $this->copyBar('01.bar', [], ['route' => '/parent/bar-3', 'order' => null]);
+        $this->copyBar('01.bar', [], ['route' => '/parent/05.bar-4']);
+
+        self::assertSame(['01.bar', '05.bar-4', '07.bar-2', 'bar-3'], $this->listing());
+    }
+
+    #[Test]
+    public function a_batch_copy_of_a_numbered_page_is_numbered_too(): void
+    {
+        $this->folders(['01.bar', '02.baz']);
+        $controller = $this->controller($this->parentPage($this->dir . '/parent', ['01.bar', '02.baz']));
+        $source = $this->pageAt('/parent/bar', 'bar', $this->dir . '/parent/01.bar');
+
+        $route = $this->call($controller, 'batchCopy', $this->request([]), $source, ['destination' => '/parent']);
+
+        self::assertSame('/parent/bar-copy', $route);
+        self::assertSame(['01.bar', '02.baz', '03.bar-copy'], $this->listing());
     }
 
     // -------------------------------------------------------
