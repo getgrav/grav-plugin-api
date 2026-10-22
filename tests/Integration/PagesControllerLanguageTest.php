@@ -61,7 +61,10 @@ class PagesControllerLanguageTest extends \PHPUnit\Framework\TestCase
 
         // The Language service reads system.languages.supported in its
         // constructor, so rebuild it now that the config is multilingual.
+        // Pimple refuses to redefine a service that was already used, and an
+        // unset alone leaves no definition behind, so register a fresh one.
         unset($this->grav['language']);
+        $this->grav['language'] = new Language($this->grav);
         /** @var Language $language */
         $language = $this->grav['language'];
         self::assertTrue($language->enabled(), 'Multi-language should be enabled for these tests');
@@ -159,6 +162,69 @@ class PagesControllerLanguageTest extends \PHPUnit\Framework\TestCase
         self::assertFileExists($this->tempDir . '/pages/news/default.md', 'Default translation must survive');
     }
 
+    /**
+     * getgrav/grav-plugin-admin2#199: with the default language stored without
+     * an extension, a page whose only file is `mission.fr.md` comes back from
+     * Grav as an empty folder page when asked for in the default language. The
+     * editor took that for the default-language file, listed no translations
+     * and sent DELETE ?lang=en, which 404'd.
+     */
+    public function testShowFallsBackToTheTranslationOnDiskWhenTheRequestedLanguageHasNoFile(): void
+    {
+        $this->createPageFile('mission', 'mission.fr.md', "title: Mission secrete\n", 'Corps francais');
+
+        $controller = $this->createPagesController();
+        $request = $this->makeRequest('GET', '/api/v1/pages/mission', [], ['route' => 'mission'], ['lang' => 'en', 'translations' => 'true']);
+
+        $data = json_decode((string) $controller->show($request)->getBody(), true)['data'];
+
+        self::assertSame('fr', $data['language'], 'The page should come back in the language it has a file for');
+        self::assertSame('Mission secrete', $data['title']);
+        self::assertSame(['fr'], array_keys($data['translated_languages']));
+        self::assertSame(['en'], $data['untranslated_languages']);
+    }
+
+    public function testDeleteWithTheOnlyExistingTranslationRemovesThePage(): void
+    {
+        $this->createPageFile('mission', 'mission.fr.md', "title: Mission secrete\n", 'Corps francais');
+
+        $controller = $this->createPagesController();
+        $request = $this->makeRequest('DELETE', '/api/v1/pages/mission', [], ['route' => 'mission'], ['lang' => 'fr', 'children' => 'true']);
+
+        self::assertSame(204, $controller->delete($request)->getStatusCode());
+        self::assertDirectoryDoesNotExist($this->tempDir . '/pages/mission');
+    }
+
+    public function testDeleteInALanguageThePageHasNoFileForLeavesTheOtherTranslation(): void
+    {
+        $this->createPageFile('mission', 'mission.fr.md', "title: Mission secrete\n", 'Corps francais');
+
+        $controller = $this->createPagesController();
+        $request = $this->makeRequest('DELETE', '/api/v1/pages/mission', [], ['route' => 'mission'], ['lang' => 'en', 'children' => 'true']);
+
+        try {
+            $controller->delete($request);
+            self::fail('Deleting a language the page has no file for should be refused');
+        } catch (\Grav\Plugin\Api\Exceptions\NotFoundException) {
+        }
+        self::assertFileExists($this->tempDir . '/pages/mission/mission.fr.md');
+    }
+
+    /**
+     * Saving the empty folder page wrote nothing and answered 200 (or 500 for a
+     * title-only change), so the editor lost the edit without saying so.
+     */
+    public function testPatchInALanguageThePageHasNoFileForIsRefused(): void
+    {
+        $this->createPageFile('mission', 'mission.fr.md', "title: Mission secrete\n", 'Corps francais');
+
+        $controller = $this->createPagesController();
+        $request = $this->makeRequest('PATCH', '/api/v1/pages/mission', ['content' => 'English body'], ['route' => 'mission'], ['lang' => 'en']);
+
+        $this->expectException(\Grav\Plugin\Api\Exceptions\ValidationException::class);
+        $controller->update($request);
+    }
+
     // =========================================================================
     // Helper methods
     // =========================================================================
@@ -185,6 +251,19 @@ class PagesControllerLanguageTest extends \PHPUnit\Framework\TestCase
             $name = $lang === $default ? 'default.md' : "default.{$lang}.md";
             file_put_contents($dir . '/' . $name, "---\n{$frontmatter}---\n" . ($contents[$lang] ?? ''));
         }
+
+        $this->pages->reset();
+        $this->pages->init();
+    }
+
+    /** Write a single page file, for a page that has only one translation. */
+    private function createPageFile(string $slug, string $filename, string $frontmatter, string $content): void
+    {
+        $this->grav['config']->set('system.languages.include_default_lang_file_extension', false);
+
+        $dir = $this->tempDir . '/pages/' . $slug;
+        @mkdir($dir, 0775, true);
+        file_put_contents($dir . '/' . $filename, "---\n{$frontmatter}---\n" . $content);
 
         $this->pages->reset();
         $this->pages->init();

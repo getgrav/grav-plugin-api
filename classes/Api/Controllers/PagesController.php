@@ -242,6 +242,7 @@ class PagesController extends AbstractApiController
 
             $route = $this->getRouteParam($request, 'route');
             $page = $this->findPageOrFail('/' . $route, $request, self::PERMISSION_READ);
+            $page = $this->withTranslationOnDisk($page, '/' . $route);
             $this->authorizePageAction($request, $page, 'read', self::PERMISSION_READ);
 
             // If the page already has process.twig:true, the same gate that
@@ -1039,7 +1040,10 @@ class PagesController extends AbstractApiController
                 $pageLang = $page->language() ?: null;
                 // A default.md file (no language suffix) is treated as the default language
                 $defaultLang = $this->grav['language']->getDefault() ?: 'en';
-                if (!$pageLang && $requestedLang === $defaultLang) {
+                // A page with no file in this language has no language either,
+                // and saving it wrote nothing (admin2#199), so it only counts as
+                // the default language when there is a file behind it.
+                if (!$pageLang && $requestedLang === $defaultLang && self::hasContentFile($page)) {
                     $pageLang = $defaultLang;
                 }
                 if ($pageLang !== $requestedLang) {
@@ -1485,6 +1489,9 @@ class PagesController extends AbstractApiController
 
         $route = $this->getRouteParam($request, 'route');
         $page = $this->findPageOrFail('/' . $route, $request, self::PERMISSION_READ);
+        $previousLang = $this->grav['language']->getActive() ?? false;
+        $page = $this->withTranslationOnDisk($page, '/' . $route);
+        $this->restoreLanguage($previousLang);
         $this->authorizePageAction($request, $page, 'read', self::PERMISSION_READ);
 
         // A draft translation counts as translated in both lists (#57).
@@ -3077,6 +3084,51 @@ class PagesController extends AbstractApiController
         }
 
         return $page->exists();
+    }
+
+    /**
+     * The page as one of its translations, when it has no file in the active
+     * language.
+     *
+     * Grav falls back to the default language for a page that is missing in
+     * another one, but nothing falls back for the default language itself. A
+     * page whose only file is `mission.en.md` on a site that keeps the default
+     * language in `mission.md` comes back as an empty folder page: no language,
+     * no content and no translations, as every translation lookup starts from
+     * the file name. The admin read that as the default-language file, offered
+     * to create the translation that exists, and deleted with the wrong
+     * language (admin2#199). Answering with a translation that exists, the way
+     * a missing non-default language already does, lets the editor show its
+     * "not translated yet" notice and act on the file it shows.
+     *
+     * The active language is left on the translation, so the caller restores
+     * it as usual.
+     */
+    private function withTranslationOnDisk(PageInterface $page, string $route): PageInterface
+    {
+        if (!$this->isMultiLangEnabled() || self::hasContentFile($page)) {
+            return $page;
+        }
+
+        $path = $page->path();
+        $files = $path && is_dir($path) ? (scandir($path) ?: []) : [];
+        /** @var Language $language */
+        $language = $this->grav['language'];
+
+        foreach ($language->getLanguages() as $code) {
+            $suffix = '.' . $code . '.md';
+            foreach ($files as $file) {
+                if (strlen($file) > strlen($suffix) && str_ends_with($file, $suffix)) {
+                    $this->switchLanguage($code);
+                    // By folder, as the translation may carry its own slug.
+                    $translation = $this->grav['pages']->get($path) ?? $this->resolvePageByRoute($route);
+
+                    return $translation instanceof PageInterface ? $translation : $page;
+                }
+            }
+        }
+
+        return $page;
     }
 
     /**
