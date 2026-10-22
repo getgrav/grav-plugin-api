@@ -126,6 +126,7 @@ class PagesController extends AbstractApiController
             // A folder listing (children_of, or root=true) only tests that
             // folder's own children, not every page on the site.
             $source = $collection;
+            $pageFilters = $filters;
             $folderParent = $filters['children_of'] ?? (
                 isset($filters['root']) && filter_var($filters['root'], FILTER_VALIDATE_BOOLEAN) ? '/' : null
             );
@@ -133,12 +134,15 @@ class PagesController extends AbstractApiController
                 $folder = $this->flexFolderChildren($directory, $collection, $folderParent);
                 if ($folder !== null) {
                     $source = $collection->select($folder['keys']);
+                    // These are the folder's own children, so children_of holds
+                    // for each of them without asking every child for its parent.
+                    unset($pageFilters['children_of']);
                 }
             }
 
             $filtered = [];
             foreach ($source as $page) {
-                if ($page instanceof PageInterface && $this->matchesFilters($page, $filters)) {
+                if ($page instanceof PageInterface && $this->matchesFilters($page, $pageFilters)) {
                     $filtered[$page->getKey()] = $page;
                 }
             }
@@ -2849,9 +2853,14 @@ class PagesController extends AbstractApiController
             // that way, fall back to the walk.
             $collection = $directory->getCollection();
             $folder = $this->flexFolderChildren($directory, $collection, $childRoute);
+            $pageFilters = $filters;
             if ($folder !== null) {
                 $parent = $folder['parent'];
                 $source = $collection->select($folder['keys']);
+                // Every page in $source is one of the folder's own children, so
+                // children_of already holds. Testing it again asks each child
+                // for its parent, which reloads the folder object once per child.
+                unset($pageFilters['children_of']);
             } else {
                 $source = $collection;
             }
@@ -2871,7 +2880,7 @@ class PagesController extends AbstractApiController
                 // the default-sort path used by the tree and columns views —
                 // the same class of bug as getgrav/grav-plugin-admin2#121.
                 if (
-                    $this->matchesFilters($page, $filters)
+                    $this->matchesFilters($page, $pageFilters)
                     && ($searchKeys === null || isset($searchKeys[(string) $page->getKey()]))
                 ) {
                     $items[] = $page;
@@ -3004,11 +3013,14 @@ class PagesController extends AbstractApiController
             $storageKeys[] = $master !== '' ? $master . '/' . $child : (string) $child;
         }
 
+        // Map the storage keys to page keys from the index entries. Iterating
+        // the index would load (and unserialize) every child object just to
+        // read its key; the caller loads the ones it needs anyway.
         $wanted = [];
         if ($storageKeys !== []) {
-            foreach ($directory->getIndex($storageKeys, 'storage_key') as $child) {
-                if ($child instanceof PageInterface) {
-                    $wanted[(string) $child->getKey()] = true;
+            foreach ($directory->getIndex($storageKeys, 'storage_key')->getIndexMap('key') as $key) {
+                if ($key !== null && $key !== '') {
+                    $wanted[(string) $key] = true;
                 }
             }
         }
