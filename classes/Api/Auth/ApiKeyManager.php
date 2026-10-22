@@ -32,7 +32,10 @@ class ApiKeyManager
     public function generateKey(UserInterface $user, string $name = '', array $scopes = [], ?int $expiryDays = null): array
     {
         $rawKey = 'grav_' . bin2hex(random_bytes(24));
-        $keyId = bin2hex(random_bytes(8));
+        // An all-digit id becomes an int when used as an array key, so never mint one
+        do {
+            $keyId = bin2hex(random_bytes(8));
+        } while (ctype_digit($keyId));
         $hash = Authentication::create($rawKey);
         $expires = $expiryDays !== null ? time() + ($expiryDays * 86400) : null;
 
@@ -221,8 +224,9 @@ class ApiKeyManager
             if (self::verifyKey($rawKey, $keyData['hash'])) {
                 // Cache only successful verifications, never misses.
                 $cache?->save($this->verifyCacheKey($token), (string) $keyId, $this->verifyCacheTtl());
+                // PHP turns an all-digit array key into an int; callers expect a string
                 return [
-                    'key_id' => $keyId,
+                    'key_id' => (string) $keyId,
                     'data' => $keyData,
                     'username' => $keyData['username'] ?? '',
                 ];

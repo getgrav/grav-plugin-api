@@ -263,6 +263,8 @@ namespace Grav\Common\Page\Interfaces {
             public function taxonomy($var = null);
             public function date($var = null);
             public function modified($var = null);
+            // Declared on the real PageLegacyInterface; copy reads it.
+            public function extension($var = null);
         }
     }
 }
@@ -275,6 +277,19 @@ namespace Grav\Common\Filesystem {
             {
                 if (is_dir($source)) {
                     rename($source, $target);
+                }
+            }
+
+            public static function copy(string $source, string $target): void
+            {
+                @mkdir($target, 0775, true);
+                foreach (scandir($source) ?: [] as $entry) {
+                    if ($entry === '.' || $entry === '..') {
+                        continue;
+                    }
+                    is_dir($source . '/' . $entry)
+                        ? self::copy($source . '/' . $entry, $target . '/' . $entry)
+                        : copy($source . '/' . $entry, $target . '/' . $entry);
                 }
             }
         }

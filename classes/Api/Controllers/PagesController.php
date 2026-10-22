@@ -126,6 +126,7 @@ class PagesController extends AbstractApiController
             // A folder listing (children_of, or root=true) only tests that
             // folder's own children, not every page on the site.
             $source = $collection;
+            $pageFilters = $filters;
             $folderParent = $filters['children_of'] ?? (
                 isset($filters['root']) && filter_var($filters['root'], FILTER_VALIDATE_BOOLEAN) ? '/' : null
             );
@@ -133,12 +134,15 @@ class PagesController extends AbstractApiController
                 $folder = $this->flexFolderChildren($directory, $collection, $folderParent);
                 if ($folder !== null) {
                     $source = $collection->select($folder['keys']);
+                    // These are the folder's own children, so children_of holds
+                    // for each of them without asking every child for its parent.
+                    unset($pageFilters['children_of']);
                 }
             }
 
             $filtered = [];
             foreach ($source as $page) {
-                if ($page instanceof PageInterface && $this->matchesFilters($page, $filters)) {
+                if ($page instanceof PageInterface && $this->matchesFilters($page, $pageFilters)) {
                     $filtered[$page->getKey()] = $page;
                 }
             }
@@ -1024,6 +1028,14 @@ class PagesController extends AbstractApiController
 
             $route = $this->getRouteParam($request, 'route');
             $page = $this->findPageOrFail('/' . $route, $request, self::PERMISSION_WRITE);
+            $query = $request->getQueryParams();
+            $requestedLang = $query['lang'] ?? null;
+            // Without ?lang, update the translation GET answers with for a page
+            // that has no file in the default language. Otherwise the ETag from
+            // GET never matched and the save had no file to write to.
+            if (!$requestedLang) {
+                $page = $this->withTranslationOnDisk($page, '/' . $route);
+            }
             $this->authorizePageAction($request, $page, 'update', self::PERMISSION_WRITE);
 
             // What the request leaves the caller to know about (#55). Not part
@@ -1034,8 +1046,6 @@ class PagesController extends AbstractApiController
             // ?lang=X is specified but no X translation exists, Grav's fallback
             // would silently resolve to the source language and clobber it.
             // Force callers to create the translation via POST /translate first.
-            $query = $request->getQueryParams();
-            $requestedLang = $query['lang'] ?? null;
             if ($requestedLang && $this->isMultiLangEnabled()) {
                 $pageLang = $page->language() ?: null;
                 // A default.md file (no language suffix) is treated as the default language
@@ -1415,8 +1425,14 @@ class PagesController extends AbstractApiController
         $this->requireFields($body, ['route']);
 
         $destRoute = '/' . trim($body['route'], '/');
-        $destSlug = self::routeBasename($destRoute);
         $destParentRoute = self::routeParent($destRoute);
+        // An order prefix in the last segment (`02.bar-2`) belongs to the folder,
+        // never the route, the same as on create.
+        [$routePrefix, $destSlug] = self::splitOrderPrefix(self::routeBasename($destRoute));
+        if ($destSlug === '') {
+            throw new ValidationException("Invalid route: '{$destRoute}' has an order prefix but no page name.");
+        }
+        $destRoute = ($destParentRoute === '/' ? '' : $destParentRoute) . '/' . $destSlug;
 
         // Resolve destination parent path
         if ($destParentRoute === '/') {
@@ -1434,7 +1450,7 @@ class PagesController extends AbstractApiController
 
         $this->authorizePageAction($request, $destParent, 'create', self::PERMISSION_WRITE);
 
-        $destPath = $destParentPath . '/' . $destSlug;
+        $destPath = $destParentPath . '/' . $this->copyFolderName($page, $destSlug, $destParentPath, $body, $routePrefix);
 
         if (($clash = $this->findSlugClash($destParentPath, $destSlug)) !== null) {
             throw new ValidationException("A page already exists at route: {$destRoute} (folder '{$clash}').");
@@ -2843,9 +2859,14 @@ class PagesController extends AbstractApiController
             // that way, fall back to the walk.
             $collection = $directory->getCollection();
             $folder = $this->flexFolderChildren($directory, $collection, $childRoute);
+            $pageFilters = $filters;
             if ($folder !== null) {
                 $parent = $folder['parent'];
                 $source = $collection->select($folder['keys']);
+                // Every page in $source is one of the folder's own children, so
+                // children_of already holds. Testing it again asks each child
+                // for its parent, which reloads the folder object once per child.
+                unset($pageFilters['children_of']);
             } else {
                 $source = $collection;
             }
@@ -2865,7 +2886,7 @@ class PagesController extends AbstractApiController
                 // the default-sort path used by the tree and columns views —
                 // the same class of bug as getgrav/grav-plugin-admin2#121.
                 if (
-                    $this->matchesFilters($page, $filters)
+                    $this->matchesFilters($page, $pageFilters)
                     && ($searchKeys === null || isset($searchKeys[(string) $page->getKey()]))
                 ) {
                     $items[] = $page;
@@ -2998,11 +3019,14 @@ class PagesController extends AbstractApiController
             $storageKeys[] = $master !== '' ? $master . '/' . $child : (string) $child;
         }
 
+        // Map the storage keys to page keys from the index entries. Iterating
+        // the index would load (and unserialize) every child object just to
+        // read its key; the caller loads the ones it needs anyway.
         $wanted = [];
         if ($storageKeys !== []) {
-            foreach ($directory->getIndex($storageKeys, 'storage_key') as $child) {
-                if ($child instanceof PageInterface) {
-                    $wanted[(string) $child->getKey()] = true;
+            foreach ($directory->getIndex($storageKeys, 'storage_key')->getIndexMap('key') as $key) {
+                if ($key !== null && $key !== '') {
+                    $wanted[(string) $key] = true;
                 }
             }
         }
@@ -3315,7 +3339,7 @@ class PagesController extends AbstractApiController
             $this->assertPageNotDenied($request, $parent, 'create');
         }
 
-        $destPath = $destParentPath . '/' . $destSlug;
+        $destPath = $destParentPath . '/' . $this->copyFolderName($page, $destSlug, $destParentPath, $options);
         if ($this->findSlugClash($destParentPath, $destSlug) !== null) {
             throw new ValidationException("A page already exists at the copy destination for: {$page->route()}");
         }
@@ -3324,6 +3348,39 @@ class PagesController extends AbstractApiController
         $this->rewriteCopiedSlug($destPath, $destSlug, $page->extension());
 
         return ($destParent === '/' ? '' : rtrim($destParent, '/')) . '/' . $destSlug;
+    }
+
+    /**
+     * Folder name for a copy answering to $slug under $parentPath.
+     *
+     * A copy of a numbered page is numbered after the last numbered sibling,
+     * as admin-classic's taskCopy() did. Without it, duplicating `01.bar` gave
+     * `bar-2`, which drops out of the menu (getgrav/grav#4367). A copy of an
+     * unnumbered page stays unnumbered. An `order` in the request wins (a
+     * number, `"auto"` as on create, or null for none), then a prefix typed
+     * into the route.
+     *
+     * @param PageInterface        $page    The source page.
+     * @param array<string, mixed> $options Request body or batch options.
+     */
+    private function copyFolderName(object $page, string $slug, string $parentPath, array $options, string $routePrefix = ''): string
+    {
+        if (array_key_exists('order', $options)) {
+            $order = $options['order'];
+            if (is_string($order) && strtolower($order) === 'auto') {
+                $order = $this->nextOrderInParent($parentPath);
+            }
+        } elseif ($routePrefix !== '') {
+            return $routePrefix . $slug;
+        } else {
+            $order = PageOrdering::parse(basename((string) $page->path()))[0] !== null
+                ? ($this->nextOrderInParent($parentPath) ?? 1)
+                : null;
+        }
+
+        return $order !== null
+            ? PageOrdering::key($order, $slug, $this->siblingDigits($parentPath))
+            : $slug;
     }
 
     /**
