@@ -1028,6 +1028,14 @@ class PagesController extends AbstractApiController
 
             $route = $this->getRouteParam($request, 'route');
             $page = $this->findPageOrFail('/' . $route, $request, self::PERMISSION_WRITE);
+            $query = $request->getQueryParams();
+            $requestedLang = $query['lang'] ?? null;
+            // Without ?lang, update the translation GET answers with for a page
+            // that has no file in the default language. Otherwise the ETag from
+            // GET never matched and the save had no file to write to.
+            if (!$requestedLang) {
+                $page = $this->withTranslationOnDisk($page, '/' . $route);
+            }
             $this->authorizePageAction($request, $page, 'update', self::PERMISSION_WRITE);
 
             // What the request leaves the caller to know about (#55). Not part
@@ -1038,8 +1046,6 @@ class PagesController extends AbstractApiController
             // ?lang=X is specified but no X translation exists, Grav's fallback
             // would silently resolve to the source language and clobber it.
             // Force callers to create the translation via POST /translate first.
-            $query = $request->getQueryParams();
-            $requestedLang = $query['lang'] ?? null;
             if ($requestedLang && $this->isMultiLangEnabled()) {
                 $pageLang = $page->language() ?: null;
                 // A default.md file (no language suffix) is treated as the default language

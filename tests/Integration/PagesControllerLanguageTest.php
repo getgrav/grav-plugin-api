@@ -225,6 +225,35 @@ class PagesControllerLanguageTest extends \PHPUnit\Framework\TestCase
         $controller->update($request);
     }
 
+    /**
+     * A PATCH without ?lang on a page whose only file is a translation acted on
+     * the empty folder page: its ETag never matched the one GET returned, and
+     * the save had no file behind it (500, later a 200 that wrote nothing).
+     */
+    public function testPatchWithoutLangUpdatesTheOnlyTranslationOnDisk(): void
+    {
+        $this->createPageFile('mission', 'mission.fr.md', "title: Mission secrete\n", 'Corps francais');
+
+        $controller = $this->createPagesController();
+        $show = $controller->show($this->makeRequest('GET', '/api/v1/pages/mission', [], ['route' => 'mission']));
+        $etag = $show->getHeaderLine('ETag');
+        self::assertNotSame('', $etag);
+
+        // GET leaves the translation's language active; a new request starts
+        // with no active language, as it does live
+        unset($this->grav['language']);
+        $this->grav['language'] = new Language($this->grav);
+        $this->pages->reset();
+        $this->pages->init();
+
+        $request = $this->makeRequest('PATCH', '/api/v1/pages/mission', ['content' => 'Nouveau corps'], ['route' => 'mission'])
+            ->withHeader('If-Match', $etag);
+
+        self::assertSame(200, $controller->update($request)->getStatusCode());
+        self::assertStringContainsString('Nouveau corps', file_get_contents($this->tempDir . '/pages/mission/mission.fr.md'));
+        self::assertSame(['mission.fr.md'], array_values(array_diff(scandir($this->tempDir . '/pages/mission'), ['.', '..'])));
+    }
+
     // =========================================================================
     // Helper methods
     // =========================================================================
