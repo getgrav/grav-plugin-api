@@ -4,6 +4,7 @@
 1. [](#bugfix)
     * Opening a folder with thousands of pages in the admin's Tree or Columns view is now about five times faster and no longer runs out of memory once the cache is warm [getgrav/grav-plugin-admin2#200](https://github.com/getgrav/grav-plugin-admin2/issues/200)
     * Duplicating a page that has a number in its folder name now numbers the copy too, so it keeps its place in the menu instead of disappearing from navigation [grav#4367](https://github.com/getgrav/grav/issues/4367)
+    * An API key whose ID happens to be all digits no longer fails with a server error on some requests, and new keys never get such an ID. Thanks @srameko and @sandymac [#64](https://github.com/getgrav/grav-plugin-api/issues/64)
 
 # v1.0.55
 ## 10/22/2026

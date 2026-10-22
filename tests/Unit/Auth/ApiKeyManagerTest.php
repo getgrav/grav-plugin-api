@@ -344,4 +344,37 @@ class ApiKeyManagerTest extends TestCase
 
         self::assertNull($this->manager->findKey('grav_not_a_real_key'));
     }
+
+    #[Test]
+    public function find_key_returns_all_digit_key_id_as_string(): void
+    {
+        $rawKey = 'grav_all_digit_id_raw_value_0123456789';
+        $this->seedKeys([
+            '1234567890123456' => [
+                'id' => '1234567890123456',
+                'username' => 'leo',
+                'name' => 'Numeric id',
+                'hash' => hash('sha256', $rawKey),
+            ],
+        ]);
+
+        $match = $this->manager->findKey($rawKey);
+
+        self::assertNotNull($match);
+        self::assertSame('1234567890123456', $match['key_id']);
+
+        // touchKey() is typed string under strict_types; an int id threw a TypeError here
+        $this->manager->touchKey($match['key_id']);
+        self::assertNotNull($this->manager->loadKeys()['1234567890123456']['last_used']);
+    }
+
+    #[Test]
+    public function generated_key_ids_are_never_all_digits(): void
+    {
+        $user = TestHelper::createMockUser('leo');
+        for ($i = 0; $i < 50; $i++) {
+            $id = $this->manager->generateKey($user)['id'];
+            self::assertFalse(ctype_digit($id), "generated id {$id} is all digits");
+        }
+    }
 }
