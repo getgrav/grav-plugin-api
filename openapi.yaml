@@ -2477,6 +2477,101 @@ paths:
         "422": { $ref: "#/components/responses/ValidationError" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
+  /pages/{route}/media/batch/meta:
+    post:
+      operationId: batchUpdatePageMediaMeta
+      tags: [Media]
+      summary: Apply metadata to several page media files
+      description: |
+        Write the same metadata fields to many media files on one page at once.
+        Only the configured fields present in `fields` change; each file keeps
+        its other values. The field values are checked once before anything is
+        written, so an invalid value (or a `required` field sent empty) fails
+        the whole request with a 422. Each filename is then handled on its own,
+        so a per-file problem such as a missing file is reported in `results`
+        without stopping the rest. Filenames must be flat names on the page
+        (no path separators). The number of files is capped by
+        `plugins.api.batch.max_items` (default 50).
+
+        Requires `api.media.write`; a page whose own rules deny `update`
+        returns 403.
+      parameters:
+        - $ref: "#/components/parameters/pageRoute"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [files, fields]
+              properties:
+                files:
+                  type: array
+                  minItems: 1
+                  description: Filenames of media files on this page (flat names, no path).
+                  items:
+                    type: string
+                fields:
+                  type: object
+                  additionalProperties:
+                    oneOf:
+                      - type: string
+                      - type: number
+                      - type: boolean
+                      - type: array
+                        items:
+                          type: string
+                  description: Metadata field key to value, validated the same way as a single-file write. An empty string (or empty array for a `tags` field) clears that field.
+            example:
+              files: [beach.jpg, dunes.jpg]
+              fields:
+                tags: [beach, summer]
+                title: Dunes at dawn
+      responses:
+        "200":
+          description: Per-file results.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      results:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            filename:
+                              type: string
+                            status:
+                              type: string
+                              enum: [success, error]
+                            message:
+                              type: string
+                              description: Present only when `status` is `error`.
+                          required: [filename, status]
+                      total:
+                        type: integer
+                      successful:
+                        type: integer
+                      failed:
+                        type: integer
+              example:
+                data:
+                  results:
+                    - { filename: beach.jpg, status: success }
+                    - { filename: missing.jpg, status: error, message: Media file 'missing.jpg' not found on this page. }
+                  total: 2
+                  successful: 1
+                  failed: 1
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
   /pages/{route}/compare:
     get:
       operationId: comparePageLanguages

@@ -764,6 +764,10 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('GET', '/pages/{route:.+}/media/{filename}/meta', [MediaController::class, 'getPageMediaMeta']);
         $r->addRoute('PATCH', '/pages/{route:.+}/media/{filename}/meta', [MediaController::class, 'savePageMediaMeta']);
         $r->addRoute('DELETE', '/pages/{route:.+}/media/{filename}/meta', [MediaController::class, 'deletePageMediaMeta']);
+        // Batch metadata for page media, the counterpart of `/media/batch/meta`
+        // below. It only answers POST, so it cannot be shadowed by (or shadow)
+        // the per-file routes above.
+        $r->addRoute('POST', '/pages/{route:.+}/media/batch/meta', [MediaController::class, 'batchPageMediaMeta']);
         $r->addRoute('POST', '/pages/{route:.+}/move', [PagesController::class, 'move']);
         $r->addRoute('POST', '/pages/{route:.+}/copy', [PagesController::class, 'copy']);
         $r->addRoute('GET', '/pages/{route:.+}', [PagesController::class, 'show']);
