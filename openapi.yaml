@@ -12803,7 +12803,33 @@ components:
           type: string
           description: "Optional API path returning `{count: N}`, fetched by the admin to show a live badge that overrides `badge`."
           example: /my-plugin/badge
+        children:
+          type: array
+          description: Shortcuts a user can add under this item when they customize the sidebar. None show until the user switches them on. Children the user is not authorized for (their own `authorize`) are left out, and the key is absent when none remain.
+          items:
+            $ref: "#/components/schemas/SidebarChild"
       additionalProperties: true
+
+    SidebarChild:
+      type: object
+      required: [id, label, route]
+      properties:
+        id:
+          type: string
+          pattern: "^[A-Za-z0-9_-]{1,48}$"
+          description: Unique within its item. A sidebar layout names it `plugin:<item id>/<child id>`.
+          example: orders
+        label:
+          type: string
+          example: Orders
+        route:
+          type: string
+          description: Admin route, which may carry a `#` part for a plugin page's own screens.
+          example: "/plugin/kahunacart#/orders"
+        icon:
+          type: string
+          description: Optional Font Awesome icon name.
+          example: receipt
 
     # -- MCP Tool --------------------------------------------------------------
     McpTool:
@@ -15793,6 +15819,33 @@ components:
           nullable: true
           enum: ["", create-new, edit, list]
           description: What Flex editors do after saving. Empty string follows the directory blueprint.
+        sidebarLayout:
+          $ref: "#/components/schemas/PreferencesSidebarLayout"
+
+    PreferencesSidebarLayout:
+      type: object
+      nullable: true
+      description: |
+        Order and visibility of the Admin Next sidebar, by item id: core items by name (`dashboard`, `configuration`, `users`, `pages`, `media`, `plugins`, `themes`, `translations`, `tools`), plugin items as `plugin:<id>`, and `divider` for the line between groups. An empty `order` keeps the built-in order. Items missing from `order` keep their built-in place, and new plugin items go last. Hiding an item only removes it from the sidebar; permissions still decide what a user can open. `shown` lists the sub-items (a plugin item's `children`, as `plugin:<id>/<child id>`) switched on under their item. Ids must match `[A-Za-z0-9_.:/-]{1,128}`; others and duplicates are dropped.
+      properties:
+        order:
+          type: array
+          maxItems: 200
+          items:
+            type: string
+          example: [dashboard, "plugin:kahunacart", pages, configuration]
+        hidden:
+          type: array
+          maxItems: 200
+          items:
+            type: string
+          example: [translations]
+        shown:
+          type: array
+          maxItems: 200
+          items:
+            type: string
+          example: ["plugin:kahunacart/orders"]
 
     PreferencesSiteSettings:
       type: object
@@ -16048,6 +16101,10 @@ components:
           pluginsViewMode: cards
           themesViewMode: cards
           flexAfterSave: ""
+          sidebarLayout:
+            order: []
+            hidden: []
+            shown: []
         site_settings:
           autoSaveEnabled: false
           autoSaveToolbarUndo: true

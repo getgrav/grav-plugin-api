@@ -1,7 +1,10 @@
 # v1.0.58
 ## 10/23/2026
 
-1. [](#bugfix)
+1. [](#new)
+    * **Arrange the sidebar**: a new `sidebarLayout` preference holds the order of the Admin2 sidebar, the items hidden from it and the shortcuts switched on, with a site default and an override for each user, like the other appearance preferences
+    * **Sidebar shortcuts**: a plugin's sidebar item can offer `children`, screens of the plugin a user can switch on as shortcuts under it. None show until a user picks them, and each is checked against its own `authorize`
+2. [](#bugfix)
     * [security] Exchanging one refresh token in several requests at once now yields a single new token pair, and the same holds for a 2FA challenge token. Thanks @yssoe
     * [security] An invitation can only be accepted once, even when several accept requests arrive at the same moment, and creating or removing invites no longer writes back invites that were already used. Thanks @yssoe
     * [security] Creating or revoking an API key while other keys are in use can no longer be overwritten by another request, so a revoked key stays revoked. Thanks @yssoe

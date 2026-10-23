@@ -1115,8 +1115,13 @@ The sidebar item structure:
 | `label` | string | Display text in the sidebar |
 | `icon` | string | FontAwesome icon class (e.g., `fa-key`) |
 | `route` | string | Frontend route the item navigates to |
-| `priority` | int | Sort order (lower values appear first) |
+| `priority` | int | Sort order (higher values appear first) |
 | `badge` | string\|null | Optional badge text (e.g., count or status) |
+| `badgeEndpoint` | string | Optional API path returning `{ count: N }`, fetched for a live badge that overrides `badge` |
+| `authorize` | string\|array | Optional permission (or any-of list) a user needs to see the item |
+| `children` | array | Optional shortcuts a user can switch on under the item: each has an `id`, a `label`, a `route` (which may carry a `#` part) and optionally an `icon` and `authorize` |
+
+Each user arranges their own sidebar in Admin2 (the pencil at the bottom of the sidebar): they reorder and hide items and switch on the `children` they want, and none of the children show until they do. A super admin can save an arrangement as the site's default for everyone who hasn't arranged their own. The arrangement is the `sidebarLayout` preference, which names items by id (`plugin:<id>`, and `plugin:<id>/<child id>` for a child), so keep your item's `id` stable across releases.
 
 **Provide a page definition** via `onApiPluginPageInfo`:
 

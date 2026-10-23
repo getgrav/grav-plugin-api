@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Grav\Plugin\Api\Controllers;
 
+use Grav\Common\User\Interfaces\UserInterface;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -25,7 +26,15 @@ use RocketTheme\Toolbox\Event\Event;
  *     'badge'     => null,                   // optional static badge text/count
  *     'badgeEndpoint' => '/my-plugin/badge', // optional — API path returning { count: N }, refreshed live
  *     'authorize' => 'api.some.permission',  // optional — single permission, or array for any-of
+ *     'children'  => [                       // optional — shortcuts a user can add under the item
+ *       ['id' => 'orders', 'label' => 'Orders', 'route' => '/plugin/kahunacart#/orders', 'icon' => 'receipt', 'authorize' => '…'],
+ *     ],
  *   ]
+ *
+ * `children` are offered, not shown: each user picks the ones they want under
+ * the item when they customize the sidebar, and none show until they do. A
+ * child needs an `id` (letters, digits, `_` and `-`, unique within the item),
+ * a `label` and a `route`; `icon` and `authorize` work as on the item itself.
  *
  * When `badgeEndpoint` is set, admin-next fetches it on load and re-fetches on
  * content/config/plugin/theme changes; a plugin can also push an update live by
@@ -73,11 +82,52 @@ class SidebarController extends AbstractApiController
             if (isset($item['label']) && is_string($item['label'])) {
                 $item['label'] = $this->translateLabel($item['label']);
             }
+            if (array_key_exists('children', $item)) {
+                $item['children'] = $this->children($item['children'], $user, $request);
+                if ($item['children'] === []) {
+                    unset($item['children']);
+                }
+            }
             $filtered[] = $item;
         }
 
         usort($filtered, fn($a, $b) => ($b['priority'] ?? 0) <=> ($a['priority'] ?? 0));
 
         return $filtered;
+    }
+
+    /**
+     * The children of an item this user may open, with only the keys the
+     * sidebar draws.
+     *
+     * @return list<array{id: string, label: string, route: string, icon?: string}>
+     */
+    private function children(mixed $children, UserInterface $user, ServerRequestInterface $request): array
+    {
+        $out = [];
+        $seen = [];
+        foreach (is_array($children) ? $children : [] as $child) {
+            if (!is_array($child)) {
+                continue;
+            }
+            $id = $child['id'] ?? null;
+            $label = $child['label'] ?? null;
+            $route = $child['route'] ?? null;
+            if (!is_string($id) || !preg_match('/^[A-Za-z0-9_-]{1,48}$/', $id) || isset($seen[$id])
+                || !is_string($label) || $label === '' || !is_string($route) || $route === '') {
+                continue;
+            }
+            if (!$this->userPassesAuthorize($user, $child['authorize'] ?? null, $request)) {
+                continue;
+            }
+            $seen[$id] = true;
+            $entry = ['id' => $id, 'label' => $this->translateLabel($label), 'route' => $route];
+            if (isset($child['icon']) && is_string($child['icon']) && $child['icon'] !== '') {
+                $entry['icon'] = $child['icon'];
+            }
+            $out[] = $entry;
+        }
+
+        return $out;
     }
 }
