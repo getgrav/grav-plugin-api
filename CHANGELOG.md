@@ -9,6 +9,7 @@
 3. [](#bugfix)
     * Creating a module at the top level of the site is refused with a clear message: nothing draws a module without a modular page above it, so it only made a folder that never showed
     * An icon set's `file` is read only when it is a `theme://`, `plugin://`, `user://`, `plugins://` or `themes://` URL for a `.yaml` or `.yml` file inside that stream's folders: plain and absolute paths, `..` segments and symlinks out of the folder are refused
+    * The top-level module refusal covers every way a module can land there: moving a page, renaming one to a `_` name, copying a module and reorganizing it to the top level of the site are refused with the same message as creating one, however the root or the order prefix is spelled
 
 # v1.0.56
 ## 10/22/2026

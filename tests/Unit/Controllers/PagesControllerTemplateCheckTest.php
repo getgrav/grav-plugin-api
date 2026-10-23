@@ -868,6 +868,136 @@ class PagesControllerTemplateCheckTest extends TestCase
         }
         self::assertSame([], $written);
     }
+
+    private const ROOT_MODULE = 'inside a modular page';
+
+    #[Test]
+    public function create_refuses_a_module_at_the_top_level_for_every_spelling_of_the_root(): void
+    {
+        // The top level is '/', and a route given without its leading slash or
+        // with extra ones is the same place.
+        $controller = $this->controller(pages: ['/parent' => $this->parentPage()]);
+
+        foreach (['_hero', '//_hero', '/_hero/', '/02._hero'] as $route) {
+            $e = $this->refused(fn () => $controller->create($this->request(['route' => $route, 'title' => 'H', 'template' => 'hero'])));
+            self::assertStringContainsString(self::ROOT_MODULE, $e->getMessage(), $route);
+        }
+    }
+
+    #[Test]
+    public function move_refuses_a_page_landing_at_the_top_level_as_a_module(): void
+    {
+        $child = $this->pageOnDisk('child', 'default.md', 'default', false);
+        $hero = $this->pageOnDisk('_hero', 'module.md', 'hero', true);
+        $controller = $this->controller(pages: [
+            '/parent' => $this->parentPage(),
+            '/parent/child' => $child,
+            '/parent/_hero' => $hero,
+        ]);
+
+        foreach ([
+            ['/parent/_hero', ['parent' => '/']],                       // a module moved to the top level
+            ['/parent/child', ['parent' => '/', 'slug' => '_child']],   // a rename to a module name at the top level
+            ['/parent/child', ['parent' => '/', 'slug' => '01._child']], // with an order prefix
+            ['/parent/child', ['parent' => '/', 'slug' => '_child', 'order' => 3]],
+        ] as [$source, $body]) {
+            $e = $this->refused(fn () => $controller->move($this->request($body, ['route' => ltrim($source, '/')])));
+            self::assertSame('parent', $e->getValidationErrors()[0]['field'], $source . json_encode($body));
+            self::assertStringContainsString(self::ROOT_MODULE, $e->getMessage(), $source . json_encode($body));
+        }
+        self::assertSame(['_hero', 'child'], $this->listing('parent'), 'nothing was moved');
+    }
+
+    #[Test]
+    public function move_still_lets_a_module_move_inside_a_page_and_a_page_move_to_the_top_level(): void
+    {
+        $hero = $this->pageOnDisk('_hero', 'module.md', 'hero', true);
+        mkdir($this->dir . '/other');
+        $other = $this->createMock(PageInterface::class);
+        $other->method('path')->willReturn($this->dir . '/other');
+        $other->method('route')->willReturn('/other');
+        $other->method('rawRoute')->willReturn('/other');
+        $other->method('header')->willReturn((object) ['title' => 'Other']);
+        $controller = $this->controller(pages: ['/other' => $other, '/parent/_hero' => $hero]);
+
+        $controller->move($this->request(['parent' => '/other'], ['route' => 'parent/_hero']));
+        self::assertSame(['_hero'], $this->listing('other'), 'a module moves into another page');
+
+        $page = $this->pageOnDisk('child', 'default.md', 'default', false);
+        $controller = $this->controller(pages: ['/parent/child' => $page]);
+        $controller->move($this->request(['parent' => '/', 'slug' => 'child'], ['route' => 'parent/child']));
+        self::assertContains('child', $this->listing('.'), 'a page moves to the top level');
+    }
+
+    #[Test]
+    public function move_lets_a_module_already_at_the_top_level_be_renumbered(): void
+    {
+        // It stays where it is: refusing would stop a drag in a site root that
+        // holds a stray `_` folder.
+        mkdir($this->dir . '/_old');
+        file_put_contents($this->dir . '/_old/module.md', "---\ntitle: Old\n---\n");
+        $old = $this->createMock(WritablePageForTemplateCheckTest::class);
+        $old->method('path')->willReturn($this->dir . '/_old');
+        $old->method('route')->willReturn('/_old');
+        $old->method('rawRoute')->willReturn('/_old');
+        $old->method('header')->willReturn((object) ['title' => 'Old']);
+        $old->method('order')->willReturn(null);
+        $old->method('parent')->willReturn(null);
+        $old->method('children')->willReturn(new \ArrayIterator([]));
+        $old->method('media')->willReturn(new class {
+            public function all(): array { return []; }
+        });
+        $old->method('translatedLanguages')->willReturn([]);
+        $old->method('untranslatedLanguages')->willReturn([]);
+        $controller = $this->controller(pages: ['/_old' => $old]);
+
+        $controller->move($this->request(['parent' => '/', 'order' => 2], ['route' => '_old']));
+        self::assertContains('02._old', $this->listing('.'));
+    }
+
+    #[Test]
+    public function copy_refuses_a_module_copied_to_the_top_level(): void
+    {
+        $hero = $this->pageOnDisk('_hero', 'module.md', 'hero', true);
+        $controller = $this->controller(pages: ['/parent' => $this->parentPage(), '/parent/_hero' => $hero]);
+
+        foreach (['/_hero-2', '/01._hero-2', '_hero-2', '//_hero-2/'] as $route) {
+            $e = $this->refused(fn () => $controller->copy($this->request(['route' => $route], ['route' => 'parent/_hero'])));
+            self::assertSame('route', $e->getValidationErrors()[0]['field'], $route);
+            self::assertStringContainsString(self::ROOT_MODULE, $e->getMessage(), $route);
+        }
+        self::assertSame(['_hero'], $this->listing('parent'), 'nothing was copied');
+        self::assertNotContains('_hero-2', $this->listing('.'));
+    }
+
+    #[Test]
+    public function reorganize_refuses_a_module_dropped_at_the_top_level(): void
+    {
+        $hero = $this->pageOnDisk('_hero', 'module.md', 'hero', true);
+        $controller = $this->controller(pages: ['/parent' => $this->parentPage(), '/parent/_hero' => $hero]);
+
+        foreach (['/', '', '//'] as $parent) {
+            $e = $this->refused(fn () => $controller->reorganize($this->request(
+                ['operations' => [['route' => '/parent/_hero', 'parent' => $parent, 'position' => 1]]],
+            )));
+            self::assertSame('parent', $e->getValidationErrors()[0]['field'], json_encode($parent));
+            self::assertStringContainsString(self::ROOT_MODULE, $e->getMessage(), json_encode($parent));
+        }
+        self::assertSame(['_hero'], $this->listing('parent'), 'nothing was moved');
+    }
+
+    #[Test]
+    public function a_module_is_only_a_root_module_when_its_parent_is_the_root(): void
+    {
+        $isRootModule = new \ReflectionMethod(PagesController::class, 'isRootModule');
+
+        foreach ([
+            ['/', '_hero', true], ['', '_hero', true], ['//', '01._hero', true], ['/', '/_hero/', true],
+            ['/', 'hero', false], ['/', '01.hero', false], ['/parent', '_hero', false], ['/01.parent', '02._hero', false],
+        ] as [$parent, $name, $expected]) {
+            self::assertSame($expected, $isRootModule->invoke(null, $parent, $name), "{$parent} + {$name}");
+        }
+    }
 }
 
 /**
