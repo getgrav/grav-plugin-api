@@ -24,7 +24,8 @@ use RocketTheme\Toolbox\Event\Event;
  *                 'search' => '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
  *                 'clock'  => 'fa:clock',
  *             ],
- *             // or a YAML file of name: markup lines instead of `icons`:
+ *             // or a YAML file of name: markup lines instead of `icons`, named by a
+ *             // theme://, plugin://, user://, plugins:// or themes:// stream URL:
  *             // 'file' => 'theme://icons.yaml',
  *         ];
  *     }
@@ -46,6 +47,9 @@ final class IconSets
         'd', 'cx', 'cy', 'r', 'x', 'y', 'x1', 'y1', 'x2', 'y2', 'rx', 'ry',
         'width', 'height', 'points', 'stroke-width', 'stroke-linecap', 'stroke-linejoin',
     ];
+
+    /** The streams a set's `file` may name. */
+    private const STREAMS = ['theme', 'plugin', 'user', 'plugins', 'themes'];
 
     /** Most icons a set may list; a set larger than this is cut off. */
     private const MAX_ICONS = 2000;
@@ -139,17 +143,45 @@ final class IconSets
         ];
     }
 
-    /** @return array<string|int, mixed>|null */
+    /**
+     * Reads a set's YAML file. Only a Grav stream URL (`theme://icons.yaml`) is
+     * accepted, resolved through the locator, so a registered set can't point
+     * the API at an arbitrary file: no plain or absolute path, no `..`, and the
+     * file the stream resolves to has to sit inside that stream's own folders
+     * once symlinks are followed, and be a `.yaml` or `.yml` file.
+     *
+     * @return array<string|int, mixed>|null
+     */
     private function readFile(string $file): ?array
     {
         try {
-            $path = str_contains($file, '://')
-                ? ($this->resolve ? ($this->resolve)($file) : $this->locate($file))
-                : $file;
-            if (!is_string($path) || !is_file($path)) {
+            if (!preg_match('~^(' . implode('|', self::STREAMS) . ')://(.+)$~', $file, $m)) {
                 return null;
             }
-            $data = Yaml::parse((string) file_get_contents($path));
+            [, $scheme, $rest] = $m;
+            if (str_contains($file, "\0") || in_array('..', preg_split('~[/\\\\]~', $rest) ?: [], true)) {
+                return null;
+            }
+
+            $path = $this->locate($file);
+            $real = $path === null ? false : realpath($path);
+            if ($real === false || !is_file($real) || !preg_match('/\.ya?ml$/i', $real)) {
+                return null;
+            }
+
+            $inside = false;
+            foreach ($this->bases($scheme) as $base) {
+                $base = realpath($base);
+                if ($base !== false && str_starts_with($real, rtrim($base, '/') . '/')) {
+                    $inside = true;
+                    break;
+                }
+            }
+            if (!$inside) {
+                return null;
+            }
+
+            $data = Yaml::parse((string) file_get_contents($real));
 
             return is_array($data) ? $data : null;
         } catch (\Throwable) {
@@ -159,9 +191,30 @@ final class IconSets
 
     private function locate(string $url): ?string
     {
-        $path = $this->grav['locator']->findResource($url, true);
+        $path = $this->resolve
+            ? ($this->resolve)($url)
+            : $this->grav['locator']->findResource($url, true);
 
         return is_string($path) ? $path : null;
+    }
+
+    /**
+     * The folders a stream covers (a theme's own and its parent's, for
+     * example), which a file read through it has to stay inside.
+     *
+     * @return list<string>
+     */
+    private function bases(string $scheme): array
+    {
+        if ($this->resolve) {
+            $base = ($this->resolve)($scheme . '://');
+
+            return is_string($base) ? [$base] : [];
+        }
+
+        $bases = $this->grav['locator']->findResources($scheme . '://', true);
+
+        return is_array($bases) ? array_values(array_filter($bases, 'is_string')) : [];
     }
 
     /**

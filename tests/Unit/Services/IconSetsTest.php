@@ -128,19 +128,115 @@ class IconSetsTest extends TestCase
         self::assertNull($sets->get(' '));
     }
 
-    #[Test]
-    public function a_set_can_come_from_a_yaml_file(): void
+    /**
+     * A set whose `file` goes through a fake `theme://` stream: the stream's
+     * folder is `$base`, and `theme://x` is `$base/x` whatever `x` is, so a
+     * traversal or a symlink reaches the real file unless the reader stops it.
+     *
+     * @param array<string, mixed> $set
+     */
+    private function setFromStream(string $base, array $set): ?array
     {
-        $file = sys_get_temp_dir() . '/grav-api-icons-' . bin2hex(random_bytes(6)) . '.yaml';
-        file_put_contents($file, "bag: '<path d=\"M6 8h12l-1 12H7z\"/>'\nstar: 'fa:star'\n");
+        $grav = TestHelper::createMockGrav();
+        $grav->addListener('onApiIconSets', function ($event) use ($set): void {
+            $event['sets'] = ['shop' => $set] + $event['sets'];
+        });
+        $resolve = static fn (string $url): ?string => str_starts_with($url, 'theme://')
+            ? rtrim($base . '/' . substr($url, strlen('theme://')), '/')
+            : null;
+
+        return (new IconSets($grav, $resolve))->get('shop');
+    }
+
+    private function tempDir(): string
+    {
+        $dir = sys_get_temp_dir() . '/grav-api-icons-' . bin2hex(random_bytes(6));
+        mkdir($dir . '/theme', 0777, true);
+
+        return realpath($dir);
+    }
+
+    private function removeDir(string $dir): void
+    {
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS), \RecursiveIteratorIterator::CHILD_FIRST) as $f) {
+            $f->isLink() || $f->isFile() ? unlink($f->getPathname()) : rmdir($f->getPathname());
+        }
+        rmdir($dir);
+    }
+
+    #[Test]
+    public function a_set_can_come_from_a_yaml_file_in_a_stream(): void
+    {
+        $dir = $this->tempDir();
+        file_put_contents($dir . '/theme/icons.yaml', "bag: '<path d=\"M6 8h12l-1 12H7z\"/>'\nstar: 'fa:star'\n");
+        file_put_contents($dir . '/theme/more.yml', "moon: 'fa:moon'\n");
 
         try {
-            $set = $this->sets(['shop' => ['file' => $file]])->get('shop');
+            $set = $this->setFromStream($dir . '/theme', ['file' => 'theme://icons.yaml']);
             self::assertSame('shop', $set['label'], 'a set without a label is called by its name');
             self::assertSame(['bag', 'star'], array_column($set['icons'], 'name'));
             self::assertSame('svg', $set['icons'][0]['icon']['type']);
+
+            $set = $this->setFromStream($dir . '/theme', ['file' => 'theme://more.yml']);
+            self::assertSame(['moon'], array_column($set['icons'], 'name'), '.yml reads like .yaml');
         } finally {
-            @unlink($file);
+            $this->removeDir($dir);
+        }
+    }
+
+    #[Test]
+    public function a_file_that_is_not_a_stream_url_is_refused(): void
+    {
+        $dir = $this->tempDir();
+        file_put_contents($dir . '/theme/icons.yaml', "star: 'fa:star'\n");
+
+        try {
+            foreach ([
+                $dir . '/theme/icons.yaml',               // absolute path
+                'theme/icons.yaml',                       // relative path
+                'file://' . $dir . '/theme/icons.yaml',   // a scheme that is not a Grav stream
+                'cache://icons.yaml',                     // a Grav stream that is not allowed
+            ] as $file) {
+                self::assertNull($this->setFromStream($dir . '/theme', ['file' => $file]), $file);
+            }
+        } finally {
+            $this->removeDir($dir);
+        }
+    }
+
+    #[Test]
+    public function a_stream_url_cannot_climb_out_of_its_folder(): void
+    {
+        $dir = $this->tempDir();
+        file_put_contents($dir . '/outside.yaml', "star: 'fa:star'\n");
+        file_put_contents($dir . '/theme/icons.yaml', "star: 'fa:star'\n");
+
+        try {
+            // The fake stream resolves these to a real file, so only the reader's
+            // own check keeps them out.
+            self::assertNotNull($this->setFromStream($dir . '/theme', ['file' => 'theme://icons.yaml']));
+            foreach (['theme://../outside.yaml', 'theme://sub/../../outside.yaml', 'theme://..\\outside.yaml'] as $file) {
+                self::assertNull($this->setFromStream($dir . '/theme', ['file' => $file]), $file);
+            }
+        } finally {
+            $this->removeDir($dir);
+        }
+    }
+
+    #[Test]
+    public function a_symlink_cannot_lead_out_of_the_stream_and_only_yaml_is_read(): void
+    {
+        $dir = $this->tempDir();
+        file_put_contents($dir . '/outside.yaml', "star: 'fa:star'\n");
+        file_put_contents($dir . '/theme/icons.txt', "star: 'fa:star'\n");
+        symlink($dir . '/outside.yaml', $dir . '/theme/link.yaml');
+
+        try {
+            self::assertNull($this->setFromStream($dir . '/theme', ['file' => 'theme://link.yaml']), 'a symlink out of the folder');
+            self::assertNull($this->setFromStream($dir . '/theme', ['file' => 'theme://icons.txt']), 'not a YAML file');
+            self::assertNull($this->setFromStream($dir . '/theme', ['file' => 'theme://missing.yaml']), 'no such file');
+        } finally {
+            $this->removeDir($dir);
         }
     }
 }

@@ -736,7 +736,7 @@ public function onApiIconSets(Event $event): void
 |---|---|
 | `label` | The set's name in the picker. Optional; a language key is translated. |
 | `icons` | Icon name → icon, in the order the picker lists them. An icon is SVG markup (a whole `<svg>`, or only what goes inside one on a 24px grid) or any [IconSpec](https://github.com/getgrav/grav-admin-next/blob/main/docs/IconSpec.md) value. |
-| `file` | Instead of `icons`: a YAML file (path or stream, e.g. `theme://icons.yaml`) of `name: markup` lines, so a theme can keep one list for its templates and the admin. |
+| `file` | Instead of `icons`: a YAML file of `name: markup` lines, so a theme can keep one list for its templates and the admin. It must be a Grav stream URL (`theme://icons.yaml`; `theme://`, `plugin://`, `user://`, `plugins://` and `themes://` are accepted) naming a `.yaml` or `.yml` file that sits inside that stream's own folders. A plain or absolute path, a `..` segment, or a symlink that leads out of the folder is refused and the set is left out. |
 
 The picker saves the icon's name (`search`), which is what the theme's own icon macro takes. Markup never reaches the browser as markup: the API reads it into IconSpec's structured SVG form, keeping only `path`, `circle`, `rect`, `line`, `polyline`, `polygon` and `ellipse` and their geometry and stroke attributes, and drops scripts, styles, event handlers and anything else. Icons are drawn as line icons (no fill, stroked in the text color). The set is sent with each field that names it, as `icon_set`; a field naming a set nobody registered gets only `icons`, and the picker says the set isn't there.
 
