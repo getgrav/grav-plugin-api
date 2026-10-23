@@ -1,3 +1,12 @@
+# v1.0.58
+## 10/23/2026
+
+1. [](#bugfix)
+    * [security] Exchanging one refresh token in several requests at once now yields a single new token pair, and the same holds for a 2FA challenge token. Thanks @yssoe
+    * [security] An invitation can only be accepted once, even when several accept requests arrive at the same moment, and creating or removing invites no longer writes back invites that were already used. Thanks @yssoe
+    * [security] Creating or revoking an API key while other keys are in use can no longer be overwritten by another request, so a revoked key stays revoked. Thanks @yssoe
+    * [security] Creating or copying a page now refuses a route segment of `.` or `..`, so the new page always gets its own folder
+
 # v1.0.57
 ## 10/22/2026
 
