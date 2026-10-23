@@ -1,3 +1,9 @@
+# v1.0.57
+## 10/22/2026
+
+1. [](#improved)
+    * **Admin branding honors an environment's own `admin-next.yaml`**: the sign-in card, logo and title are read through Grav's config, so a copy of `admin-next.yaml` in `user/env/<env>/config/` takes the place of the site's one for that environment (a local copy of a demo can name its own sign-ins, for example). Saving from the admin still writes `user/config/admin-next.yaml`
+
 # v1.0.56
 ## 10/22/2026
 

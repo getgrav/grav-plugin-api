@@ -635,6 +635,16 @@ class PreferencesResolver
      */
     private function readSiteUiBlock(): array
     {
+        // Read through Grav's config so an environment's own admin-next.yaml
+        // (user/env/<env>/config/, which takes the place of the site's file) can
+        // change the branding, e.g. on a local copy of a demo. Saving still writes
+        // user/config/admin-next.yaml. The file is the fallback when config has none.
+        $config = $this->grav['config'] ?? null;
+        $ui = $config ? $config->get('admin-next.ui') : null;
+        if (is_array($ui) && $ui !== []) {
+            return $ui;
+        }
+
         $path = $this->siteConfigFilePath();
         if (!$path || !is_file($path)) {
             return [];
