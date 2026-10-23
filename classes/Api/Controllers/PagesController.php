@@ -567,6 +567,34 @@ class PagesController extends AbstractApiController
     }
 
     /**
+     * Refuse a route whose segments are not page folder names. The last segment
+     * becomes the new folder, joined onto the parent's path, so `.` or `..`
+     * there would put the page file in the parent's folder or the one above it,
+     * outside the page the request was authorized against. A separator or null
+     * byte has no place in a folder name either.
+     *
+     * @throws ValidationException
+     */
+    private static function assertPageRoute(string $route, string $field = 'route'): void
+    {
+        $segments = explode('/', trim($route, '/'));
+        $last = (string) end($segments);
+        $invalid = str_contains($route, '\\')
+            || str_contains($route, "\0")
+            || ($last !== '' && $last[0] === '.');
+        foreach ($segments as $segment) {
+            if ($segment === '.' || $segment === '..') {
+                $invalid = true;
+            }
+        }
+
+        if ($invalid) {
+            $message = "Invalid route: '{$route}' must be made of page folder names.";
+            throw new ValidationException($message, [['field' => $field, 'message' => $message]]);
+        }
+    }
+
+    /**
      * Whether a page named `$name` under `$parentRoute` would be a module at
      * the top level of the site. A module (a `_` slug) is only drawn by the
      * modular page above it, so one with the site root as its parent is a
@@ -695,6 +723,7 @@ class PagesController extends AbstractApiController
             // whether a page is a module from that slug, so the `_` test below
             // has to see the slug alone (#55). The prefix is kept for the
             // folder name and left out of the route, which never holds it.
+            self::assertPageRoute($route);
             [$routePrefix, $slug] = self::splitOrderPrefix(self::routeBasename($route));
             if ($routePrefix !== '' && $slug === '') {
                 throw new ValidationException("Invalid route: '{$route}' has an order prefix but no page name.");
@@ -1479,6 +1508,7 @@ class PagesController extends AbstractApiController
         $destParentRoute = self::routeParent($destRoute);
         // An order prefix in the last segment (`02.bar-2`) belongs to the folder,
         // never the route, the same as on create.
+        self::assertPageRoute($destRoute);
         [$routePrefix, $destSlug] = self::splitOrderPrefix(self::routeBasename($destRoute));
         if ($destSlug === '') {
             throw new ValidationException("Invalid route: '{$destRoute}' has an order prefix but no page name.");
