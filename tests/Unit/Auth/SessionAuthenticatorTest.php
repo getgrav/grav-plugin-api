@@ -86,11 +86,35 @@ class SessionAuthenticatorTest extends TestCase
         return TestHelper::createMockAccounts($users);
     }
 
-    private function authenticate(object $accounts): ?UserInterface
+    #[Test]
+    public function a_session_from_before_a_password_change_is_rejected(): void
+    {
+        $fresh = TestHelper::createMockUser('editor', [
+            'access'                 => ['api' => ['access' => true]],
+            'api_tokens_valid_after' => 2000,
+        ]);
+
+        self::assertNull($this->authenticate($this->accounts(['editor' => $fresh]), ['api_tokens_valid_after' => 1000]));
+        self::assertNull($this->authenticate($this->accounts(['editor' => $fresh])));
+    }
+
+    #[Test]
+    public function the_session_that_changed_the_password_is_accepted(): void
+    {
+        $fresh = TestHelper::createMockUser('editor', [
+            'access'                 => ['api' => ['access' => true]],
+            'api_tokens_valid_after' => 2000,
+        ]);
+
+        self::assertNotNull($this->authenticate($this->accounts(['editor' => $fresh]), ['api_tokens_valid_after' => 2000]));
+    }
+
+    /** @param array<string, mixed> $sessionData */
+    private function authenticate(object $accounts, array $sessionData = []): ?UserInterface
     {
         // The serialized session copy still carries the permissions it had at
         // login, which is exactly what must not survive a revocation.
-        $sessionUser = $this->sessionUser('editor', [
+        $sessionUser = $this->sessionUser('editor', $sessionData + [
             'state'  => 'enabled',
             'access' => ['api' => ['access' => true, 'super' => true]],
         ]);

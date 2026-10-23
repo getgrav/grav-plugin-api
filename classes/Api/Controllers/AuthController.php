@@ -456,9 +456,9 @@ class AuthController extends AbstractApiController
         unset($user->hashed_password, $user->reset);
         $user->password = $password;
         // Kill every token issued before this reset so a compromised account's
-        // outstanding access/refresh tokens die with the old password.
-        // GHSA-m8g9-wxhx-6f86.
-        $user->set('api_tokens_valid_after', time());
+        // outstanding access/refresh tokens die with the old password, and
+        // sign its browsers out too. GHSA-m8g9-wxhx-6f86.
+        $this->endOtherSessions($user, false);
         $user->save();
 
         $this->resetLoginRateLimit($username);

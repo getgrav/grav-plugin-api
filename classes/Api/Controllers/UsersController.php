@@ -14,6 +14,7 @@ use Grav\Framework\Collection\ArrayCollection;
 use Grav\Framework\Flex\FlexDirectory;
 use Grav\Framework\Flex\Interfaces\FlexCollectionInterface;
 use Grav\Plugin\Api\Auth\ApiKeyManager;
+use Grav\Plugin\Api\Auth\JwtAuthenticator;
 use Grav\Plugin\Api\Exceptions\ApiException;
 use Grav\Plugin\Api\Exceptions\ConflictException;
 use Grav\Plugin\Api\Exceptions\ForbiddenException;
@@ -70,7 +71,7 @@ class UsersController extends AbstractApiController
         // check a code; a plain PATCH must never switch it on or off.
         'twofa_enabled', 'twofa_secret',
         // Credentials / identity — never mass-assigned through the sweep.
-        'password', 'hashed_password', 'username',
+        'password', 'current_password', 'hashed_password', 'username',
         // Server-managed bookkeeping.
         'authenticated', 'authorized', 'created', 'modified', 'api_tokens_valid_after',
     ];
@@ -948,7 +949,7 @@ class UsersController extends AbstractApiController
         // global setting between fetch and save.
         $etag = $this->generateEtag($data);
 
-        return ApiResponse::create($this->withTwofaCapability($data), 200, ['ETag' => '"' . $etag . '"']);
+        return ApiResponse::create($this->withAccountFlags($data, $user), 200, ['ETag' => '"' . $etag . '"']);
     }
 
     public function create(ServerRequestInterface $request): ResponseInterface
@@ -1154,6 +1155,25 @@ class UsersController extends AbstractApiController
             $allowedFields = array_merge($allowedFields, $superFields);
         }
 
+        // A new password must meet the policy, and changing your own takes your
+        // current password too, whatever permissions you hold, so a stolen
+        // session or token can't lock the owner out. An account with no
+        // password yet (one created by a sign-in service) sets its first
+        // without one. An admin setting someone else's password needs only
+        // api.users.write, as before. Checked before anything is written.
+        $passwordChanged = isset($body['password']) && $body['password'] !== '';
+        if ($passwordChanged) {
+            if (!is_string($body['password'])) {
+                throw new ValidationException('The password must be a string.', [
+                    ['field' => 'password', 'message' => 'The password must be a string.'],
+                ]);
+            }
+            PasswordPolicyService::assertValid($this->config, $body['password']);
+            if ($isSelf) {
+                $this->assertCurrentPassword($request, $user, $body['current_password'] ?? null);
+            }
+        }
+
         // Someone changing their own address has to prove the new one first,
         // whatever permissions they hold, so it waits as `email_pending` until
         // the link mailed to it is opened. Checked before anything is written,
@@ -1196,22 +1216,25 @@ class UsersController extends AbstractApiController
         // this only touches extra, non-reserved blueprint fields (admin2#138).
         $this->applyCustomAccountFields($user, $body);
 
-        // Hash password if provided
-        $passwordChanged = isset($body['password']) && $body['password'] !== '';
+        // Hash password if provided. A plain-text password left in the account
+        // file would otherwise be hashed over the new one when it saves.
         if ($passwordChanged) {
-            PasswordPolicyService::assertValid($this->config, (string) $body['password']);
             $user->set('hashed_password', Authentication::create($body['password']));
+            $user->set('password', null);
         }
 
         // Invalidate every outstanding API token for this account when its
         // password changes or it gets disabled. Stamping the cutoff is the kill
         // switch JwtAuthenticator checks on each request, so a stolen access or
         // refresh token can't outlive a password reset or account lockout.
-        // GHSA-m8g9-wxhx-6f86.
+        // GHSA-m8g9-wxhx-6f86. A password change also signs the account's other
+        // browsers out (Login plugin 3.11.0 or later).
         $disabledNow = in_array('state', $allowedFields, true)
             && array_key_exists('state', $body)
             && $user->get('state') === 'disabled';
-        if ($passwordChanged || $disabledNow) {
+        if ($passwordChanged) {
+            $this->endOtherSessions($user, $isSelf);
+        } elseif ($disabledNow) {
             $user->set('api_tokens_valid_after', time());
         }
 
@@ -1236,6 +1259,16 @@ class UsersController extends AbstractApiController
             $meta = ['message' => $this->startEmailChange($user, $pendingEmail)];
         }
 
+        // The cutoff just stamped also ends the token this request came with,
+        // so someone changing their own password gets a fresh pair and stays
+        // signed in. A browser session was kept by endOtherSessions(), and an
+        // API key isn't affected by the cutoff.
+        if ($passwordChanged && $isSelf && $request->getAttribute('api_auth_method') === 'jwt') {
+            $meta = ($meta ?? []) + [
+                'tokens' => $this->buildTokenPair(new JwtAuthenticator($this->grav, $this->config), $user),
+            ];
+        }
+
         $data = $this->serializeUser($user);
 
         return $this->respondWithEtag(
@@ -1243,7 +1276,7 @@ class UsersController extends AbstractApiController
             // the save response — leave it out and the panel disappears until
             // the next page load. Kept out of the ETag for the reason show()
             // explains.
-            $this->withTwofaCapability($data),
+            $this->withAccountFlags($data, $user),
             200,
             ['users:update:' . $username, 'users:list'],
             $this->generateEtag($data),
@@ -1416,7 +1449,7 @@ class UsersController extends AbstractApiController
         $data = $this->serializeUser($user);
 
         return $this->respondWithEtag(
-            $this->withTwofaCapability($data),
+            $this->withAccountFlags($data, $user),
             200,
             ['users:update:' . $user->username, 'users:list'],
             $this->generateEtag($data),
@@ -1435,11 +1468,98 @@ class UsersController extends AbstractApiController
      * @param array<string, mixed> $data
      * @return array<string, mixed>
      */
-    private function withTwofaCapability(array $data): array
+    private function withAccountFlags(array $data, UserInterface $user): array
     {
         $data['twofa_global_enabled'] = class_exists(\Grav\Plugin\Login\TwoFactorAuth\TwoFactorAuth::class);
+        // Whether the account has a password of its own. One created by a
+        // sign-in service may not, and then setting your first password needs
+        // no current one.
+        $data['has_password'] = $this->accountHasPassword($user);
 
         return $data;
+    }
+
+    /**
+     * Whether the account has a password: a hash, or a plain-text one still
+     * sitting in the account file (Grav hashes it on the next sign-in).
+     */
+    private function accountHasPassword(UserInterface $user): bool
+    {
+        $hash = $user->get('hashed_password');
+        $plain = $user->get('password');
+
+        return (is_string($hash) && $hash !== '') || (is_string($plain) && $plain !== '');
+    }
+
+    /**
+     * Refuse a change of your own password unless `current_password` is right.
+     * Each try counts against the Login plugin's sign-in limits for the
+     * account and the IP (429 once they are used up), so this can't be used to
+     * guess the password, and a right one clears the count like a sign-in.
+     * An account with no password yet passes without one.
+     */
+    private function assertCurrentPassword(ServerRequestInterface $request, UserInterface $user, mixed $current): void
+    {
+        if (!$this->accountHasPassword($user)) {
+            return;
+        }
+
+        if (!is_string($current) || $current === '') {
+            $message = 'Enter your current password to set a new one.';
+            throw new ValidationException($message, [['field' => 'current_password', 'message' => $message]]);
+        }
+
+        $username = (string) $user->username;
+        $login = isset($this->grav['login']) ? $this->grav['login'] : null;
+        $limited = is_object($login) && method_exists($login, 'checkLoginRateLimit');
+        if ($limited) {
+            $wait = (int) $login->checkLoginRateLimit($username);
+            if ($wait > 0) {
+                throw new TooManyRequestsException(
+                    sprintf('Too many wrong passwords. Try again in %d minutes.', $wait),
+                    $wait * 60,
+                );
+            }
+        }
+
+        if (!$this->passwordMatches($user, $current)) {
+            $this->fireEvent('onApiUserLoginFailure', [
+                'username' => $username,
+                'reason' => 'current_password',
+                'ip' => $this->getRequestIp($request),
+            ]);
+            $message = 'The current password is not correct.';
+            throw new ValidationException($message, [['field' => 'current_password', 'message' => $message]]);
+        }
+
+        if ($limited && method_exists($login, 'resetLoginRateLimit')) {
+            $login->resetLoginRateLimit($username);
+        }
+    }
+
+    /**
+     * Check a password against the account without saving anything, the way
+     * core's authenticate() does: a plain-text password still in the file is
+     * compared as is, and an account with no hash still runs a hash check so
+     * the time taken gives nothing away.
+     */
+    private function passwordMatches(UserInterface $user, string $password): bool
+    {
+        $plain = $user->get('password');
+        if (is_string($plain) && $plain !== '') {
+            return hash_equals($plain, $password);
+        }
+
+        $hash = $user->get('hashed_password');
+        if (!is_string($hash) || $hash === '') {
+            $default = (string) $this->config->get('system.security.default_hash', '');
+            if ($default !== '') {
+                Authentication::verify($password, $default);
+            }
+            return false;
+        }
+
+        return Authentication::verify($password, $hash) > 0;
     }
 
     public function delete(ServerRequestInterface $request): ResponseInterface
@@ -1633,6 +1753,16 @@ class UsersController extends AbstractApiController
             );
         }
 
+        // A new secret also switches 2FA off until a code for it is verified,
+        // so on your own account, with 2FA on, it takes a current code, the
+        // same as POST /2fa/disable. Otherwise a signed-in session could drop
+        // the second factor without it. An admin resetting someone else's
+        // (lost-device recovery) needs no code.
+        if ($currentUser->username === $username && $this->hasActiveTwoFactor($user)) {
+            $body = $this->getRequestBody($request);
+            $this->assertCurrentTwoFactorCode($user, $body['code'] ?? null);
+        }
+
         $twoFa = new \Grav\Plugin\Login\TwoFactorAuth\TwoFactorAuth();
         $secret = $twoFa->createSecret();
 
@@ -1743,11 +1873,12 @@ class UsersController extends AbstractApiController
         $user = $this->loadUserOrFail($username);
         $this->requireNotSuperTarget($request, $user);
 
-        if ($isSelf && !$isAdmin) {
-            // Self-disable without admin privilege requires code verification.
-            $body = $this->getRequestBody($request);
-            $this->requireFields($body, ['code']);
-
+        // Turning off your own 2FA takes a current code, whatever permissions
+        // you hold: user-management rights are for other people's accounts
+        // (lost-device recovery), and skipping the code on your own let a
+        // signed-in session of a manager drop its second factor. Nothing to
+        // prove when 2FA isn't on.
+        if ($isSelf && $this->hasActiveTwoFactor($user)) {
             if (!class_exists(\Grav\Plugin\Login\TwoFactorAuth\TwoFactorAuth::class)) {
                 throw new \Grav\Plugin\Api\Exceptions\ApiException(
                     500,
@@ -1756,11 +1887,8 @@ class UsersController extends AbstractApiController
                 );
             }
 
-            $secret = (string) $user->get('twofa_secret');
-            $twoFa = new \Grav\Plugin\Login\TwoFactorAuth\TwoFactorAuth();
-            if (!$secret || !$twoFa->verifyCode($secret, (string) $body['code'])) {
-                throw new ValidationException('Invalid 2FA code.');
-            }
+            $body = $this->getRequestBody($request);
+            $this->assertCurrentTwoFactorCode($user, $body['code'] ?? null);
         }
 
         $user->set('twofa_enabled', false);
@@ -1773,6 +1901,64 @@ class UsersController extends AbstractApiController
         ]);
 
         return ApiResponse::create(['twofa_enabled' => false]);
+    }
+
+    /** Whether the account has 2FA switched on with a secret to check codes against. */
+    private function hasActiveTwoFactor(UserInterface $user): bool
+    {
+        return (bool) $user->get('twofa_enabled') && (string) $user->get('twofa_secret') !== '';
+    }
+
+    /**
+     * Refuse unless `$code` is a current code for the account's 2FA secret.
+     * Wrong codes count against the Login plugin's 2FA limit for the account
+     * (429 once it is used up), the same counter the sign-in challenge uses,
+     * so the six digits can't be guessed through here.
+     */
+    private function assertCurrentTwoFactorCode(UserInterface $user, mixed $code): void
+    {
+        $code = is_string($code) || is_int($code) ? trim((string) $code) : '';
+        if ($code === '') {
+            $message = 'Enter the current code from your authenticator app.';
+            throw new ValidationException($message, [['field' => 'code', 'message' => $message]]);
+        }
+
+        $username = (string) $user->username;
+        $login = isset($this->grav['login']) ? $this->grav['login'] : null;
+        $limiter = is_object($login) && method_exists($login, 'getRateLimiter')
+            ? $login->getRateLimiter('twofa_attempts')
+            : null;
+
+        if ($limiter && $limiter->hasReachedLimit($username)) {
+            $seconds = method_exists($limiter, 'getRetryAfter')
+                ? (int) $limiter->getRetryAfter($username)
+                : (int) $limiter->getInterval() * 60;
+            $minutes = max(1, (int) ceil($seconds / 60));
+            throw new TooManyRequestsException(
+                sprintf('Too many wrong codes. Try again in %d minutes.', $minutes),
+                $minutes * 60,
+            );
+        }
+
+        if (!$this->verifyTwoFactorCode((string) $user->get('twofa_secret'), $code)) {
+            $limiter?->registerRateLimitedAction($username);
+            $message = 'The code is not correct.';
+            throw new ValidationException($message, [['field' => 'code', 'message' => $message]]);
+        }
+
+        if ($limiter && method_exists($limiter, 'resetRateLimit')) {
+            $limiter->resetRateLimit($username);
+        }
+    }
+
+    /** Check a TOTP code against a secret with the Login plugin's 2FA helper. */
+    protected function verifyTwoFactorCode(string $secret, string $code): bool
+    {
+        if ($secret === '' || !class_exists(\Grav\Plugin\Login\TwoFactorAuth\TwoFactorAuth::class)) {
+            return false;
+        }
+
+        return (bool) (new \Grav\Plugin\Login\TwoFactorAuth\TwoFactorAuth())->verifyCode($secret, $code);
     }
 
     public function apiKeys(ServerRequestInterface $request): ResponseInterface

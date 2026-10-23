@@ -54,6 +54,15 @@ class SessionAuthenticator implements AuthenticatorInterface
                             return null;
                         }
 
+                        // A session that signed in before the account's password
+                        // last changed is refused, like a JWT issued before then.
+                        // The Login plugin signs such a session out on its own;
+                        // this keeps the API closed with an older Login plugin.
+                        $cutoff = (int) $fresh->get('api_tokens_valid_after', 0);
+                        if ($cutoff > 0 && (int) $user->get('api_tokens_valid_after', 0) < $cutoff) {
+                            return null;
+                        }
+
                         $user->set('state', $fresh->get('state', 'enabled'));
                         $user->set('access', $fresh->get('access'));
                         $user->set('groups', $fresh->get('groups'));
