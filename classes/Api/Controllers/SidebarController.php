@@ -26,14 +26,13 @@ use RocketTheme\Toolbox\Event\Event;
  *     'badge'     => null,                   // optional static badge text/count
  *     'badgeEndpoint' => '/my-plugin/badge', // optional — API path returning { count: N }, refreshed live
  *     'authorize' => 'api.some.permission',  // optional — single permission, or array for any-of
- *     'children'  => [                       // optional — shortcuts a user can add under the item
+ *     'children'  => [                       // optional — shortcuts shown under the item
  *       ['id' => 'orders', 'label' => 'Orders', 'route' => '/plugin/kahunacart#/orders', 'icon' => 'receipt', 'authorize' => '…'],
  *     ],
  *   ]
  *
- * `children` are offered, not shown: each user picks the ones they want under
- * the item when they customize the sidebar, and none show until they do. A
- * child needs an `id` (letters, digits, `_` and `-`, unique within the item),
+ * `children` show under the item, which a user can fold away; each user can
+ * hide the ones they don't want when they customize the sidebar. A child needs an `id` (letters, digits, `_` and `-`, unique within the item),
  * a `label` and a `route`; `icon` and `authorize` work as on the item itself.
  *
  * When `badgeEndpoint` is set, admin-next fetches it on load and re-fetches on

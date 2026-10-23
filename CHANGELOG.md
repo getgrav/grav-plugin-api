@@ -2,8 +2,8 @@
 ## 10/23/2026
 
 1. [](#new)
-    * **Arrange the sidebar**: a new `sidebarLayout` preference holds the order of the Admin2 sidebar, the items hidden from it and the shortcuts switched on, with a site default and an override for each user, like the other appearance preferences
-    * **Sidebar shortcuts**: a plugin's sidebar item can offer `children`, screens of the plugin a user can switch on as shortcuts under it. None show until a user picks them, and each is checked against its own `authorize`
+    * **Arrange the sidebar**: a new `sidebarLayout` preference holds the order of the Admin2 sidebar and the items hidden from it, with a site default and an override for each user, like the other appearance preferences
+    * **Sidebar shortcuts**: a plugin's sidebar item can list `children`, screens of the plugin shown as shortcuts under it. A user can hide the ones they don't want, and each is checked against its own `authorize`
 2. [](#improved)
     * [security] **Changing your own password needs the current one**: `PATCH /users/{username}` on your own account refuses a new `password` without a correct `current_password` (422), and wrong ones count toward the sign-in lockout (429). See "Changing your own password" in the README
     * An account with no password yet (one made by a sign-in service) sets its first without a current one, and user records now say which accounts have a password with `has_password`

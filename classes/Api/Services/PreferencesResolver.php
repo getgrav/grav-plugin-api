@@ -81,10 +81,10 @@ class PreferencesResolver
             'pluginsViewMode' => 'cards',
             'themesViewMode' => 'cards',
             'flexAfterSave' => '',
-            // Sidebar order, hidden items and the sub-items switched on, by
-            // id. An empty order keeps the built-in order (core items, then
-            // plugin items). Sub-items show only once listed in `shown`.
-            'sidebarLayout' => ['order' => [], 'hidden' => [], 'shown' => []],
+            // Sidebar order and hidden items (sub-items included), by id. An
+            // empty order keeps the built-in order (core items, then plugin
+            // items).
+            'sidebarLayout' => ['order' => [], 'hidden' => []],
         ];
     }
 
@@ -612,11 +612,11 @@ class PreferencesResolver
     }
 
     /**
-     * Keep a sidebar layout to `order`, `hidden` and `shown` lists of valid, unique
+     * Keep a sidebar layout to `order` and `hidden` lists of valid, unique
      * item ids. Ids the sidebar doesn't have are kept: they belong to a plugin
      * that is disabled now, or to an item this user isn't allowed to see.
      *
-     * @return array{order: array<int, string>, hidden: array<int, string>, shown: array<int, string>}|null
+     * @return array{order: array<int, string>, hidden: array<int, string>}|null
      */
     private function normalizeSidebarLayout(mixed $value): ?array
     {
@@ -624,7 +624,7 @@ class PreferencesResolver
             return null;
         }
         $layout = [];
-        foreach (['order', 'hidden', 'shown'] as $list) {
+        foreach (['order', 'hidden'] as $list) {
             $ids = [];
             foreach (is_array($value[$list] ?? null) ? $value[$list] : [] as $id) {
                 if (is_string($id) && preg_match(self::SIDEBAR_ID_PATTERN, $id) && !in_array($id, $ids, true)) {
