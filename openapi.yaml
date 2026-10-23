@@ -4137,6 +4137,24 @@ paths:
         and so does a site without the Login plugin or with the setting off.
         Use `DELETE /users/{username}/email-change` to cancel a waiting change
         and `POST /users/{username}/email-change/resend` to mail the link again.
+
+        **Changing your own password** (API 1.0.58 or later) takes your current
+        password in `current_password` next to the new `password`, whatever
+        permissions you hold. Without it, or with a wrong one, the whole
+        request is refused with 422 and a field error on `current_password`.
+        Each try counts against the Login plugin's sign-in limits for the
+        account and the IP, so too many wrong ones return 429 with
+        `Retry-After`. An account with no password yet (`has_password: false`,
+        such as one created by a sign-in service) sets its first password
+        without one. An admin with `api.users.write` setting someone else's
+        password sends only `password`, as before.
+
+        Any password change signs the account out everywhere: every API token
+        issued before it stops working, and with the Login plugin 3.10.2 or
+        later so do its other browser sessions and remember-me cookies. When
+        you change your own password with a JWT, the response carries a fresh
+        token pair in `meta.tokens` so you stay signed in; a browser session
+        making the change stays signed in by itself.
       parameters:
         - $ref: "#/components/parameters/username"
         - $ref: "#/components/parameters/ifMatch"
@@ -4146,10 +4164,18 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/UpdateUserRequest"
-            example:
-              fullname: Jane Doe
-              email: jane@example.com
-              state: enabled
+            examples:
+              profile:
+                summary: Update profile fields
+                value:
+                  fullname: Jane Doe
+                  email: jane@example.com
+                  state: enabled
+              ownPassword:
+                summary: Change your own password
+                value:
+                  current_password: my-old-password
+                  password: A-new-passw0rd
       responses:
         "200":
           description: User updated successfully.
@@ -4163,6 +4189,30 @@ paths:
                 properties:
                   data:
                     $ref: "#/components/schemas/User"
+                  meta:
+                    type: object
+                    description: Only present when there is something to add.
+                    properties:
+                      message:
+                        type: string
+                        description: Where the confirmation link for a new email address went.
+                      tokens:
+                        type: object
+                        description: |
+                          A fresh token pair, sent when you changed your own
+                          password with a JWT. The change ended the token the
+                          request came with, so replace it with these.
+                        properties:
+                          access_token:
+                            type: string
+                          refresh_token:
+                            type: string
+                          token_type:
+                            type: string
+                            example: Bearer
+                          expires_in:
+                            type: integer
+                            example: 3600
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -4305,8 +4355,27 @@ paths:
         it for another user requires `api.users.write`, and only a super admin
         may do it for a super admin. Returns 500 when the Login plugin's 2FA
         support is not installed.
+
+        **Replacing your own active 2FA** (API 1.0.58 or later): when your own
+        account has 2FA on, a new secret takes a valid current `code`, since it
+        switches 2FA off; without one, or with a wrong one, it is refused with
+        422 and a field error on `code`, and wrong codes count against the
+        Login plugin's 2FA limit (429). First-time setup needs no code, and
+        neither does an admin with `api.users.write` resetting someone else's
+        (lost-device recovery).
       parameters:
         - $ref: "#/components/parameters/username"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+                  description: Current authenticator code. Required when your own account has 2FA on.
+                  example: "123456"
       responses:
         "200":
           description: 2FA secret and QR code generated.
@@ -4336,6 +4405,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "500":
@@ -4714,7 +4785,7 @@ paths:
       tags: [Users]
       summary: Turn off 2FA
       description: |
-        Turn off two-factor authentication and clear the secret. The account owner needs `api.access` and must send a valid current `code`. A caller with `api.users.write` (or a super admin), acting through a token or key whose scope includes `api.users.write`, can turn it off for another user without a code, for lost-device recovery; only super admins can do so for a super-admin account.
+        Turn off two-factor authentication and clear the secret. The account owner needs `api.access` and, while 2FA is on, must send a valid current `code`, whatever permissions they hold (API 1.0.58 or later; before that a caller with `api.users.write` could turn off their own without one). Without a code, or with a wrong one, it is refused with 422 and a field error on `code`, and wrong codes count against the Login plugin's 2FA limit (429). A caller with `api.users.write` (or a super admin), acting through a token or key whose scope includes `api.users.write`, can turn it off for another user without a code, for lost-device recovery; only super admins can do so for a super-admin account.
       parameters:
         - $ref: "#/components/parameters/username"
       requestBody:
@@ -4726,7 +4797,7 @@ paths:
               properties:
                 code:
                   type: string
-                  description: Current authenticator code. Required when disabling your own 2FA without `api.users.write`.
+                  description: Current authenticator code. Required when turning off your own 2FA while it is on.
                   example: "123456"
       responses:
         "200":
@@ -13545,6 +13616,13 @@ components:
             is waiting; `email` keeps the old address until the link mailed to
             this one is opened. See `PATCH /users/{username}`.
           example: new-address@example.com
+        has_password:
+          type: boolean
+          description: |
+            Whether the account has a password of its own. An account created
+            by a sign-in service may not, and then changing your own password
+            needs no `current_password`. Only on single-user responses.
+          example: true
         fullname:
           type: string
           nullable: true
@@ -14243,9 +14321,10 @@ components:
         and `twofa_secret` are ignored here: two-factor state only changes through
         the `/users/{username}/2fa` endpoints, which check a code. `state` and
         `access` require `api.users.write` (403 when sent without it).
-        `groups` requires a super admin (403 otherwise). Changing the password
-        or disabling the account invalidates every outstanding API token for
-        that account.
+        `groups` requires a super admin (403 otherwise). Changing your own
+        `password` also needs `current_password` (see `PATCH
+        /users/{username}`). Changing the password or disabling the account
+        invalidates every outstanding API token for that account.
       properties:
         email:
           type: string
@@ -14275,7 +14354,18 @@ components:
         password:
           type: string
           format: password
-          description: New password. Only set if a non-empty value is provided.
+          description: |
+            New password. Only set if a non-empty value is provided. It must
+            meet the password policy from `GET /auth/password-policy`.
+        current_password:
+          type: string
+          format: password
+          writeOnly: true
+          description: |
+            Your current password, required with `password` when you change
+            your own and the account has one (422 when it is missing or
+            wrong, 429 after too many wrong ones). Ignored when an admin sets
+            someone else's password, and never stored.
         access:
           type: object
           additionalProperties: true

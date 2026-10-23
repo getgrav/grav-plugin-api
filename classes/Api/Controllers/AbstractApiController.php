@@ -1091,17 +1091,41 @@ abstract class AbstractApiController
      */
     protected function buildTokenPairPayload(JwtAuthenticator $jwt, UserInterface $user): array
     {
-        $accessToken = $jwt->generateAccessToken($user);
-        $refreshToken = $jwt->generateRefreshToken($user);
-        $expiresIn = (int) $this->config->get('plugins.api.auth.jwt_expiry', 3600);
+        return $this->buildTokenPair($jwt, $user) + ['user' => $this->buildUserProfile($user)];
+    }
 
+    /**
+     * Just the access and refresh tokens, without the profile envelope.
+     *
+     * @return array{access_token: string, refresh_token: string, token_type: string, expires_in: int}
+     */
+    protected function buildTokenPair(JwtAuthenticator $jwt, UserInterface $user): array
+    {
         return [
-            'access_token'  => $accessToken,
-            'refresh_token' => $refreshToken,
+            'access_token'  => $jwt->generateAccessToken($user),
+            'refresh_token' => $jwt->generateRefreshToken($user),
             'token_type'    => 'Bearer',
-            'expires_in'    => $expiresIn,
-            'user' => $this->buildUserProfile($user),
+            'expires_in'    => (int) $this->config->get('plugins.api.auth.jwt_expiry', 3600),
         ];
+    }
+
+    /**
+     * Sign an account out everywhere after its password changed. With the
+     * Login plugin (3.10.2 or later) this also signs out the account's other
+     * browsers and forgets its remember-me cookies; the cutoff that kills
+     * every API token issued before now is stamped either way. With
+     * `$keepCurrent` the browser session making the change, when it is this
+     * account's own, stays signed in. The caller saves the account.
+     */
+    protected function endOtherSessions(UserInterface $user, bool $keepCurrent): void
+    {
+        $login = isset($this->grav['login']) ? $this->grav['login'] : null;
+        if (is_object($login) && method_exists($login, 'endOtherSessions')) {
+            $login->endOtherSessions($user, $keepCurrent);
+            return;
+        }
+
+        $user->set('api_tokens_valid_after', time());
     }
 
     /**

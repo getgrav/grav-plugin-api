@@ -389,6 +389,8 @@ A scope qualifies as custom when it is a flat slug (`^[a-z0-9][a-z0-9_-]*$` — 
 | `POST` | `/users/{username}/api-keys` | Generate an API key |
 | `DELETE` | `/users/{username}/api-keys/{keyId}` | Revoke an API key |
 
+**Changing your own password.** `PATCH /users/{username}` on your own account needs your current password next to the new one: `{"current_password": "…", "password": "…"}`. Without it, or with a wrong one, the request is refused with 422 and a field error on `current_password`, and each try counts against the Login plugin's sign-in limits (429 once they are used up). An account with no password yet (`has_password: false` on `GET /users/{username}`, such as one created by a sign-in service) sets its first password without one. An admin with `api.users.write` setting someone else's password sends only `password`, as before. Any password change ends every API token issued before it, and with the Login plugin 3.10.2 or later the account's other browser sessions too; when you change your own with a JWT, the response's `meta.tokens` holds a fresh token pair to carry on with.
+
 ### System
 
 | Method | Endpoint | Description |
