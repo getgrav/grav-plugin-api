@@ -700,6 +700,8 @@ The resolved blueprint includes all inherited fields from parent blueprints (e.g
 
 **Supported field types** in the serialized output include: `text`, `textarea`, `select`, `toggle`, `checkbox`, `radio`, `markdown`, `editor`, `filepicker`, `pagemedia`, `taxonomy`, `list`, `array`, `tabs`, `tab`, `section`, `fieldset`, `columns`, `column`, `spacer`, `display`, `hidden`, and more. Unknown field types are passed through with their properties intact for client-side fallback rendering.
 
+A modular template's `label` (with `?modular=true`) is the `title` of its own blueprint, `blueprints/modular/<name>.yaml`, translated when it is a language key. A type with no blueprint of its own, or one whose blueprint has no `title`, keeps its file name made readable (`featured_product` → "Featured product"); a title inherited through `extends@` doesn't count, so such types aren't all called "Default".
+
 **Get a plugin blueprint:**
 
 ```bash
