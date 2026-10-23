@@ -15916,7 +15916,7 @@ components:
       type: object
       nullable: true
       description: |
-        Order and visibility of the Admin Next sidebar, by item id: core items by name (`dashboard`, `configuration`, `users`, `pages`, `media`, `plugins`, `themes`, `translations`, `tools`), plugin items as `plugin:<id>`, and `divider` for the line between groups. An empty `order` keeps the built-in order. Items missing from `order` keep their built-in place, and new plugin items go last. Hiding an item only removes it from the sidebar; permissions still decide what a user can open. A plugin item's `children` show under it unless hidden, as `plugin:<id>/<child id>`. Ids must match `[A-Za-z0-9_.:/-]{1,128}`; others and duplicates are dropped.
+        Order and visibility of the Admin Next sidebar, by item id: core items by name (`dashboard`, `configuration`, `users`, `pages`, `media`, `plugins`, `themes`, `translations`, `tools`), plugin items as `plugin:<id>`, and `divider` for the line between groups. An empty `order` keeps the built-in order. Items missing from `order` keep their built-in place, and new plugin items go last. Hiding an item only removes it from the sidebar; permissions still decide what a user can open. `shortcuts` holds the children picked to show under a plugin item, keyed by `plugin:<id>`; an item missing from it shows the children its plugin marks `default`. Ids must match `[A-Za-z0-9_.:/-]{1,128}` (child ids `[A-Za-z0-9_-]{1,48}`); others and duplicates are dropped.
       properties:
         order:
           type: array
@@ -15929,7 +15929,16 @@ components:
           maxItems: 200
           items:
             type: string
-          example: [translations, "plugin:kahunacart/coupons"]
+          example: [translations, "plugin:seo-magic"]
+        shortcuts:
+          type: object
+          additionalProperties:
+            type: array
+            maxItems: 200
+            items:
+              type: string
+          example:
+            "plugin:kahunacart": [orders, products, customers]
 
     PreferencesSiteSettings:
       type: object
@@ -16188,6 +16197,7 @@ components:
           sidebarLayout:
             order: []
             hidden: []
+            shortcuts: {}
         site_settings:
           autoSaveEnabled: false
           autoSaveToolbarUndo: true

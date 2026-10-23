@@ -64,19 +64,19 @@ class SidebarControllerTranslationTest extends TestCase
     }
 
     #[Test]
-    public function children_keep_the_ones_the_user_may_open_with_only_the_drawn_keys(): void
+    public function children_keep_the_ones_the_user_may_open_with_only_the_drawn_keys_and_a_true_default(): void
     {
         $payload = $this->itemsFor(['api' => ['access' => true, 'pages' => ['read' => true]]], [
             [
                 'id' => 'shop',
                 'label' => 'Shop',
                 'children' => [
-                    ['id' => 'orders', 'label' => 'PLUGIN_EXAMPLE.ITEMS', 'route' => '/plugin/shop#/orders', 'icon' => 'receipt', 'authorize' => 'api.pages.read', 'extra' => 'x'],
+                    ['id' => 'orders', 'label' => 'PLUGIN_EXAMPLE.ITEMS', 'route' => '/plugin/shop#/orders', 'default' => true, 'icon' => 'receipt', 'authorize' => 'api.pages.read', 'extra' => 'x'],
                     ['id' => 'secret', 'label' => 'Secret', 'route' => '/plugin/shop#/secret', 'authorize' => 'api.users.write'],
                     ['id' => 'orders', 'label' => 'Twice', 'route' => '/plugin/shop#/twice'],
                     ['id' => '../bad', 'label' => 'Bad', 'route' => '/plugin/shop#/bad'],
                     ['id' => 'nolabel', 'route' => '/plugin/shop#/nolabel'],
-                    ['id' => 'products', 'label' => 'Products', 'route' => '/plugin/shop#/products'],
+                    ['id' => 'products', 'label' => 'Products', 'route' => '/plugin/shop#/products', 'default' => 'yes'],
                     'not a child',
                 ],
             ],
@@ -84,7 +84,7 @@ class SidebarControllerTranslationTest extends TestCase
         ]);
 
         self::assertSame([
-            ['id' => 'orders', 'label' => 'Example items', 'route' => '/plugin/shop#/orders', 'icon' => 'receipt'],
+            ['id' => 'orders', 'label' => 'Example items', 'route' => '/plugin/shop#/orders', 'default' => true, 'icon' => 'receipt'],
             ['id' => 'products', 'label' => 'Products', 'route' => '/plugin/shop#/products'],
         ], $payload[0]['children']);
         self::assertArrayNotHasKey('children', $payload[1]);

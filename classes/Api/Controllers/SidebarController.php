@@ -26,14 +26,16 @@ use RocketTheme\Toolbox\Event\Event;
  *     'badge'     => null,                   // optional static badge text/count
  *     'badgeEndpoint' => '/my-plugin/badge', // optional — API path returning { count: N }, refreshed live
  *     'authorize' => 'api.some.permission',  // optional — single permission, or array for any-of
- *     'children'  => [                       // optional — shortcuts shown under the item
- *       ['id' => 'orders', 'label' => 'Orders', 'route' => '/plugin/kahunacart#/orders', 'icon' => 'receipt', 'authorize' => '…'],
+ *     'children'  => [                       // optional — shortcuts a user can show under the item
+ *       ['id' => 'orders', 'label' => 'Orders', 'route' => '/plugin/kahunacart#/orders', 'default' => true, 'icon' => 'receipt', 'authorize' => '…'],
  *     ],
  *   ]
  *
- * `children` show under the item, which a user can fold away; each user can
- * hide the ones they don't want when they customize the sidebar. A child needs an `id` (letters, digits, `_` and `-`, unique within the item),
- * a `label` and a `route`; `icon` and `authorize` work as on the item itself.
+ * Each user picks which `children` show under the item, when they arrange the
+ * sidebar or from the plugin's own page (window.__GRAV_SIDEBAR); until they
+ * do, the ones marked `default` show. A child needs an `id` (letters, digits,
+ * `_` and `-`, unique within the item), a `label` and a `route`; `icon` and
+ * `authorize` work as on the item itself.
  *
  * When `badgeEndpoint` is set, admin-next fetches it on load and re-fetches on
  * content/config/plugin/theme changes; a plugin can also push an update live by
@@ -99,7 +101,7 @@ class SidebarController extends AbstractApiController
      * The children of an item this user may open, with only the keys the
      * sidebar draws.
      *
-     * @return list<array{id: string, label: string, route: string, icon?: string}>
+     * @return list<array{id: string, label: string, route: string, default?: true, icon?: string}>
      */
     private function children(mixed $children, UserInterface $user, ServerRequestInterface $request): array
     {
@@ -121,6 +123,9 @@ class SidebarController extends AbstractApiController
             }
             $seen[$id] = true;
             $entry = ['id' => $id, 'label' => $this->translateLabel($label), 'route' => $route];
+            if (($child['default'] ?? false) === true) {
+                $entry['default'] = true;
+            }
             if (isset($child['icon']) && is_string($child['icon']) && $child['icon'] !== '') {
                 $entry['icon'] = $child['icon'];
             }

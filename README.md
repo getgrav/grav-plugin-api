@@ -1121,9 +1121,9 @@ The sidebar item structure:
 | `badge` | string\|null | Optional badge text (e.g., count or status) |
 | `badgeEndpoint` | string | Optional API path returning `{ count: N }`, fetched for a live badge that overrides `badge` |
 | `authorize` | string\|array | Optional permission (or any-of list) a user needs to see the item |
-| `children` | array | Optional shortcuts shown under the item: each has an `id`, a `label`, a `route` (which may carry a `#` part) and optionally an `icon` and `authorize` |
+| `children` | array | Optional shortcuts a user can show under the item: each has an `id`, a `label`, a `route` (which may carry a `#` part) and optionally `default` (`true` to show it until the user picks their own), an `icon` and `authorize` |
 
-Each user arranges their own sidebar in Admin2 (the pencil at the bottom of the sidebar): they reorder and hide items, `children` included. An item's children can also be folded away with its chevron, which each browser remembers. A super admin can save an arrangement as the site's default for everyone who hasn't arranged their own. The arrangement is the `sidebarLayout` preference, which names items by id (`plugin:<id>`, and `plugin:<id>/<child id>` for a child), so keep your item's `id` stable across releases.
+Each user arranges their own sidebar in Admin2 (the pencil at the bottom of the sidebar): they reorder and hide items, and star the `children` they want under an item. Until they pick, the children marked `default` show. A plugin's own page can star them too, through `window.__GRAV_SIDEBAR` in Admin2 2.2.0 and later (`children(itemId)` lists the ones it offers this user, `shortcuts(itemId)` the ones showing, `setShortcut(itemId, childId, on)` saves a change, and a `grav:sidebar:shortcuts` event on `window` says when they change). A super admin can save an arrangement as the site's default for everyone who hasn't arranged their own. The arrangement is the `sidebarLayout` preference, which names items by id (`plugin:<id>`) and keeps the picked children under `shortcuts`, keyed by item, so keep your item's `id` and its children's ids stable across releases.
 
 **Provide a page definition** via `onApiPluginPageInfo`:
 

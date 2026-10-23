@@ -45,9 +45,11 @@ class PreferencesResolver
     private const VALID_ACCOUNTS_VIEW_MODE = ['cards', 'table'];
     /** '' = follow whatever the Flex directory blueprint declares. */
     private const VALID_FLEX_AFTER_SAVE = ['', 'create-new', 'edit', 'list'];
-    /** Sidebar item ids: `pages`, `plugin:license-manager`, `divider`, `plugin:kahunacart/orders`. */
+    /** Sidebar item ids: `pages`, `plugin:license-manager`, `divider`. */
     private const SIDEBAR_ID_PATTERN = '#^[A-Za-z0-9_.:/-]{1,128}$#';
     private const SIDEBAR_MAX_ITEMS = 200;
+    /** A plugin item's child ids, as the sidebar API sends them. */
+    private const SIDEBAR_CHILD_PATTERN = '#^[A-Za-z0-9_-]{1,48}$#';
 
     public function __construct(
         private readonly Grav $grav,
@@ -81,10 +83,11 @@ class PreferencesResolver
             'pluginsViewMode' => 'cards',
             'themesViewMode' => 'cards',
             'flexAfterSave' => '',
-            // Sidebar order and hidden items (sub-items included), by id. An
-            // empty order keeps the built-in order (core items, then plugin
-            // items).
-            'sidebarLayout' => ['order' => [], 'hidden' => []],
+            // Sidebar order and hidden items, by id, and the shortcuts picked
+            // under each plugin item. An empty order keeps the built-in order
+            // (core items, then plugin items); an item missing from
+            // `shortcuts` shows the ones its plugin marks as defaults.
+            'sidebarLayout' => ['order' => [], 'hidden' => [], 'shortcuts' => []],
         ];
     }
 
@@ -613,10 +616,12 @@ class PreferencesResolver
 
     /**
      * Keep a sidebar layout to `order` and `hidden` lists of valid, unique
-     * item ids. Ids the sidebar doesn't have are kept: they belong to a plugin
-     * that is disabled now, or to an item this user isn't allowed to see.
+     * item ids, and `shortcuts`: for a plugin item (`plugin:<id>`), the child
+     * ids picked to show under it. Ids the sidebar doesn't have are kept: they
+     * belong to a plugin that is disabled now, or to an item this user isn't
+     * allowed to see.
      *
-     * @return array{order: array<int, string>, hidden: array<int, string>}|null
+     * @return array{order: array<int, string>, hidden: array<int, string>, shortcuts: array<string, array<int, string>>}|null
      */
     private function normalizeSidebarLayout(mixed $value): ?array
     {
@@ -625,18 +630,35 @@ class PreferencesResolver
         }
         $layout = [];
         foreach (['order', 'hidden'] as $list) {
-            $ids = [];
-            foreach (is_array($value[$list] ?? null) ? $value[$list] : [] as $id) {
-                if (is_string($id) && preg_match(self::SIDEBAR_ID_PATTERN, $id) && !in_array($id, $ids, true)) {
-                    $ids[] = $id;
-                }
-                if (count($ids) >= self::SIDEBAR_MAX_ITEMS) {
-                    break;
-                }
+            $layout[$list] = $this->uniqueIds($value[$list] ?? null, self::SIDEBAR_ID_PATTERN);
+        }
+        $layout['shortcuts'] = [];
+        foreach (is_array($value['shortcuts'] ?? null) ? $value['shortcuts'] : [] as $item => $children) {
+            if (count($layout['shortcuts']) >= self::SIDEBAR_MAX_ITEMS) {
+                break;
             }
-            $layout[$list] = $ids;
+            if (is_string($item) && str_starts_with($item, 'plugin:') && preg_match(self::SIDEBAR_ID_PATTERN, $item) && is_array($children)) {
+                $layout['shortcuts'][$item] = $this->uniqueIds($children, self::SIDEBAR_CHILD_PATTERN);
+            }
         }
         return $layout;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function uniqueIds(mixed $list, string $pattern): array
+    {
+        $ids = [];
+        foreach (is_array($list) ? $list : [] as $id) {
+            if (is_string($id) && preg_match($pattern, $id) && !in_array($id, $ids, true)) {
+                $ids[] = $id;
+            }
+            if (count($ids) >= self::SIDEBAR_MAX_ITEMS) {
+                break;
+            }
+        }
+        return $ids;
     }
 
     /**

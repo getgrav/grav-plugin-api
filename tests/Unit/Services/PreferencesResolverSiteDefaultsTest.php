@@ -273,8 +273,8 @@ class PreferencesResolverSiteDefaultsTest extends TestCase
     {
         $resolver = $this->resolver();
 
-        self::assertSame(['order' => [], 'hidden' => []], $resolver->sitePreferences()['sidebarLayout']);
-        self::assertSame(['order' => [], 'hidden' => []], $resolver->resolve(TestHelper::createMockUser(), false)['effective']['sidebarLayout']);
+        self::assertSame(['order' => [], 'hidden' => [], 'shortcuts' => []], $resolver->sitePreferences()['sidebarLayout']);
+        self::assertSame(['order' => [], 'hidden' => [], 'shortcuts' => []], $resolver->resolve(TestHelper::createMockUser(), false)['effective']['sidebarLayout']);
     }
 
     #[Test]
@@ -284,25 +284,36 @@ class PreferencesResolverSiteDefaultsTest extends TestCase
 
         $resolver->saveSitePreferences(['sidebarLayout' => [
             'order' => ['dashboard', 'plugin:kahunacart', 'pages', 'pages', 'bad id', 42, 'divider'],
-            'hidden' => ['media', '<script>', 'plugin:kahunacart/orders', 'plugin:kahunacart/../x y'],
+            'hidden' => ['media', '<script>', 'plugins'],
+            'shortcuts' => [
+                'plugin:kahunacart' => ['orders', 'products', 'orders', '../x', 7, 'section-licenses'],
+                'plugin:empty' => [],
+                'pages' => ['not-a-plugin'],
+                'plugin:bad id' => ['orders'],
+                'plugin:not-a-list' => 'orders',
+            ],
             'extra' => ['ignored'],
         ]]);
 
         self::assertSame([
             'order' => ['dashboard', 'plugin:kahunacart', 'pages', 'divider'],
-            'hidden' => ['media', 'plugin:kahunacart/orders'],
+            'hidden' => ['media', 'plugins'],
+            'shortcuts' => [
+                'plugin:kahunacart' => ['orders', 'products', 'section-licenses'],
+                'plugin:empty' => [],
+            ],
         ], $resolver->sitePreferences()['sidebarLayout']);
 
         $resolver->saveSitePreferences(['sidebarLayout' => null]);
-        self::assertSame(['order' => [], 'hidden' => []], $resolver->sitePreferences()['sidebarLayout']);
+        self::assertSame(['order' => [], 'hidden' => [], 'shortcuts' => []], $resolver->sitePreferences()['sidebarLayout']);
     }
 
     #[Test]
     public function a_user_sidebar_layout_overrides_the_site_one_until_reset(): void
     {
         $resolver = $this->resolver();
-        $site = ['order' => ['plugin:kahunacart', 'dashboard'], 'hidden' => []];
-        $mine = ['order' => ['pages', 'dashboard'], 'hidden' => ['tools', 'plugin:kahunacart/orders']];
+        $site = ['order' => ['plugin:kahunacart', 'dashboard'], 'hidden' => [], 'shortcuts' => []];
+        $mine = ['order' => ['pages', 'dashboard'], 'hidden' => ['tools'], 'shortcuts' => ['plugin:kahunacart' => ['orders']]];
         $resolver->saveSitePreferences(['sidebarLayout' => $site]);
         $user = TestHelper::createMockUser();
 
