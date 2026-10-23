@@ -1,3 +1,16 @@
+# v1.0.57
+## 10/22/2026
+
+1. [](#new)
+    * **Icon sets for the `iconpicker` field**: a theme or plugin that draws its own icons registers them as a set on the new `onApiIconSets` event (SVG markup, IconSpec values, or a YAML file of them), and a blueprint field lists that set instead of Font Awesome with `icons: <set>`. The icons travel with the field as structured SVG data, never as markup. See "Icon sets for the `iconpicker` field" in the README
+2. [](#improved)
+    * **Admin branding honors an environment's own `admin-next.yaml`**: the sign-in card, logo and title are read through Grav's config, so a copy of `admin-next.yaml` in `user/env/<env>/config/` takes the place of the site's one for that environment (a local copy of a demo can name its own sign-ins, for example). Saving from the admin still writes `user/config/admin-next.yaml`
+    * The list of modular templates (`GET /blueprints/pages?modular=true`, and a module's Template select) names each type after the `title` of its own blueprint, instead of its file name made readable. Types with no blueprint title keep the file name
+3. [](#bugfix)
+    * Creating a module at the top level of the site is refused with a clear message: nothing draws a module without a modular page above it, so it only made a folder that never showed
+    * An icon set's `file` is read only when it is a `theme://`, `plugin://`, `user://`, `plugins://` or `themes://` URL for a `.yaml` or `.yml` file inside that stream's folders: plain and absolute paths, `..` segments and symlinks out of the folder are refused
+    * The top-level module refusal covers every way a module can land there: moving a page, renaming one to a `_` name, copying a module and reorganizing it to the top level of the site are refused with the same message as creating one, however the root or the order prefix is spelled
+
 # v1.0.56
 ## 10/22/2026
 

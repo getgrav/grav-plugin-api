@@ -11,3 +11,4 @@
 /package.json          export-ignore
 /package-lock.json     export-ignore
 /redocly.yaml          export-ignore
+/.oss-scanner          export-ignore

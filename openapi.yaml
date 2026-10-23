@@ -8874,6 +8874,9 @@ paths:
           description: |
             When `1`, `true` or `yes`, return modular templates (the ones used
             as sub-pages of a modular parent) instead of regular templates.
+            A modular template's `label` is the `title` of its own blueprint
+            (`blueprints/modular/<name>.yaml`), or its file name made readable
+            when it has none.
           schema:
             type: string
             default: "false"

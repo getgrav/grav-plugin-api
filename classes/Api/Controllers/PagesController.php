@@ -567,6 +567,43 @@ class PagesController extends AbstractApiController
     }
 
     /**
+     * Whether a page named `$name` under `$parentRoute` would be a module at
+     * the top level of the site. A module (a `_` slug) is only drawn by the
+     * modular page above it, so one with the site root as its parent is a
+     * folder nothing shows. Slashes and numeric prefixes are ignored, and ''
+     * and '/' both mean the root, so `01._hero` under `/` counts.
+     */
+    private static function isRootModule(string $parentRoute, string $name): bool
+    {
+        $segments = array_filter(
+            array_map(
+                static fn (string $segment): string => self::splitOrderPrefix($segment)[1],
+                explode('/', trim($parentRoute, '/')),
+            ),
+            static fn (string $segment): bool => $segment !== '',
+        );
+        if ($segments !== []) {
+            return false;
+        }
+
+        return str_starts_with(self::splitOrderPrefix(trim($name, '/'))[1], '_');
+    }
+
+    /**
+     * Refuse a module at the top level of the site (see {@see isRootModule()}),
+     * on create, move, copy and reorganize alike.
+     *
+     * @throws ValidationException
+     */
+    private function assertNotRootModule(string $parentRoute, string $name, string $field = 'route'): void
+    {
+        if (self::isRootModule($parentRoute, $name)) {
+            $message = 'A module goes inside a modular page. Pick the page it belongs to as its parent.';
+            throw new ValidationException($message, [['field' => $field, 'message' => $message]]);
+        }
+    }
+
+    /**
      * The page's folder name without its numeric order prefix (`02.typography`
      * gives `typography`). Not slug(): a `slug:` in the frontmatter changes the
      * route but never the folder, so a rename built from slug() turned
@@ -666,6 +703,13 @@ class PagesController extends AbstractApiController
             // Modular sub-page convention: folder name starts with `_`.
             if ($kind === 'module' && !str_starts_with($slug, '_')) {
                 $slug = '_' . $slug;
+            }
+
+            // A module is only ever drawn by the modular page above it, so one
+            // at the top level would be a folder nothing shows. Refused whichever
+            // `kind` asked for it, as a `_` slug makes a module either way.
+            if ($kind !== 'folder') {
+                $this->assertNotRootModule($parentRoute, $slug);
             }
             $route = ($parentRoute === '/' ? '' : $parentRoute) . '/' . $slug;
 
@@ -1324,6 +1368,13 @@ class PagesController extends AbstractApiController
         if ($newSlug === '') {
             throw new ValidationException('Invalid slug: must not be empty.');
         }
+
+        // A module needs the modular page above it. Moving or renaming a page to
+        // a `_` name at the top level of the site would leave it drawn by nothing.
+        // A `_` page already sitting at the top level may still be renumbered.
+        if (!(self::structuralParentRoute($page) === '/' && $newParentRoute === '/' && $newSlug === self::folderName($page))) {
+            $this->assertNotRootModule($newParentRoute, $newSlug, 'parent');
+        }
         // $page->order() returns the matched prefix INCLUDING the trailing
         // dot (e.g. '04.'), not a plain number. Concatenating that with the
         // dot in $dirName produces double-dot folder names like
@@ -1432,6 +1483,7 @@ class PagesController extends AbstractApiController
         if ($destSlug === '') {
             throw new ValidationException("Invalid route: '{$destRoute}' has an order prefix but no page name.");
         }
+        $this->assertNotRootModule($destParentRoute, $destSlug);
         $destRoute = ($destParentRoute === '/' ? '' : $destParentRoute) . '/' . $destSlug;
 
         // Resolve destination parent path
@@ -2332,6 +2384,13 @@ class PagesController extends AbstractApiController
             // as moved below nor renamed (getgrav/grav-admin-next#36).
             $parentChanged = $newParentRoute !== $currentParentRoute;
             $actuallyMoves = $parentChanged || $dirName !== basename($page->path());
+
+            // A page landing at the top level of the site as a module would be
+            // drawn by nothing. One already there keeps its place and may be
+            // renumbered with its siblings.
+            if ($parentChanged) {
+                $this->assertNotRootModule($newParentRoute, $slug, 'parent');
+            }
 
             $resolved[] = [
                 'route' => $route,

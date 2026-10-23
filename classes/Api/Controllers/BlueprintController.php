@@ -12,6 +12,8 @@ use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Grav\Plugin\Api\Services\BlueprintLoader;
 use Grav\Plugin\Api\Services\ConfigScopes;
+use Grav\Plugin\Api\Services\IconSets;
+use Grav\Plugin\Api\Services\ModuleTypeTitles;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use RocketTheme\Toolbox\Event\Event;
@@ -144,6 +146,12 @@ class BlueprintController extends AbstractApiController
      */
     private function filterPageTypes(array $types, bool $modular): array
     {
+        // Modules are named after their blueprints before anything else sees
+        // the list, so a plugin's handler below can still rename one.
+        if ($modular) {
+            $types = $this->moduleTypeTitles()->apply($types);
+        }
+
         $key = $modular ? 'plugins.admin.hide_modular_page_types' : 'plugins.admin.hide_page_types';
 
         // Exact key first, otherwise treat the entry as a pattern — the same
@@ -174,6 +182,34 @@ class BlueprintController extends AbstractApiController
         $updated = $event['types'] ?? $types;
 
         return is_array($updated) ? $updated : $types;
+    }
+
+    /** The icon sets themes and plugins register, asked for once per request. */
+    private function iconSets(): IconSets
+    {
+        return $this->iconSets ??= new IconSets($this->grav);
+    }
+
+    /**
+     * The blueprint titles of the modular types, for the Add Module list and a
+     * module's Template select. One instance per request, so each type's
+     * blueprint is read once however many lists ask.
+     */
+    private function moduleTypeTitles(): ModuleTypeTitles
+    {
+        return $this->moduleTypeTitles ??= new ModuleTypeTitles(
+            static function (string $type): array {
+                $registered = Pages::getTypes()[$type] ?? [];
+
+                return is_array($registered) ? $registered : [];
+            },
+            fn (string $label): string => $this->translateLabel($label),
+            function (string $url): ?string {
+                $path = $this->grav['locator']->findResource($url, true);
+
+                return is_string($path) ? $path : null;
+            },
+        );
     }
 
     /**
@@ -1275,6 +1311,10 @@ class BlueprintController extends AbstractApiController
 
     protected bool $pagesEnabled = false;
 
+    private ?ModuleTypeTitles $moduleTypeTitles = null;
+
+    private ?IconSets $iconSets = null;
+
     /**
      * Resolve a data-*@ directive by calling the referenced PHP callable.
      * Supports format: '\Grav\Common\Utils::timezones' or ['method', 'args']
@@ -1321,6 +1361,9 @@ class BlueprintController extends AbstractApiController
                     // list baked in.
                     if ($method === 'pageTypes') {
                         $result = $class::$method($this->pageTypeContext);
+                        if (is_array($result) && $this->pageTypeContext === 'modular') {
+                            $result = $this->moduleTypeTitles()->apply($result);
+                        }
                     } else {
                         $result = $class::$method();
                     }
@@ -1446,6 +1489,19 @@ class BlueprintController extends AbstractApiController
             foreach ($props as $prop) {
                 if (isset($field[$prop])) {
                     $serialized[$prop] = $field[$prop];
+                }
+            }
+
+            // `iconpicker` with `icons: <set>` lists that set instead of Font
+            // Awesome: a theme or plugin registers it on `onApiIconSets`, and the
+            // icons travel with the field so the picker can draw them at once.
+            // An unknown set is still named, so the picker can say so.
+            if ($type === 'iconpicker' && is_string($field['icons'] ?? null) && trim($field['icons']) !== '') {
+                $serialized['icons'] = trim($field['icons']);
+                $set = $this->iconSets()->get($serialized['icons']);
+                if ($set !== null) {
+                    $set['label'] = $this->translateLabel($set['label']);
+                    $serialized['icon_set'] = $set;
                 }
             }
 
