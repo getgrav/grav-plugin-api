@@ -702,6 +702,44 @@ The resolved blueprint includes all inherited fields from parent blueprints (e.g
 
 A modular template's `label` (with `?modular=true`) is the `title` of its own blueprint, `blueprints/modular/<name>.yaml`, translated when it is a language key. A type with no blueprint of its own, or one whose blueprint has no `title`, keeps its file name made readable (`featured_product` → "Featured product"); a title inherited through `extends@` doesn't count, so such types aren't all called "Default".
 
+**Icon sets for the `iconpicker` field.** On its own the field lists Font Awesome. A theme or plugin that draws its own icons can hand the field a set of them instead: the field names the set, and the set's owner registers it on `onApiIconSets`.
+
+```yaml
+header.hero.icon:
+  type: iconpicker
+  label: Icon
+  icons: encore       # the set to list instead of Font Awesome
+```
+
+```php
+public static function getSubscribedEvents(): array
+{
+    return ['onApiIconSets' => ['onApiIconSets', 0]];
+}
+
+public function onApiIconSets(Event $event): void
+{
+    $sets = $event['sets'];
+    $sets['encore'] = [
+        'label' => 'Encore',
+        'icons' => [
+            'search' => '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
+            'bag'    => '<svg viewBox="0 0 24 24"><path d="M6 8h12l-1 12H7z"/></svg>',
+            'clock'  => 'fa:clock',
+        ],
+    ];
+    $event['sets'] = $sets;
+}
+```
+
+| Key | Meaning |
+|---|---|
+| `label` | The set's name in the picker. Optional; a language key is translated. |
+| `icons` | Icon name → icon, in the order the picker lists them. An icon is SVG markup (a whole `<svg>`, or only what goes inside one on a 24px grid) or any [IconSpec](https://github.com/getgrav/grav-admin-next/blob/main/docs/IconSpec.md) value. |
+| `file` | Instead of `icons`: a YAML file (path or stream, e.g. `theme://icons.yaml`) of `name: markup` lines, so a theme can keep one list for its templates and the admin. |
+
+The picker saves the icon's name (`search`), which is what the theme's own icon macro takes. Markup never reaches the browser as markup: the API reads it into IconSpec's structured SVG form, keeping only `path`, `circle`, `rect`, `line`, `polyline`, `polygon` and `ellipse` and their geometry and stroke attributes, and drops scripts, styles, event handlers and anything else. Icons are drawn as line icons (no fill, stroked in the text color). The set is sent with each field that names it, as `icon_set`; a field naming a set nobody registered gets only `icons`, and the picker says the set isn't there.
+
 **Get a plugin blueprint:**
 
 ```bash

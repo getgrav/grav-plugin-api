@@ -1,10 +1,12 @@
 # v1.0.57
 ## 10/22/2026
 
-1. [](#improved)
+1. [](#new)
+    * **Icon sets for the `iconpicker` field**: a theme or plugin that draws its own icons registers them as a set on the new `onApiIconSets` event (SVG markup, IconSpec values, or a YAML file of them), and a blueprint field lists that set instead of Font Awesome with `icons: <set>`. The icons travel with the field as structured SVG data, never as markup. See "Icon sets for the `iconpicker` field" in the README
+2. [](#improved)
     * **Admin branding honors an environment's own `admin-next.yaml`**: the sign-in card, logo and title are read through Grav's config, so a copy of `admin-next.yaml` in `user/env/<env>/config/` takes the place of the site's one for that environment (a local copy of a demo can name its own sign-ins, for example). Saving from the admin still writes `user/config/admin-next.yaml`
     * The list of modular templates (`GET /blueprints/pages?modular=true`, and a module's Template select) names each type after the `title` of its own blueprint, instead of its file name made readable. Types with no blueprint title keep the file name
-2. [](#bugfix)
+3. [](#bugfix)
     * Creating a module at the top level of the site is refused with a clear message: nothing draws a module without a modular page above it, so it only made a folder that never showed
 
 # v1.0.56

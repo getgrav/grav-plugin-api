@@ -12,6 +12,7 @@ use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Grav\Plugin\Api\Services\BlueprintLoader;
 use Grav\Plugin\Api\Services\ConfigScopes;
+use Grav\Plugin\Api\Services\IconSets;
 use Grav\Plugin\Api\Services\ModuleTypeTitles;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -181,6 +182,12 @@ class BlueprintController extends AbstractApiController
         $updated = $event['types'] ?? $types;
 
         return is_array($updated) ? $updated : $types;
+    }
+
+    /** The icon sets themes and plugins register, asked for once per request. */
+    private function iconSets(): IconSets
+    {
+        return $this->iconSets ??= new IconSets($this->grav);
     }
 
     /**
@@ -1306,6 +1313,8 @@ class BlueprintController extends AbstractApiController
 
     private ?ModuleTypeTitles $moduleTypeTitles = null;
 
+    private ?IconSets $iconSets = null;
+
     /**
      * Resolve a data-*@ directive by calling the referenced PHP callable.
      * Supports format: '\Grav\Common\Utils::timezones' or ['method', 'args']
@@ -1480,6 +1489,19 @@ class BlueprintController extends AbstractApiController
             foreach ($props as $prop) {
                 if (isset($field[$prop])) {
                     $serialized[$prop] = $field[$prop];
+                }
+            }
+
+            // `iconpicker` with `icons: <set>` lists that set instead of Font
+            // Awesome: a theme or plugin registers it on `onApiIconSets`, and the
+            // icons travel with the field so the picker can draw them at once.
+            // An unknown set is still named, so the picker can say so.
+            if ($type === 'iconpicker' && is_string($field['icons'] ?? null) && trim($field['icons']) !== '') {
+                $serialized['icons'] = trim($field['icons']);
+                $set = $this->iconSets()->get($serialized['icons']);
+                if ($set !== null) {
+                    $set['label'] = $this->translateLabel($set['label']);
+                    $serialized['icon_set'] = $set;
                 }
             }
 
