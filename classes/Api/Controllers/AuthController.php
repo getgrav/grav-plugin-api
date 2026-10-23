@@ -188,8 +188,11 @@ class AuthController extends AbstractApiController
             throw new UnauthorizedException('Invalid 2FA code.');
         }
 
-        // Burn the challenge token so it cannot be replayed.
-        $jwt->revokeToken($body['challenge_token']);
+        // Burn the challenge token so it cannot be replayed. Only the request
+        // that actually burns it gets a token pair.
+        if (!$jwt->consumeToken($body['challenge_token'])) {
+            throw new UnauthorizedException('Invalid or expired challenge token.');
+        }
         $this->resetLoginRateLimit($username);
 
         $this->fireEvent('onApiUserLogin', [
@@ -218,8 +221,12 @@ class AuthController extends AbstractApiController
             throw new ForbiddenException('This user account is disabled.');
         }
 
-        // Revoke the old refresh token (rotation)
-        $jwt->revokeToken($body['refresh_token']);
+        // Revoke the old refresh token (rotation). Only the request that
+        // actually revokes it gets a new pair, so concurrent exchanges of one
+        // refresh token can't each leave with their own successor.
+        if (!$jwt->consumeToken($body['refresh_token'])) {
+            throw new UnauthorizedException('Invalid or expired refresh token.');
+        }
 
         return $this->issueTokenPair($jwt, $user);
     }
@@ -449,9 +456,9 @@ class AuthController extends AbstractApiController
         unset($user->hashed_password, $user->reset);
         $user->password = $password;
         // Kill every token issued before this reset so a compromised account's
-        // outstanding access/refresh tokens die with the old password.
-        // GHSA-m8g9-wxhx-6f86.
-        $user->set('api_tokens_valid_after', time());
+        // outstanding access/refresh tokens die with the old password, and
+        // sign its browsers out too. GHSA-m8g9-wxhx-6f86.
+        $this->endOtherSessions($user, false);
         $user->save();
 
         $this->resetLoginRateLimit($username);

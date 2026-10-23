@@ -319,6 +319,41 @@ class JwtAuthenticatorTest extends TestCase
     }
 
     #[Test]
+    public function refresh_token_can_be_consumed_only_once(): void
+    {
+        // Two requests holding the same refresh token both validate it before
+        // either has revoked it. Only one of them may go on to rotate it.
+        $user = TestHelper::createMockUser('hank');
+        $first = $this->buildAuthenticator(['hank' => $user]);
+        $second = $this->buildAuthenticator(['hank' => $user]);
+
+        $refreshToken = $first->generateRefreshToken($user);
+
+        self::assertNotNull($first->validateRefreshToken($refreshToken));
+        self::assertNotNull($second->validateRefreshToken($refreshToken));
+
+        self::assertTrue($first->consumeToken($refreshToken), 'the first request uses the token up');
+        self::assertFalse($second->consumeToken($refreshToken), 'the second request must not get a successor');
+        self::assertNull($first->validateRefreshToken($refreshToken));
+    }
+
+    #[Test]
+    public function consume_token_rejects_a_token_without_jti(): void
+    {
+        $authenticator = $this->buildAuthenticator([]);
+
+        $token = JWT::encode([
+            'iss' => 'grav-api',
+            'sub' => 'nobody',
+            'iat' => time(),
+            'exp' => time() + 300,
+            'type' => 'refresh',
+        ], self::SECRET, self::ALGORITHM);
+
+        self::assertFalse($authenticator->consumeToken($token));
+    }
+
+    #[Test]
     public function revoked_access_token_no_longer_authenticates(): void
     {
         // GHSA-m8g9-wxhx-6f86: a generated access token now carries a jti, so it

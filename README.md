@@ -389,6 +389,8 @@ A scope qualifies as custom when it is a flat slug (`^[a-z0-9][a-z0-9_-]*$` — 
 | `POST` | `/users/{username}/api-keys` | Generate an API key |
 | `DELETE` | `/users/{username}/api-keys/{keyId}` | Revoke an API key |
 
+**Changing your own password.** `PATCH /users/{username}` on your own account needs your current password next to the new one: `{"current_password": "…", "password": "…"}`. Without it, or with a wrong one, the request is refused with 422 and a field error on `current_password`, and each try counts against the Login plugin's sign-in limits (429 once they are used up). An account with no password yet (`has_password: false` on `GET /users/{username}`, such as one created by a sign-in service) sets its first password without one. An admin with `api.users.write` setting someone else's password sends only `password`, as before. Any password change ends every API token issued before it, and with the Login plugin 3.11.0 or later the account's other browser sessions too; when you change your own with a JWT, the response's `meta.tokens` holds a fresh token pair to carry on with.
+
 ### System
 
 | Method | Endpoint | Description |
@@ -1115,8 +1117,13 @@ The sidebar item structure:
 | `label` | string | Display text in the sidebar |
 | `icon` | string | FontAwesome icon class (e.g., `fa-key`) |
 | `route` | string | Frontend route the item navigates to |
-| `priority` | int | Sort order (lower values appear first) |
+| `priority` | int | Sort order (higher values appear first) |
 | `badge` | string\|null | Optional badge text (e.g., count or status) |
+| `badgeEndpoint` | string | Optional API path returning `{ count: N }`, fetched for a live badge that overrides `badge` |
+| `authorize` | string\|array | Optional permission (or any-of list) a user needs to see the item |
+| `children` | array | Optional shortcuts a user can show under the item: each has an `id`, a `label`, a `route` (which may carry a `#` part) and optionally `default` (`true` to show it until the user picks their own), an `icon` and `authorize` |
+
+Each user arranges their own sidebar in Admin2 (the pencil at the bottom of the sidebar): they reorder and hide items, and star the `children` they want under an item. Until they pick, the children marked `default` show. A plugin's own page can star them too, through `window.__GRAV_SIDEBAR` in Admin2 2.2.0 and later (`children(itemId)` lists the ones it offers this user, `shortcuts(itemId)` the ones showing, `setShortcut(itemId, childId, on)` saves a change, and a `grav:sidebar:shortcuts` event on `window` says when they change). A super admin can save an arrangement as the site's default for everyone who hasn't arranged their own. The arrangement is the `sidebarLayout` preference, which names items by id (`plugin:<id>`) and keeps the picked children under `shortcuts`, keyed by item, so keep your item's `id` and its children's ids stable across releases.
 
 **Provide a page definition** via `onApiPluginPageInfo`:
 

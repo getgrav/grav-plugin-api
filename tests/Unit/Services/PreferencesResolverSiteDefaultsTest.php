@@ -268,6 +268,77 @@ class PreferencesResolverSiteDefaultsTest extends TestCase
         self::assertSame('', $this->resolver()->brandingMediaUrl(''));
     }
 
+    #[Test]
+    public function the_sidebar_keeps_its_built_in_order_until_someone_sets_one(): void
+    {
+        $resolver = $this->resolver();
+
+        self::assertSame(['order' => [], 'hidden' => [], 'shortcuts' => []], $resolver->sitePreferences()['sidebarLayout']);
+        self::assertSame(['order' => [], 'hidden' => [], 'shortcuts' => []], $resolver->resolve(TestHelper::createMockUser(), false)['effective']['sidebarLayout']);
+    }
+
+    #[Test]
+    public function a_site_sidebar_layout_keeps_only_valid_unique_ids(): void
+    {
+        $resolver = $this->resolver();
+
+        $resolver->saveSitePreferences(['sidebarLayout' => [
+            'order' => ['dashboard', 'plugin:kahunacart', 'pages', 'pages', 'bad id', 42, 'divider'],
+            'hidden' => ['media', '<script>', 'plugins'],
+            'shortcuts' => [
+                'plugin:kahunacart' => ['orders', 'products', 'orders', '../x', 7, 'section-licenses'],
+                'plugin:empty' => [],
+                'pages' => ['not-a-plugin'],
+                'plugin:bad id' => ['orders'],
+                'plugin:not-a-list' => 'orders',
+            ],
+            'extra' => ['ignored'],
+        ]]);
+
+        self::assertSame([
+            'order' => ['dashboard', 'plugin:kahunacart', 'pages', 'divider'],
+            'hidden' => ['media', 'plugins'],
+            'shortcuts' => [
+                'plugin:kahunacart' => ['orders', 'products', 'section-licenses'],
+                'plugin:empty' => [],
+            ],
+        ], $resolver->sitePreferences()['sidebarLayout']);
+
+        $resolver->saveSitePreferences(['sidebarLayout' => null]);
+        self::assertSame(['order' => [], 'hidden' => [], 'shortcuts' => []], $resolver->sitePreferences()['sidebarLayout']);
+    }
+
+    #[Test]
+    public function a_user_sidebar_layout_overrides_the_site_one_until_reset(): void
+    {
+        $resolver = $this->resolver();
+        $site = ['order' => ['plugin:kahunacart', 'dashboard'], 'hidden' => [], 'shortcuts' => []];
+        $mine = ['order' => ['pages', 'dashboard'], 'hidden' => ['tools'], 'shortcuts' => ['plugin:kahunacart' => ['orders']]];
+        $resolver->saveSitePreferences(['sidebarLayout' => $site]);
+        $user = TestHelper::createMockUser();
+
+        self::assertSame($site, $resolver->resolve($user, false)['effective']['sidebarLayout']);
+
+        $resolver->saveUserPreferences($user, ['sidebarLayout' => $mine]);
+        $payload = $resolver->resolve($user, false);
+        self::assertSame($mine, $payload['effective']['sidebarLayout']);
+        self::assertSame($site, $payload['site']['sidebarLayout']);
+
+        $resolver->saveUserPreferences($user, ['sidebarLayout' => null]);
+        self::assertSame($site, $resolver->resolve($user, false)['effective']['sidebarLayout']);
+    }
+
+    #[Test]
+    public function a_user_sidebar_layout_that_is_not_a_list_is_not_saved(): void
+    {
+        $resolver = $this->resolver();
+        $user = TestHelper::createMockUser();
+
+        $resolver->saveUserPreferences($user, ['sidebarLayout' => 'pages,dashboard']);
+
+        self::assertArrayNotHasKey('sidebarLayout', $resolver->resolve($user, false)['user']);
+    }
+
     private function resolver(string $userRelative = 'user'): PreferencesResolver
     {
         $root = $this->root;

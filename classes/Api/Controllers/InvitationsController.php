@@ -302,6 +302,16 @@ class InvitationsController extends AbstractApiController
             throw new ConflictException("User '{$username}' already exists.");
         }
 
+        // Claim the invite before the account exists. take() removes it under
+        // the store's lock, so of several requests racing on one token only
+        // one gets the record back and creates an account; the rest are
+        // refused here. A save that fails after this point leaves the invite
+        // used up, and the admin sends a new one.
+        $record = $store->take($token);
+        if ($record === null) {
+            throw new NotFoundException('This invitation is invalid or has already been accepted.');
+        }
+
         $user = $accounts->load($username);
         // Email is locked to the invited address — the token is bound to it.
         $user->set('email', (string) ($record['email'] ?? ''));
@@ -331,8 +341,6 @@ class InvitationsController extends AbstractApiController
         $user->save();
         $this->fireEvent('onApiUserCreated', ['user' => $user]);
         $this->fireEvent('onApiInvitationAccepted', ['user' => $user, 'invitation' => $record]);
-
-        $store->remove($token);
 
         // Auto-login the new user through the same gate a password login runs,
         // so an invite whose access grants no API or admin login creates the

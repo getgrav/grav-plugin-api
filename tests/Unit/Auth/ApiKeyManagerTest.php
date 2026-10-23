@@ -377,4 +377,95 @@ class ApiKeyManagerTest extends TestCase
             self::assertFalse(ctype_digit($id), "generated id {$id} is all digits");
         }
     }
+
+    /**
+     * Rewrite api-keys.yaml behind the manager's back, as another request
+     * would, leaving this request's cached copy of the store as it was.
+     */
+    private function writeKeysOnDisk(array $keys): void
+    {
+        file_put_contents($this->dataDir . '/api-keys.yaml', Yaml::dump($keys));
+    }
+
+    private function readKeysOnDisk(): array
+    {
+        return Yaml::parse(file_get_contents($this->dataDir . '/api-keys.yaml')) ?? [];
+    }
+
+    #[Test]
+    public function touch_key_does_not_restore_a_key_revoked_after_the_store_was_read(): void
+    {
+        $this->seedKeys([
+            'k1' => ['id' => 'k1', 'username' => 'mia', 'name' => 'Revoked', 'hash' => 'h1', 'last_used' => null],
+            'k2' => ['id' => 'k2', 'username' => 'mia', 'name' => 'Other', 'hash' => 'h2', 'last_used' => null],
+        ]);
+
+        // The request reads the store while authenticating...
+        $this->manager->loadKeys();
+        // ...and another request revokes k1 before this one records last_used.
+        $this->writeKeysOnDisk([
+            'k2' => ['id' => 'k2', 'username' => 'mia', 'name' => 'Other', 'hash' => 'h2', 'last_used' => null],
+        ]);
+
+        $this->manager->touchKey('k1');
+
+        self::assertArrayNotHasKey('k1', $this->readKeysOnDisk());
+    }
+
+    #[Test]
+    public function touch_key_keeps_a_revocation_of_another_key(): void
+    {
+        $this->seedKeys([
+            'k1' => ['id' => 'k1', 'username' => 'mia', 'name' => 'Revoked', 'hash' => 'h1', 'last_used' => null],
+            'k2' => ['id' => 'k2', 'username' => 'mia', 'name' => 'In use', 'hash' => 'h2', 'last_used' => null],
+        ]);
+
+        $this->manager->loadKeys();
+        $this->writeKeysOnDisk([
+            'k2' => ['id' => 'k2', 'username' => 'mia', 'name' => 'In use', 'hash' => 'h2', 'last_used' => null],
+        ]);
+
+        $this->manager->touchKey('k2');
+
+        $keys = $this->readKeysOnDisk();
+        self::assertArrayNotHasKey('k1', $keys);
+        self::assertEqualsWithDelta(time(), $keys['k2']['last_used'], 2);
+    }
+
+    #[Test]
+    public function revoke_key_keeps_a_key_created_after_the_store_was_read(): void
+    {
+        $this->seedKeys([
+            'k1' => ['id' => 'k1', 'username' => 'nina', 'name' => 'To be revoked', 'hash' => 'h1'],
+        ]);
+
+        $this->manager->loadKeys();
+        $this->writeKeysOnDisk([
+            'k1' => ['id' => 'k1', 'username' => 'nina', 'name' => 'To be revoked', 'hash' => 'h1'],
+            'k2' => ['id' => 'k2', 'username' => 'nina', 'name' => 'New', 'hash' => 'h2'],
+        ]);
+
+        self::assertTrue($this->manager->revokeKey(TestHelper::createMockUser('nina'), 'k1'));
+
+        $keys = $this->readKeysOnDisk();
+        self::assertArrayNotHasKey('k1', $keys);
+        self::assertArrayHasKey('k2', $keys);
+    }
+
+    #[Test]
+    public function generate_key_keeps_a_revocation_made_after_the_store_was_read(): void
+    {
+        $this->seedKeys([
+            'k1' => ['id' => 'k1', 'username' => 'nina', 'name' => 'Revoked', 'hash' => 'h1'],
+        ]);
+
+        $this->manager->loadKeys();
+        $this->writeKeysOnDisk([]);
+
+        $result = $this->manager->generateKey(TestHelper::createMockUser('nina'), 'New');
+
+        $keys = $this->readKeysOnDisk();
+        self::assertArrayNotHasKey('k1', $keys);
+        self::assertArrayHasKey($result['id'], $keys);
+    }
 }

@@ -39,8 +39,7 @@ class ApiKeyManager
         $hash = Authentication::create($rawKey);
         $expires = $expiryDays !== null ? time() + ($expiryDays * 86400) : null;
 
-        $keys = $this->loadKeys();
-        $keys[$keyId] = [
+        $entry = [
             'id' => $keyId,
             'username' => $user->username,
             'name' => $name ?: 'API Key',
@@ -53,7 +52,10 @@ class ApiKeyManager
             'expires' => $expires,
         ];
 
-        $this->saveKeys($keys);
+        $this->updateKeys(static function (array $keys) use ($keyId, $entry): array {
+            $keys[$keyId] = $entry;
+            return $keys;
+        });
 
         return [
             'key' => $rawKey,
@@ -94,16 +96,21 @@ class ApiKeyManager
      */
     public function revokeKey(UserInterface $user, string $keyId): bool
     {
-        $keys = $this->loadKeys();
+        $username = $user->username;
+        $revoked = false;
 
-        if (!isset($keys[$keyId]) || ($keys[$keyId]['username'] ?? '') !== $user->username) {
-            return false;
-        }
+        $this->updateKeys(static function (array $keys) use ($keyId, $username, &$revoked): ?array {
+            if (!isset($keys[$keyId]) || ($keys[$keyId]['username'] ?? '') !== $username) {
+                return null;
+            }
 
-        unset($keys[$keyId]);
-        $this->saveKeys($keys);
+            unset($keys[$keyId]);
+            $revoked = true;
 
-        return true;
+            return $keys;
+        });
+
+        return $revoked;
     }
 
     /**
@@ -125,12 +132,17 @@ class ApiKeyManager
      */
     public function rehashKey(string $keyId, string $rawKey): void
     {
-        $keys = $this->loadKeys();
+        $hash = Authentication::create($rawKey);
 
-        if (isset($keys[$keyId]) && is_array($keys[$keyId])) {
-            $keys[$keyId]['hash'] = Authentication::create($rawKey);
-            $this->saveKeys($keys);
-        }
+        $this->updateKeys(static function (array $keys) use ($keyId, $hash): ?array {
+            if (!isset($keys[$keyId]) || !is_array($keys[$keyId])) {
+                return null;
+            }
+
+            $keys[$keyId]['hash'] = $hash;
+
+            return $keys;
+        });
     }
 
     /**
@@ -147,6 +159,10 @@ class ApiKeyManager
      * thrown. Note the throttle above cannot absorb this on its own -- a failed
      * write leaves last_used stale forever, so without the backoff every single
      * request would retry and re-log (#30).
+     *
+     * The throttle reads this request's copy of the store, but the write itself
+     * goes through updateKeys(), so it only ever sets last_used on the store as
+     * it is now and never brings back a key that was revoked in the meantime.
      */
     public function touchKey(string $keyId): void
     {
@@ -166,10 +182,16 @@ class ApiKeyManager
             return;
         }
 
-        $keys[$keyId]['last_used'] = time();
-
         try {
-            $this->saveKeys($keys);
+            $this->updateKeys(static function (array $keys) use ($keyId): ?array {
+                if (!isset($keys[$keyId]) || !is_array($keys[$keyId])) {
+                    return null;
+                }
+
+                $keys[$keyId]['last_used'] = time();
+
+                return $keys;
+            });
         } catch (\Throwable $e) {
             $cache?->save(self::TOUCH_BACKOFF_KEY, 1, self::TOUCH_BACKOFF_TTL);
 
@@ -283,9 +305,22 @@ class ApiKeyManager
     }
 
     /**
-     * Save all API keys to the data file.
+     * Apply one change to the key store under an exclusive lock.
+     *
+     * Every change rewrites the whole file, so two requests that each change
+     * the copy they read earlier lose whichever write lands first. When the
+     * lost write is a revocation, the revoked key works again. The callback is
+     * therefore handed the store as re-read inside the lock, never the copy
+     * this request loaded when it authenticated, and returns the new store, or
+     * null to leave the file as it is.
+     *
+     * The lock lives on a separate file because saveKeys() replaces
+     * api-keys.yaml by rename: a lock held on the old file would not stop a
+     * writer that opened the new one.
+     *
+     * @param callable(array): ?array $change
      */
-    protected function saveKeys(array $keys): void
+    protected function updateKeys(callable $change): void
     {
         $file = $this->getKeysFile();
         $dir = dirname($file);
@@ -297,6 +332,34 @@ class ApiKeyManager
         if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
             throw new \RuntimeException(sprintf('Unable to create directory "%s"', $dir));
         }
+
+        $lock = @fopen($file . '.lock', 'c');
+        if ($lock === false) {
+            throw new \RuntimeException(sprintf('Unable to write "%s"', $file . '.lock'));
+        }
+
+        try {
+            @flock($lock, LOCK_EX);
+
+            static::$keysCache = null;
+            $keys = $change($this->loadKeys());
+
+            if ($keys !== null) {
+                $this->saveKeys($keys);
+            }
+        } finally {
+            @flock($lock, LOCK_UN);
+            fclose($lock);
+        }
+    }
+
+    /**
+     * Save all API keys to the data file. Only called from updateKeys(), with
+     * the lock held.
+     */
+    protected function saveKeys(array $keys): void
+    {
+        $file = $this->getKeysFile();
 
         // Write atomically. Both calls are checked: an unwritable user/data means
         // the temp file is never created, and the failing rename() then reports a
@@ -357,20 +420,19 @@ class ApiKeyManager
                 continue;
             }
 
-            $existingKeys = $this->loadKeys();
+            $this->updateKeys(static function (array $keys) use ($userKeys, $username, &$migrated): array {
+                foreach ($userKeys as $keyId => $keyData) {
+                    if (!is_array($keyData) || isset($keys[$keyId])) {
+                        continue;
+                    }
 
-            foreach ($userKeys as $keyId => $keyData) {
-                if (!is_array($keyData) || isset($existingKeys[$keyId])) {
-                    continue;
+                    $keyData['username'] = $username;
+                    $keys[$keyId] = $keyData;
+                    $migrated++;
                 }
 
-                $keyData['username'] = $username;
-                $existingKeys[$keyId] = $keyData;
-                $migrated++;
-            }
-
-            $this->saveKeys($existingKeys);
-            static::$keysCache = null; // Clear cache for next loadKeys()
+                return $keys;
+            });
 
             // Remove api_keys from user account
             $user->undef('api_keys');

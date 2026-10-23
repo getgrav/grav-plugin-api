@@ -62,6 +62,77 @@ class SidebarControllerTranslationTest extends TestCase
 
         self::assertSame('Example items', $payload['data'][0]['label']);
     }
+
+    #[Test]
+    public function children_keep_the_ones_the_user_may_open_with_only_the_drawn_keys_and_a_true_default(): void
+    {
+        $payload = $this->itemsFor(['api' => ['access' => true, 'pages' => ['read' => true]]], [
+            [
+                'id' => 'shop',
+                'label' => 'Shop',
+                'children' => [
+                    ['id' => 'orders', 'label' => 'PLUGIN_EXAMPLE.ITEMS', 'route' => '/plugin/shop#/orders', 'default' => true, 'icon' => 'receipt', 'authorize' => 'api.pages.read', 'extra' => 'x'],
+                    ['id' => 'secret', 'label' => 'Secret', 'route' => '/plugin/shop#/secret', 'authorize' => 'api.users.write'],
+                    ['id' => 'orders', 'label' => 'Twice', 'route' => '/plugin/shop#/twice'],
+                    ['id' => '../bad', 'label' => 'Bad', 'route' => '/plugin/shop#/bad'],
+                    ['id' => 'nolabel', 'route' => '/plugin/shop#/nolabel'],
+                    ['id' => 'products', 'label' => 'Products', 'route' => '/plugin/shop#/products', 'default' => 'yes'],
+                    'not a child',
+                ],
+            ],
+            ['id' => 'empty', 'label' => 'Empty', 'children' => [['id' => 'hidden', 'label' => 'Hidden', 'route' => '/x', 'authorize' => 'api.users.write']]],
+        ]);
+
+        self::assertSame([
+            ['id' => 'orders', 'label' => 'Example items', 'route' => '/plugin/shop#/orders', 'default' => true, 'icon' => 'receipt'],
+            ['id' => 'products', 'label' => 'Products', 'route' => '/plugin/shop#/products'],
+        ], $payload[0]['children']);
+        self::assertArrayNotHasKey('children', $payload[1]);
+    }
+
+    /**
+     * @param array<string, mixed> $access
+     * @param list<mixed> $items
+     * @return list<array<string, mixed>>
+     */
+    private function itemsFor(array $access, array $items): array
+    {
+        $language = new SidebarTranslationTestLanguage();
+        $user = $this->createMock(UserInterface::class);
+        $user->method('get')->willReturnCallback(
+            static fn($key, mixed $default = null) => match ($key) {
+                'access' => $access,
+                'admin_next' => ['preferences' => ['adminLanguage' => 'en-US']],
+                default => $default,
+            },
+        );
+        $grav = $this->createMock(Grav::class);
+        $grav->method('offsetGet')->willReturnCallback(
+            static fn($key) => match ($key) {
+                'language' => $language,
+                'locator' => new SidebarTranslationTestLocator(),
+                'config' => new Config([]),
+                default => null,
+            },
+        );
+        $grav->method('fireEvent')->willReturnCallback(
+            static function ($name, $event) use ($items): object {
+                if ($name === 'onApiSidebarItems') {
+                    $event['items'] = $items;
+                }
+
+                return $event;
+            },
+        );
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getAttribute')->willReturnCallback(
+            static fn($name, $default = null) => $name === 'api_user' ? $user : $default,
+        );
+
+        $response = (new SidebarController($grav, new Config([])))->items($request);
+
+        return json_decode((string) $response->getBody(), true)['data'];
+    }
 }
 
 final class SidebarTranslationTestLocator

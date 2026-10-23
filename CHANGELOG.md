@@ -1,3 +1,22 @@
+# v1.1.0
+## 10/23/2026
+
+1. [](#new)
+    * **Arrange the sidebar**: a new `sidebarLayout` preference holds the order of the Admin2 sidebar, the items hidden from it and the shortcuts picked under each plugin item, with a site default and an override for each user, like the other appearance preferences
+    * **Sidebar shortcuts**: a plugin's sidebar item can list `children`, screens of the plugin a user can star to show under it. The ones marked `default` show until the user picks their own, and each is checked against its own `authorize`
+2. [](#improved)
+    * [security] **Changing your own password needs the current one**: `PATCH /users/{username}` on your own account refuses a new `password` without a correct `current_password` (422), and wrong ones count toward the sign-in lockout (429). See "Changing your own password" in the README
+    * An account with no password yet (one made by a sign-in service) sets its first without a current one, and user records now say which accounts have a password with `has_password`
+    * Changing your own password with a JWT returns a fresh token pair in `meta.tokens`, so you stay signed in while every other token stops working
+    * A password change or reset also signs the account out of its other browsers and forgets its remember-me cookies (with Login 3.11.0), and a browser session from before the change can no longer use the API
+    * [security] Making a new 2FA secret for your own account while 2FA is on (`POST /users/{username}/2fa`) now takes the current `code`, and so does turning off your own 2FA when you also manage users, so a signed-in session alone can't drop the second factor; an admin resetting someone else's still needs none
+    * [security] Wrong 2FA codes sent to turn off or replace your own 2FA count toward the same limit as the sign-in challenge (429)
+3. [](#bugfix)
+    * [security] Exchanging one refresh token in several requests at once now yields a single new token pair, and the same holds for a 2FA challenge token. Thanks @yssoe
+    * [security] An invitation can only be accepted once, even when several accept requests arrive at the same moment, and creating or removing invites no longer writes back invites that were already used. Thanks @yssoe
+    * [security] Creating or revoking an API key while other keys are in use can no longer be overwritten by another request, so a revoked key stays revoked. Thanks @yssoe
+    * [security] Creating or copying a page now refuses a route segment of `.` or `..`, so the new page always gets its own folder
+
 # v1.0.57
 ## 10/22/2026
 
