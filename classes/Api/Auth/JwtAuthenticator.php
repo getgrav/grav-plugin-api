@@ -301,6 +301,42 @@ class JwtAuthenticator implements AuthenticatorInterface
     }
 
     /**
+     * Revoke a single-use token (refresh or challenge) and report whether this
+     * call is the one that used it up.
+     *
+     * Validating a token and revoking it are two steps, so concurrent requests
+     * carrying the same token can all pass validation before any of them has
+     * written the revocation. The check here happens again under the
+     * revocation list's exclusive lock: exactly one caller adds the jti and
+     * gets true, every other caller sees it already listed and gets false.
+     * Callers must issue nothing unless this returns true.
+     */
+    public function consumeToken(string $token): bool
+    {
+        try {
+            $secret = $this->getSecret();
+            $algorithm = $this->resolveAlgorithm();
+
+            $decoded = JWT::decode($token, new Key($secret, $algorithm));
+            $jti = $decoded->jti ?? null;
+
+            if (!$jti) {
+                return false;
+            }
+
+            $file = $this->getRevokedTokensFile();
+            $dir = dirname($file);
+            if (!is_dir($dir)) {
+                @mkdir($dir, 0775, true);
+            }
+
+            return $this->updateRevokedTokens($file, $jti, $decoded->exp ?? time() + 604800, true);
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    /**
      * Public accessor for the bearer token attached to a request, used by the
      * logout flow to revoke the caller's current access token alongside its
      * refresh token. Returns null when no usable token is present.
@@ -685,9 +721,13 @@ class JwtAuthenticator implements AuthenticatorInterface
      * still usable. An unsilenced warning here would fatal every JWT validation
      * on a site whose cache directory has become unwritable (#30).
      *
+     * With `$claim`, an unexpired entry for `$jti` already in the list makes
+     * this return false without writing: the token was used up by another
+     * request, see {@see consumeToken()}.
+     *
      * @return bool Whether the list is now on disk as intended.
      */
-    protected function updateRevokedTokens(string $file, ?string $jti = null, int $expiresAt = 0): bool
+    protected function updateRevokedTokens(string $file, ?string $jti = null, int $expiresAt = 0, bool $claim = false): bool
     {
         $handle = @fopen($file, 'c+b');
         if ($handle === false) {
@@ -701,6 +741,10 @@ class JwtAuthenticator implements AuthenticatorInterface
             $current = $this->decodeRevokedTokens(is_string($contents) ? $contents : '');
 
             $now = time();
+            if ($claim && ($jti === null || $jti === '' || ($current[$jti] ?? 0) > $now)) {
+                return false;
+            }
+
             $next = $current;
             if ($jti !== null && $jti !== '') {
                 $next[$jti] = $expiresAt;
