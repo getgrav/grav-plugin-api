@@ -847,6 +847,27 @@ class PagesControllerTemplateCheckTest extends TestCase
         }
         self::assertSame(['text.md'], $this->listing('parent/_good'));
     }
+
+    #[Test]
+    public function create_refuses_a_module_at_the_top_level(): void
+    {
+        // Nothing draws a module that has no modular page above it, so the
+        // admin's Add Module dialog left on `<root>` made a dead folder.
+        $controller = $this->controller(pages: ['/parent' => $this->parentPage()]);
+        $written = [];
+        $this->captureWrites($written);
+
+        foreach ([
+            ['route' => '/hero', 'title' => 'H', 'kind' => 'module', 'template' => 'hero'],
+            ['route' => '/_hero', 'title' => 'H', 'template' => 'hero'],
+            ['route' => '/01._hero', 'title' => 'H', 'template' => 'hero'],
+        ] as $body) {
+            $e = $this->refused(fn () => $controller->create($this->request($body)));
+            self::assertSame('route', $e->getValidationErrors()[0]['field'], $body['route']);
+            self::assertStringContainsString('inside a modular page', $e->getMessage());
+        }
+        self::assertSame([], $written);
+    }
 }
 
 /**

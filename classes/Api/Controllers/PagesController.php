@@ -667,6 +667,14 @@ class PagesController extends AbstractApiController
             if ($kind === 'module' && !str_starts_with($slug, '_')) {
                 $slug = '_' . $slug;
             }
+
+            // A module is only ever drawn by the modular page above it, so one
+            // at the top level would be a folder nothing shows. Refused whichever
+            // `kind` asked for it, as a `_` slug makes a module either way.
+            if ($parentRoute === '/' && $kind !== 'folder' && str_starts_with($slug, '_')) {
+                $message = 'A module goes inside a modular page. Pick the page it belongs to as its parent.';
+                throw new ValidationException($message, [['field' => 'route', 'message' => $message]]);
+            }
             $route = ($parentRoute === '/' ? '' : $parentRoute) . '/' . $slug;
 
             if ($parentRoute !== '/') {

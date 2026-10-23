@@ -3,6 +3,8 @@
 
 1. [](#improved)
     * **Admin branding honors an environment's own `admin-next.yaml`**: the sign-in card, logo and title are read through Grav's config, so a copy of `admin-next.yaml` in `user/env/<env>/config/` takes the place of the site's one for that environment (a local copy of a demo can name its own sign-ins, for example). Saving from the admin still writes `user/config/admin-next.yaml`
+2. [](#bugfix)
+    * Creating a module at the top level of the site is refused with a clear message: nothing draws a module without a modular page above it, so it only made a folder that never showed
 
 # v1.0.56
 ## 10/22/2026
