@@ -88,6 +88,9 @@ class PreferencesResolver
             // (core items, then plugin items); an item missing from
             // `shortcuts` shows the ones its plugin marks as defaults.
             'sidebarLayout' => ['order' => [], 'hidden' => [], 'shortcuts' => []],
+            // Plugin items (`plugin:<id>`) whose shortcuts are folded away
+            // under them in the sidebar.
+            'sidebarFolded' => [],
         ];
     }
 
@@ -248,7 +251,7 @@ class PreferencesResolver
             // A hand-edited account file can hold a shade or help mode that does
             // not exist, or a sidebar layout with bad ids; clean it, or ignore it
             // so the site default (or the built-in) still applies.
-            if (in_array($key, ['darkShade', 'helpMode', 'sidebarLayout'], true)) {
+            if (in_array($key, ['darkShade', 'helpMode', 'sidebarLayout', 'sidebarFolded'], true)) {
                 $value = $this->coerceValue($key, $value);
                 if ($value === null) {
                     continue;
@@ -543,6 +546,7 @@ class PreferencesResolver
             'usersViewMode', 'groupsViewMode', 'pluginsViewMode', 'themesViewMode' => is_string($value) && in_array($value, self::VALID_ACCOUNTS_VIEW_MODE, true) ? $value : null,
             'flexAfterSave' => is_string($value) && in_array($value, self::VALID_FLEX_AFTER_SAVE, true) ? $value : null,
             'sidebarLayout' => $this->normalizeSidebarLayout($value),
+            'sidebarFolded' => is_array($value) ? $this->uniqueIds($value, self::SIDEBAR_ID_PATTERN) : null,
             default => null,
         };
     }

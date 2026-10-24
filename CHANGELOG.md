@@ -1,3 +1,9 @@
+# v1.1.1
+## 10/24/2026
+
+1. [](#improved)
+    * A new `sidebarFolded` preference remembers, for each user, which plugin items in the Admin2 sidebar have their shortcuts folded away
+
 # v1.1.0
 ## 10/23/2026
 

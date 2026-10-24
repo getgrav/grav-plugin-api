@@ -339,6 +339,24 @@ class PreferencesResolverSiteDefaultsTest extends TestCase
         self::assertArrayNotHasKey('sidebarLayout', $resolver->resolve($user, false)['user']);
     }
 
+    #[Test]
+    public function a_user_remembers_which_sidebar_items_are_folded(): void
+    {
+        $resolver = $this->resolver();
+        $user = TestHelper::createMockUser();
+
+        self::assertSame([], $resolver->resolve($user, false)['effective']['sidebarFolded']);
+
+        $resolver->saveUserPreferences($user, ['sidebarFolded' => ['plugin:kahunacart', 'plugin:kahunacart', 'bad id', 7, 'plugin:helpdesk']]);
+        self::assertSame(['plugin:kahunacart', 'plugin:helpdesk'], $resolver->resolve($user, false)['effective']['sidebarFolded']);
+
+        $resolver->saveUserPreferences($user, ['sidebarFolded' => 'plugin:kahunacart']);
+        self::assertSame(['plugin:kahunacart', 'plugin:helpdesk'], $resolver->resolve($user, false)['effective']['sidebarFolded']);
+
+        $resolver->saveUserPreferences($user, ['sidebarFolded' => []]);
+        self::assertSame([], $resolver->resolve($user, false)['effective']['sidebarFolded']);
+    }
+
     private function resolver(string $userRelative = 'user'): PreferencesResolver
     {
         $root = $this->root;

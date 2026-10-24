@@ -15911,6 +15911,13 @@ components:
           description: What Flex editors do after saving. Empty string follows the directory blueprint.
         sidebarLayout:
           $ref: "#/components/schemas/PreferencesSidebarLayout"
+        sidebarFolded:
+          type: array
+          nullable: true
+          maxItems: 200
+          items:
+            type: string
+          description: Plugin items (`plugin:<id>`) whose shortcuts are folded away under them in the sidebar. Ids must match `[A-Za-z0-9_.:/-]{1,128}`; others and duplicates are dropped.
 
     PreferencesSidebarLayout:
       type: object
@@ -16198,6 +16205,7 @@ components:
             order: []
             hidden: []
             shortcuts: {}
+          sidebarFolded: []
         site_settings:
           autoSaveEnabled: false
           autoSaveToolbarUndo: true
