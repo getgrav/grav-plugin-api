@@ -283,6 +283,10 @@ class MediaController extends AbstractApiController
         $this->requirePermission($request, 'api.media.write');
 
         $page = $this->findPageOrFail($request, 'update');
+        $pagePath = $page->path();
+        if (!$pagePath || !is_dir($pagePath)) {
+            throw new NotFoundException('Page directory does not exist on disk.');
+        }
 
         $body = $this->getRequestBody($request);
         $this->requireFields($body, ['files', 'fields']);
@@ -312,7 +316,7 @@ class MediaController extends AbstractApiController
             $label = is_string($filename) ? $filename : '';
             try {
                 $filename = $this->sanitizePageMediaFilename($label);
-                $filePath = $this->requirePageMediaFile($page->path(), $filename);
+                $filePath = $this->requirePageMediaFile($pagePath, $filename);
 
                 $this->applyMetaChanges($filePath, $changes);
                 $this->fireEvent('onApiMediaMetadataUpdated', ['page' => $page, 'filename' => $filename]);

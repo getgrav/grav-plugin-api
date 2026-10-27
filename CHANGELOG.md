@@ -1,3 +1,9 @@
+# v1.1.3
+## 10/27/2026
+
+1. [](#new)
+    * Several media files on one page can have the same details (title, alt text, tags and so on) written in a single request, the page counterpart of the site media batch route. Thanks to @phmg701 [#67](https://github.com/getgrav/grav-plugin-api/pull/67)
+
 # v1.1.2
 ## 10/26/2026
 

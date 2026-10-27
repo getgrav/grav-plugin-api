@@ -10,6 +10,7 @@ use Grav\Common\Page\Interfaces\PageInterface;
 use Grav\Common\Page\Pages;
 use Grav\Framework\Acl\Permissions;
 use Grav\Plugin\Api\Controllers\MediaController;
+use Grav\Plugin\Api\Exceptions\ForbiddenException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Tests\Unit\TestHelper;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -68,14 +69,19 @@ class MediaPageBatchMetadataTest extends TestCase
         Grav::resetInstance();
     }
 
-    /** @param list<array<string, mixed>> $fields */
-    private function pageController(array $fields): MediaController
+    /**
+     * @param list<array<string, mixed>> $fields
+     * @param array<string, mixed>|null $access the caller's `access` block; null is a super admin
+     * @param array<string, mixed> $header the page's frontmatter
+     */
+    private function pageController(array $fields, ?array $access = null, array $header = []): MediaController
     {
         $pageDir = $this->pageDir;
         $page = $this->createMock(PageInterface::class);
         $page->method('path')->willReturn($pageDir);
         $page->method('rawRoute')->willReturn('/photos');
         $page->method('route')->willReturn('/photos');
+        $page->method('header')->willReturn(json_decode((string) json_encode($header ?: ['title' => 'Photos'])));
 
         $pages = $this->createMock(Pages::class);
         $pages->method('enablePages');
@@ -84,7 +90,8 @@ class MediaPageBatchMetadataTest extends TestCase
         );
 
         $this->user = TestHelper::createMockUser('admin', [
-            'access' => ['api' => ['access' => true, 'super' => true]],
+            'groups' => ['editors'],
+            'access' => $access ?? ['api' => ['access' => true, 'super' => true]],
         ]);
         $config = new Config(['plugins' => ['api' => [
             'route' => '/api',
@@ -152,6 +159,53 @@ class MediaPageBatchMetadataTest extends TestCase
         $b = $this->stored('b.jpg');
         $this->assertSame(7, $b['rating']);
         $this->assertSame('Batch test', $b['credit']);
+    }
+
+    #[Test]
+    public function batch_requires_media_write(): void
+    {
+        $this->controller = $this->pageController(self::FIELDS, ['api' => ['access' => true, 'media' => ['read' => true]]]);
+
+        try {
+            $this->batch(['b.jpg'], ['rating' => 5]);
+            $this->fail('A caller without api.media.write should be refused.');
+        } catch (ForbiddenException) {
+        }
+
+        $this->assertFileDoesNotExist($this->pageDir . '/b.jpg.meta.yaml');
+    }
+
+    #[Test]
+    public function batch_refuses_a_page_whose_own_rules_deny_update(): void
+    {
+        $this->controller = $this->pageController(
+            self::FIELDS,
+            ['api' => ['access' => true, 'media' => ['read' => true, 'write' => true]]],
+            ['title' => 'Photos', 'permissions' => ['groups' => ['editors' => '-u']]],
+        );
+
+        try {
+            $this->batch(['b.jpg'], ['rating' => 5]);
+            $this->fail('A page that denies update should refuse a batch write to its media.');
+        } catch (ForbiddenException $e) {
+            $this->assertStringContainsString("deny 'update'", $e->getMessage());
+        }
+
+        $this->assertFileDoesNotExist($this->pageDir . '/b.jpg.meta.yaml');
+    }
+
+    #[Test]
+    public function batch_still_writes_for_an_editor_on_a_page_with_no_rule(): void
+    {
+        $this->controller = $this->pageController(
+            self::FIELDS,
+            ['api' => ['access' => true, 'media' => ['read' => true, 'write' => true]]],
+        );
+
+        $payload = json_decode((string) $this->batch(['b.jpg'], ['rating' => 5])->getBody(), true)['data'];
+
+        $this->assertSame(1, $payload['successful']);
+        $this->assertSame(5, $this->stored('b.jpg')['rating']);
     }
 
     #[Test]
