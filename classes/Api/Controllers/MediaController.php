@@ -10,6 +10,7 @@ use Grav\Framework\Psr7\Response;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
+use Grav\Plugin\Api\Services\PathContainment;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -1278,7 +1279,7 @@ class MediaController extends AbstractApiController
         if (file_exists($absolute)) {
             $real = realpath($absolute);
             $realBase = realpath($basePath);
-            if ($real === false || $realBase === false || !str_starts_with($real, $realBase . '/')) {
+            if ($real === false || $realBase === false || !PathContainment::isWithin($real, $realBase)) {
                 throw new ValidationException("Invalid path: '{$path}'.");
             }
         }
@@ -1321,7 +1322,7 @@ class MediaController extends AbstractApiController
         if (file_exists($absolute)) {
             $real = realpath($absolute);
             $realBase = realpath($basePath);
-            if ($real === false || $realBase === false || !str_starts_with($real, $realBase . '/')) {
+            if ($real === false || $realBase === false || !PathContainment::isWithin($real, $realBase)) {
                 throw new ValidationException('Invalid filename.');
             }
         }

@@ -13,6 +13,7 @@ use Grav\Common\Page\Interfaces\PageInterface;
 use Grav\Common\Page\Markdown\Excerpts;
 use Grav\Common\Utils;
 use Grav\Plugin\Api\Services\FrontmatterReader;
+use Grav\Plugin\Api\Services\PageTemplate;
 use Grav\Plugin\Api\Services\ModularTemplates;
 
 class PageSerializer implements SerializerInterface
@@ -88,7 +89,12 @@ class PageSerializer implements SerializerInterface
             'folder' => $resource->folder(),
             'title' => is_string($headerTitle) && $headerTitle !== '' ? $headerTitle : $resource->title(),
             'menu' => is_string($headerMenu) && $headerMenu !== '' ? $headerMenu : (is_string($headerTitle) && $headerTitle !== '' ? $headerTitle : $resource->menu()),
-            'template' => $resource->template(),
+            // The template core renders with. A Flex-indexed page in a listing
+            // can arrive with an empty header, and its template() then falls
+            // back to the file's name (`item` for an `item.md` that says
+            // `template: blogpost`), so the header read above is asked first
+            // (admin2#201).
+            'template' => PageTemplate::of($resource, $headerArr),
             'language' => $resource->language(),
             'header' => $headerArr,
             'taxonomy' => $resource->taxonomy(),
@@ -133,7 +139,7 @@ class PageSerializer implements SerializerInterface
         // flagged: an unknown type falls back to the theme's default template,
         // and headless sites use types no theme knows.
         if ($options['include_template_state'] ?? true) {
-            $data['template_missing'] = $this->templateMissing($resource);
+            $data['template_missing'] = $this->templateMissing($resource, $data['template']);
         }
 
         if ($includeTranslations) {
@@ -150,10 +156,10 @@ class PageSerializer implements SerializerInterface
             // tell whether each language is backed by an EXPLICIT file
             // (default.<lang>.md) or by the implicit default.md fallback.
             $pagePath = $resource->path();
-            // Modules report their template as `modular/<name>`, but the file
-            // on disk is `<name>.md` / `<name>.<lang>.md`, so only the last
-            // segment names the file.
-            $template = $resource->template() ? basename((string) $resource->template()) : '';
+            // The files are named after the page's file type, never its
+            // template: `item.md` with `template: blogpost` translates to
+            // `item.de.md`, and a module's template is `modular/<name>`.
+            $template = PageTemplate::fileType($resource);
             $data['has_default_file'] = $pagePath && $template
                 ? is_file($pagePath . '/' . $template . '.md')
                 : false;
@@ -214,13 +220,11 @@ class PageSerializer implements SerializerInterface
      * template is the one core renders with: `Page::template()`, which is the
      * `template` header when there is one and the file's name otherwise.
      */
-    private function templateMissing(PageInterface $resource): bool
+    private function templateMissing(PageInterface $resource, string $template): bool
     {
         if (!$resource->isModule()) {
             return false;
         }
-
-        $template = $resource->template();
 
         return is_string($template) && $template !== ''
             && ($this->modularTemplates ??= new ModularTemplates(Grav::instance()))->isMissing($template);

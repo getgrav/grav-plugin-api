@@ -42,7 +42,9 @@ final class FrontmatterReader
     public static function forPage(PageInterface $page, ?string $activeLanguage = null): array
     {
         $path = $page->path();
-        $template = $page->template();
+        // The content file's own name: a module's template() is
+        // `modular/<name>`, and a `template` header names no file at all.
+        $template = PageTemplate::fileType($page);
         if (!$path || !$template) {
             return [];
         }

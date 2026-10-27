@@ -265,6 +265,9 @@ namespace Grav\Common\Page\Interfaces {
             public function modified($var = null);
             // Declared on the real PageLegacyInterface; copy reads it.
             public function extension($var = null);
+            // Declared on the real PageLegacyInterface; the content file's name,
+            // which language files are named after (admin2#201).
+            public function name($var = null);
         }
     }
 }
