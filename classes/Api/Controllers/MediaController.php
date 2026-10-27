@@ -267,6 +267,111 @@ class MediaController extends AbstractApiController
     }
 
     /**
+     * POST /pages/{route}/media/batch/meta - Apply metadata to several page
+     * media files at once. The site media counterpart is the oldest batch
+     * route; this mirrors it so a page gallery does not need one request per
+     * image.
+     *
+     * The shared field map is validated once before anything is written, so an
+     * invalid value (or a `required` field sent empty) fails the whole request
+     * with a 422. Each filename is then handled on its own: a filename that is
+     * invalid or missing is reported in its own `results` row without stopping
+     * the rest.
+     */
+    public function batchPageMediaMeta(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.media.write');
+
+        $page = $this->findPageOrFail($request, 'update');
+
+        $body = $this->getRequestBody($request);
+        $this->requireFields($body, ['files', 'fields']);
+
+        $files = $body['files'];
+        $fields = $body['fields'];
+
+        if (!is_array($files) || $files === []) {
+            throw new ValidationException("The 'files' field must be a non-empty array of media filenames.");
+        }
+        if (!is_array($fields)) {
+            throw new ValidationException("The 'fields' field must be an object of metadata values.");
+        }
+
+        $maxBatch = (int) $this->config->get('plugins.api.batch.max_items', 50);
+        if (count($files) > $maxBatch) {
+            throw new ValidationException("Batch metadata updates are limited to {$maxBatch} files.");
+        }
+
+        // The same fields apply to every file, so validate them once: an
+        // invalid value (or a required field sent empty) fails the whole
+        // request instead of producing one identical error row per file.
+        $changes = $this->sanitizeMetaInput($fields);
+
+        $results = [];
+        foreach ($files as $filename) {
+            $label = is_string($filename) ? $filename : '';
+            try {
+                $filename = $this->sanitizePageMediaFilename($label);
+                $filePath = $this->requirePageMediaFile($page->path(), $filename);
+
+                $this->applyMetaChanges($filePath, $changes);
+                $this->fireEvent('onApiMediaMetadataUpdated', ['page' => $page, 'filename' => $filename]);
+
+                $results[] = ['filename' => $filename, 'status' => 'success'];
+            } catch (\Throwable $e) {
+                $results[] = ['filename' => $label, 'status' => 'error', 'message' => $e->getMessage()];
+            }
+        }
+
+        $route = $this->getRouteParam($request, 'route') ?? '';
+        return ApiResponse::create(
+            [
+                'results' => $results,
+                'total' => count($results),
+                'successful' => count(array_filter($results, static fn($r) => $r['status'] === 'success')),
+                'failed' => count(array_filter($results, static fn($r) => $r['status'] === 'error')),
+            ],
+            200,
+            $this->invalidationHeaders([
+                'media:update:pages/' . $route,
+                'pages:update:/' . $route,
+            ]),
+        );
+    }
+
+    /**
+     * Validate a page media filename supplied in a request body.
+     *
+     * The single-file routes take their filename from the `{filename}` route
+     * parameter, where a slash cannot arrive. The batch takes names from JSON,
+     * so they are checked here rather than joined onto the page path and looked
+     * up: page media is flat, and `../` would otherwise reach a file outside
+     * the page folder.
+     *
+     * Both separators are refused on every platform, where the containment
+     * checks only fold `\` on Windows: an entry here is one flat name, so
+     * refusing both keeps it addressing the same file on Unix and Windows.
+     */
+    private function sanitizePageMediaFilename(mixed $filename): string
+    {
+        if (!is_string($filename) || $filename === '') {
+            throw new ValidationException('Filename is required.');
+        }
+
+        if (
+            str_contains($filename, '/')
+            || str_contains($filename, '\\')
+            || str_contains($filename, '..')
+            || str_contains($filename, "\0")
+            || str_starts_with($filename, '.')
+        ) {
+            throw new ValidationException('Invalid filename.');
+        }
+
+        return $filename;
+    }
+
+    /**
      * Absolute paths of every file backing a medium in $dir: the base file
      * `<stem>.<ext>`, its retina variants `<stem>@<N>x.<ext>`, and the
      * `.meta.yaml` sidecar of each. Used by deletion so retina-only images
