@@ -66,6 +66,9 @@ class PageSerializer implements SerializerInterface
             : $resource->published();
 
         $data = [
+            // Permanent id of the page folder (Grav 2.2.15+ page ids), null
+            // when the folder has none or the core predates page ids.
+            'uuid' => $resource instanceof \Grav\Common\Page\Interfaces\PageUuidInterface ? $resource->uuid() : null,
             'route' => $resource->route(),
             // Structural route — for the home page, route() returns the
             // public alias '/' but rawRoute() returns the actual page like

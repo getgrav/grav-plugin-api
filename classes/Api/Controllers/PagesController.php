@@ -32,6 +32,7 @@ use Grav\Plugin\Api\Services\PageTemplate;
 use Grav\Plugin\Api\Services\ThumbnailService;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use RocketTheme\Toolbox\Event\Event;
 use RocketTheme\Toolbox\File\MarkdownFile;
 
 class PagesController extends AbstractApiController
@@ -280,6 +281,7 @@ class PagesController extends AbstractApiController
             // make every If-Match on a later PATCH mismatch (see pageEtag()).
             $etag = $this->pageEtag($page, $data);
             $data['permissions'] = $this->pageCapabilities($request, $page);
+            $data['delete_recoverable'] = $this->deleteRecoverable($request);
 
             return $this->respondWithEtag($data, etag: $etag);
         } finally {
@@ -1333,11 +1335,9 @@ class PagesController extends AbstractApiController
                 $this->clearPagesCache();
 
                 $this->fireAdminEvent('onAdminAfterDelete', ['object' => $page, 'page' => $page]);
-                $this->fireEvent('onApiPageDeleted', ['route' => '/' . $route, 'lang' => $lang]);
+                $deleted = $this->fireEvent('onApiPageDeleted', ['route' => '/' . $route, 'lang' => $lang, 'undo' => null]);
 
-                return ApiResponse::noContent(
-                    $this->invalidationHeaders(['pages:delete:/' . $route, 'pages:list']),
-                );
+                return $this->deletedResponse($deleted, ['pages:delete:/' . $route, 'pages:list']);
             }
 
             if (!$includeChildren && $page->children()->count() > 0) {
@@ -1356,14 +1356,83 @@ class PagesController extends AbstractApiController
             $this->clearPagesCache();
 
             $this->fireAdminEvent('onAdminAfterDelete', ['object' => $page, 'page' => $page]);
-            $this->fireEvent('onApiPageDeleted', ['route' => '/' . $route]);
+            $deleted = $this->fireEvent('onApiPageDeleted', ['route' => '/' . $route, 'undo' => null]);
 
-            return ApiResponse::noContent(
-                $this->invalidationHeaders(['pages:delete:/' . $route, 'pages:list']),
-            );
+            return $this->deletedResponse($deleted, ['pages:delete:/' . $route, 'pages:list']);
         } finally {
             $this->restoreLanguage($previousLang);
         }
+    }
+
+    /**
+     * The response to a delete: 204, or 200 with `{undo}` when a plugin
+     * attached a way to undo it to `onApiPageDeleted` (see README, "Undo a
+     * page delete"). The invalidation tags go out either way.
+     *
+     * @param array<int, string> $tags
+     */
+    private function deletedResponse(Event $deleted, array $tags): ResponseInterface
+    {
+        $undo = self::normalizeUndo($deleted['undo'] ?? null);
+        if ($undo === null) {
+            return ApiResponse::noContent($this->invalidationHeaders($tags));
+        }
+
+        return $this->respondWithInvalidation(['undo' => $undo], $tags);
+    }
+
+    /**
+     * An undo action a plugin attached, checked: `endpoint` is a path on this
+     * API (relative to its base, never a URL), `method` an HTTP method, `body`
+     * an optional JSON object and `label` an optional button label. Anything
+     * else is dropped, and the delete answers 204 as it would without one.
+     *
+     * @return array{method: string, endpoint: string, body?: array<mixed>, label?: string}|null
+     */
+    public static function normalizeUndo(mixed $undo): ?array
+    {
+        if (!is_array($undo)) {
+            return null;
+        }
+
+        $method = strtoupper((string) ($undo['method'] ?? 'POST'));
+        $endpoint = $undo['endpoint'] ?? null;
+        if (!in_array($method, ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], true)
+            || !is_string($endpoint)
+            || !preg_match('{^/[A-Za-z0-9._~%!$&\'()*+,;=:@/-]*(\?[^#\s]*)?\z}', $endpoint)
+            || str_starts_with($endpoint, '//')
+            || in_array('..', explode('/', (string) parse_url($endpoint, PHP_URL_PATH)), true)) {
+            return null;
+        }
+
+        $normalized = ['method' => $method, 'endpoint' => $endpoint];
+        if (isset($undo['body']) && is_array($undo['body'])) {
+            $normalized['body'] = $undo['body'];
+        }
+        if (isset($undo['label']) && is_string($undo['label']) && trim($undo['label']) !== '') {
+            $normalized['label'] = trim($undo['label']);
+        }
+
+        return $normalized;
+    }
+
+    /** @var bool|null */
+    private ?bool $deleteRecoverable = null;
+
+    /**
+     * Whether a plugin keeps deleted pages so they can be restored (it says
+     * so on `onApiPageDeleteInfo`). Asked once per request. Page records
+     * carry the answer as `delete_recoverable`, so a client can word its
+     * delete confirmation.
+     */
+    private function deleteRecoverable(ServerRequestInterface $request): bool
+    {
+        if ($this->deleteRecoverable === null) {
+            $event = $this->fireEvent('onApiPageDeleteInfo', ['recoverable' => false, 'user' => $this->getUser($request)]);
+            $this->deleteRecoverable = (bool) ($event['recoverable'] ?? false);
+        }
+
+        return $this->deleteRecoverable;
     }
 
     /**
@@ -1543,6 +1612,7 @@ class PagesController extends AbstractApiController
 
         $sourcePath = $page->path();
         Folder::copy($sourcePath, $destPath);
+        $this->renewCopiedPageId($destPath);
         $this->rewriteCopiedSlug($destPath, $destSlug, $page->extension());
         $this->clearPagesCache();
 
@@ -2701,6 +2771,7 @@ class PagesController extends AbstractApiController
             $page = $pages[$index] ?? null;
             if ($page instanceof PageInterface) {
                 $item['permissions'] = $this->pageCapabilities($request, $page);
+                $item['delete_recoverable'] = $this->deleteRecoverable($request);
                 $data[$index] = $item;
             }
         }
@@ -3436,9 +3507,21 @@ class PagesController extends AbstractApiController
         }
 
         Folder::copy($page->path(), $destPath);
+        $this->renewCopiedPageId($destPath);
         $this->rewriteCopiedSlug($destPath, $destSlug, $page->extension());
 
         return ($destParent === '/' ? '' : rtrim($destParent, '/')) . '/' . $destSlug;
+    }
+
+    /**
+     * A copied page never keeps the original's id: with page ids on (Grav
+     * 2.2.15+) the copy gets a new one, otherwise any copied `.page-id` goes.
+     */
+    private function renewCopiedPageId(string $destPath): void
+    {
+        if (class_exists(\Grav\Common\Page\PageIdentity::class)) {
+            \Grav\Common\Page\PageIdentity::onCopied($destPath);
+        }
     }
 
     /**

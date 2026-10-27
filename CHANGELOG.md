@@ -2,7 +2,11 @@
 ## 10/27/2026
 
 1. [](#new)
+    * Page records include `uuid`, the page folder's permanent id (Grav 2.2.15 page ids), or null when it has none, and a page copied with the copy action or a batch copy gets its own id instead of sharing the original's
     * Several media files on one page can have the same details (title, alt text, tags and so on) written in a single request, the page counterpart of the site media batch route. Thanks to @phmg701 [#67](https://github.com/getgrav/grav-plugin-api/pull/67)
+    * **Undo a page delete**: a plugin can attach an undo to a delete by filling the new `undo` slot of `onApiPageDeleted` (`method`, `endpoint` relative to the API, optional `body` and `label`). `DELETE /pages/{route}` then answers `200` with `{"data": {"undo": {...}}}` instead of `204`, and Admin2 offers an Undo button on the delete toast. See "Undo a page delete" in the README
+    * A plugin that keeps deleted pages so they can be restored says so on the new `onApiPageDeleteInfo` event, and page records then carry `delete_recoverable: true`, so Admin2's delete confirmation can say the page can be restored instead of "This cannot be undone"
+    * A sidebar item can set `placement: footer` to show in Admin2's bottom group, above Settings, instead of among the plugin items
 
 # v1.1.2
 ## 10/26/2026

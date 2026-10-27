@@ -26,6 +26,7 @@ use RocketTheme\Toolbox\Event\Event;
  *     'badge'     => null,                   // optional static badge text/count
  *     'badgeEndpoint' => '/my-plugin/badge', // optional — API path returning { count: N }, refreshed live
  *     'authorize' => 'api.some.permission',  // optional — single permission, or array for any-of
+ *     'placement' => 'footer',               // optional — 'footer' shows it above Settings (default 'main')
  *     'children'  => [                       // optional — shortcuts a user can show under the item
  *       ['id' => 'orders', 'label' => 'Orders', 'route' => '/plugin/kahunacart#/orders', 'default' => true, 'icon' => 'receipt', 'authorize' => '…'],
  *     ],

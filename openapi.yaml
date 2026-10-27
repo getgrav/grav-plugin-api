@@ -1585,6 +1585,10 @@ paths:
         with children is refused with a 422.
 
         Requires `api.pages.write`, subject to the page's own `delete` rule.
+
+        When a plugin keeps deleted pages (for example in a trash) and
+        attaches a way to undo the delete through `onApiPageDeleted`, the
+        response is a 200 carrying that `undo` action instead of a 204.
       parameters:
         - $ref: "#/components/parameters/pageRoute"
         - $ref: "#/components/parameters/lang"
@@ -1598,6 +1602,24 @@ paths:
             type: boolean
             default: true
       responses:
+        "200":
+          description: Page deleted, and a plugin attached a way to undo the delete.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      undo:
+                        $ref: "#/components/schemas/PageDeleteUndo"
+              example:
+                data:
+                  undo:
+                    method: POST
+                    endpoint: /revisions-pro/trash/20261027-175708-b358ae091c/restore
+                    label: Undo
         "204":
           description: Page deleted successfully. No content returned.
         "401":
@@ -12969,12 +12991,38 @@ components:
           type: string
           description: "Optional API path returning `{count: N}`, fetched by the admin to show a live badge that overrides `badge`."
           example: /my-plugin/badge
+        placement:
+          type: string
+          enum: [main, footer]
+          default: main
+          description: "`footer` shows the item in the sidebar's bottom group, above Settings, for site-wide tools such as a trash (Admin2 2.2.3 and later). Footer items aren't part of the arrangeable list."
         children:
           type: array
           description: Shortcuts shown under this item, which a user can fold away or hide when they customize the sidebar. Children the user is not authorized for (their own `authorize`) are left out, and the key is absent when none remain.
           items:
             $ref: "#/components/schemas/SidebarChild"
       additionalProperties: true
+
+    PageDeleteUndo:
+      type: object
+      description: An action that undoes a page delete, attached by a plugin through `onApiPageDeleted`. The client sends it to this API to restore what was deleted.
+      required: [method, endpoint]
+      properties:
+        method:
+          type: string
+          example: POST
+        endpoint:
+          type: string
+          description: API path (relative to the API base, never a full URL).
+          example: /revisions-pro/trash/20261027-175708-b358ae091c/restore
+        body:
+          type: object
+          additionalProperties: true
+          description: Optional JSON body to send with the request.
+        label:
+          type: string
+          description: Optional button label.
+          example: Undo
 
     SidebarChild:
       type: object
@@ -13388,6 +13436,21 @@ components:
           items:
             type: string
           example: [en, fr]
+        uuid:
+          type: string
+          nullable: true
+          description: |
+            The page folder's permanent id (Grav 2.2.15 and later, when a
+            plugin or `system.pages.uuid` turns page ids on). It survives
+            renames and moves. Null when the folder has no id.
+          example: 7808eb41-bf20-44b5-a07e-f9c89fbb470d
+        delete_recoverable:
+          type: boolean
+          description: |
+            Whether a plugin keeps deleted pages so they can be restored (it
+            says so through `onApiPageDeleteInfo`), so a client can word its
+            delete confirmation accordingly.
+          example: false
         permissions:
           type: object
           description: |
