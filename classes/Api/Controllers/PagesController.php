@@ -28,6 +28,7 @@ use Grav\Plugin\Api\Response\ApiResponse;
 use Grav\Plugin\Api\Serializers\MediaSerializer;
 use Grav\Plugin\Api\Serializers\PageSerializer;
 use Grav\Plugin\Api\Services\ModularTemplates;
+use Grav\Plugin\Api\Services\PageTemplate;
 use Grav\Plugin\Api\Services\ThumbnailService;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -1666,9 +1667,10 @@ class PagesController extends AbstractApiController
                 'content' => &$content,
             ]);
 
-            // Build the language-specific file path
+            // Build the language-specific file path. Every language file is
+            // named after the page's file type, not a `template` header.
+            $filename = $this->buildPageFilename(PageTemplate::fileType($page), $targetLang);
             $template = $page->template();
-            $filename = $this->buildPageFilename($template, $targetLang);
             $filePath = $page->path() . '/' . $filename;
 
             $translatedPage = new Page();
@@ -1745,7 +1747,7 @@ class PagesController extends AbstractApiController
             throw new ValidationException('Multi-language is not enabled for this site.');
         }
 
-        $template = $page->template();
+        $template = PageTemplate::fileType($page);
         $pageDir = $page->path();
         if (!$pageDir || !is_dir($pageDir)) {
             throw new NotFoundException("Page directory not found for route: /{$route}");
@@ -2813,7 +2815,7 @@ class PagesController extends AbstractApiController
         foreach ($filters as $filter => $value) {
             $matches = match ($filter) {
                 'published' => $page->published() === filter_var($value, FILTER_VALIDATE_BOOLEAN),
-                'template' => $page->template() === $value,
+                'template' => PageTemplate::of($page) === $value,
                 'routable' => $page->routable() === filter_var($value, FILTER_VALIDATE_BOOLEAN),
                 'visible' => $page->visible() === filter_var($value, FILTER_VALIDATE_BOOLEAN),
                 'parent' => self::routeStartsWith($page, '/' . trim($value, '/')),
@@ -3939,10 +3941,10 @@ class PagesController extends AbstractApiController
             return;
         }
 
-        // Find and delete the specific language file. The filename is the template
-        // basename only: a module's template() is `modular/<name>`, but its file is
-        // `<name>.<lang>.md` (same as buildPageFilename()).
-        $template = basename($page->template());
+        // Find and delete the specific language file. It is named after the
+        // page's file type: a module's template() is `modular/<name>` and a
+        // `template` header names no file, but the file is `<name>.<lang>.md`.
+        $template = PageTemplate::fileType($page);
         $pagePath = $page->path();
 
         /** @var Language $language */

@@ -2,6 +2,8 @@
 ## 10/26/2026
 
 1. [](#bugfix)
+    * The Pages list shows a page's `template:` from its frontmatter instead of its file name, and filtering by template finds it [getgrav/grav-plugin-admin2#201](https://github.com/getgrav/grav-plugin-admin2/issues/201)
+    * Translating a page that sets `template:` in its frontmatter saves the translation under the page's own file name, and deleting that translation no longer removes the whole page folder
     * Site media, icon sets and blueprint uploads work on Windows servers, where every request naming a file or folder was refused with a 422 [#66](https://github.com/getgrav/grav-plugin-api/issues/66)
 
 # v1.1.1
