@@ -1,3 +1,9 @@
+# v1.1.2
+## 10/26/2026
+
+1. [](#bugfix)
+    * Site media, icon sets and blueprint uploads work on Windows servers, where every request naming a file or folder was refused with a 422 [#66](https://github.com/getgrav/grav-plugin-api/issues/66)
+
 # v1.1.1
 ## 10/25/2026
 

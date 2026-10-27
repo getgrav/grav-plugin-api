@@ -172,7 +172,7 @@ final class IconSets
             $inside = false;
             foreach ($this->bases($scheme) as $base) {
                 $base = realpath($base);
-                if ($base !== false && str_starts_with($real, rtrim($base, '/') . '/')) {
+                if ($base !== false && PathContainment::isWithin($real, $base)) {
                     $inside = true;
                     break;
                 }

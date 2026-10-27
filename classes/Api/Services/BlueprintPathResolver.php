@@ -244,8 +244,7 @@ class BlueprintPathResolver
         foreach ($map as $label => $forbidden) {
             $normalizedForbidden = rtrim(str_replace('\\', '/', $forbidden), '/');
             if (
-                $real === $forbidden
-                || str_starts_with($real, $forbidden . '/')
+                PathContainment::isWithin($real, $forbidden, true)
                 || $normalizedTarget === $normalizedForbidden
                 || str_starts_with($normalizedTarget, $normalizedForbidden . '/')
             ) {
@@ -268,7 +267,7 @@ class BlueprintPathResolver
             $probe = $parent;
         }
         $real = realpath($probe !== '' ? $probe : $userRoot);
-        if ($real === false || (!str_starts_with($real, $userRoot . '/') && $real !== $userRoot)) {
+        if ($real === false || !PathContainment::isWithin($real, $userRoot, true)) {
             throw new ValidationException('Path escapes the user directory.');
         }
         return rtrim($path, '/');

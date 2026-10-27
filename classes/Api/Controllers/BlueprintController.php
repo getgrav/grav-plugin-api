@@ -14,6 +14,7 @@ use Grav\Plugin\Api\Services\BlueprintLoader;
 use Grav\Plugin\Api\Services\ConfigScopes;
 use Grav\Plugin\Api\Services\IconSets;
 use Grav\Plugin\Api\Services\ModuleTypeTitles;
+use Grav\Plugin\Api\Services\PathContainment;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use RocketTheme\Toolbox\Event\Event;
@@ -1653,7 +1654,8 @@ class BlueprintController extends AbstractApiController
             // Bare path — anchor to the Grav root and confirm it stays inside.
             $root = rtrim(GRAV_ROOT, '/\\');
             $candidate = realpath($root . '/' . ltrim($file, '/\\'));
-            $path = ($candidate && strpos($candidate, $root) === 0) ? $candidate : false;
+            $realRoot = realpath($root) ?: $root;
+            $path = ($candidate && PathContainment::isWithin($candidate, $realRoot)) ? $candidate : false;
         }
 
         if (!$path || !is_file($path) || !is_readable($path)) {
