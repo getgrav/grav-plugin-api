@@ -41,6 +41,7 @@ class DemoPolicyTest extends TestCase
         yield 'delete page media' => ['DELETE', '/pages/blog/first/media/a.jpg', 'api.media.delete'];
         yield 'edit page media details' => ['PATCH', '/pages/blog/first/media/a.jpg/meta', 'api.media.update'];
         yield 'clear page media details' => ['DELETE', '/pages/blog/first/media/a.jpg/meta', 'api.media.update'];
+        yield 'edit details of several page media files' => ['POST', '/pages/blog/first/media/batch/meta', 'api.media.update'];
         yield 'a file called meta is a delete, as the router reads it' => ['DELETE', '/pages/foo/media/media/meta', 'api.media.delete'];
         yield 'upload site media' => ['POST', '/media', 'api.media.upload'];
         yield 'new media folder' => ['POST', '/media/folders', 'api.media.upload'];

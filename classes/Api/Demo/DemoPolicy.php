@@ -325,6 +325,11 @@ final class DemoPolicy
         if ($method === 'DELETE' && preg_match('#^/pages/.+/media/[^/]+$#', $path)) {
             return 'api.media.delete';
         }
+        // Batch details for several files on a page, before the per-file
+        // pattern below, which would otherwise read `batch` as a filename.
+        if ($method === 'POST' && preg_match('#^/pages/.+/media/batch/meta$#', $path)) {
+            return 'api.media.update';
+        }
         if (preg_match('#^/pages/.+/media/[^/]+/meta$#', $path)) {
             return in_array($method, ['PATCH', 'DELETE'], true) ? 'api.media.update' : self::DENY;
         }
