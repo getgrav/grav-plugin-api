@@ -10,6 +10,7 @@ use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Services\UploadFieldSettings;
 use Grav\Plugin\Api\Tests\Unit\TestHelper;
 use PHPUnit\Framework\Attributes\CoversTrait;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\StreamInterface;
@@ -104,6 +105,48 @@ class HandlesMediaUploadsTest extends TestCase
 
         $this->expectException(ValidationException::class);
         $this->invoke('processUploadedFile', $file, $this->tempDir);
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function unsafeFilenames(): array
+    {
+        return [
+            'encoded null byte' => ['shell.php%00.png'],
+            'encoded trailing space' => ['shell.php%20.png'],
+            'trailing space' => ['photo.png '],
+            'trailing non-breaking space' => ["photo.png\u{00A0}"],
+            'trailing dot' => ['photo.png.'],
+            'zero-width space' => ["photo\u{200B}.png"],
+            'right-to-left override' => ["photo\u{202E}gnp.png"],
+            'control character' => ["photo\x01.png"],
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('unsafeFilenames')]
+    public function unsafe_filename_is_rejected_and_no_file_is_written(string $filename): void
+    {
+        $file = new TraitTestUploadedFile($filename, 'png');
+
+        try {
+            $this->invoke('processUploadedFile', $file, $this->tempDir);
+            self::fail('Expected the filename to be refused.');
+        } catch (ValidationException $e) {
+            self::assertSame(422, $e->getStatusCode());
+        }
+
+        self::assertSame([], array_values(array_diff(scandir($this->tempDir) ?: [], ['.', '..'])));
+    }
+
+    #[Test]
+    public function percent_sign_in_a_filename_is_accepted(): void
+    {
+        $file = new TraitTestUploadedFile('100%.pdf', 'pdf');
+
+        self::assertSame('100%.pdf', $this->invoke('processUploadedFile', $file, $this->tempDir));
+        self::assertFileExists($this->tempDir . '/100%.pdf');
     }
 
     #[Test]

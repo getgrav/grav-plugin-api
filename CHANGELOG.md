@@ -1,3 +1,9 @@
+# v1.1.4
+## 10/29/2026
+
+1. [](#bugfix)
+    * [security] Settings file fields can no longer upload into or delete from theme and plugin folders without config access, template folders and anything outside `user/` need super-admin access, and file names ending in a space or dot, or carrying control or invisible characters, are refused. Thanks @sagarbanwa
+
 # v1.1.3
 ## 10/29/2026
 

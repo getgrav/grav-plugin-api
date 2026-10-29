@@ -211,8 +211,21 @@ class BlueprintPathResolver
     }
 
     /**
-     * Classify a resolved directory against the config-bearing dirs under
-     * `user/`. Returns 'accounts', 'config', 'env', or null.
+     * Classify a resolved directory for the upload-side guards. Returns:
+     *
+     *   - 'accounts', 'config', 'env': the config-bearing dirs under `user/`;
+     *   - 'templates': a folder Twig loads templates from (see isTemplateDir());
+     *   - 'theme_or_plugin': anywhere inside `user/themes/` or `user/plugins/`;
+     *   - 'outside': anywhere outside the user root;
+     *   - null: anywhere else under `user/`.
+     *
+     * Each check looks at the logical path (what the locator or the caller
+     * built) and at the realpath, since themes, plugins and other folders are
+     * often symlinked in. The first match wins, in the order above, so a
+     * template folder that also sits outside `user/` is 'templates'. A theme or
+     * plugin that lives elsewhere and is symlinked in counts as
+     * 'theme_or_plugin', not 'outside'. When the user root can't be resolved,
+     * everything that isn't a template folder is 'outside'.
      *
      * Used by upload-side guards. Browse callers can ignore this since
      * Media::all() filters non-media files anyway and reading config is
@@ -222,7 +235,6 @@ class BlueprintPathResolver
     public function classifyTargetDir(string $absoluteDir): ?string
     {
         $userRoot = $this->userRoot();
-        if ($userRoot === null) return null;
 
         $probe = $absoluteDir;
         while ($probe !== '' && !file_exists($probe)) {
@@ -235,23 +247,300 @@ class BlueprintPathResolver
             $real = $absoluteDir;
         }
 
-        $normalizedTarget = rtrim(str_replace('\\', '/', $absoluteDir), '/');
-        $map = [
-            'accounts' => $userRoot . '/accounts',
-            'config'   => $userRoot . '/config',
-            'env'      => $userRoot . '/env',
-        ];
-        foreach ($map as $label => $forbidden) {
-            $normalizedForbidden = rtrim(str_replace('\\', '/', $forbidden), '/');
-            if (
-                PathContainment::isWithin($real, $forbidden, true)
-                || $normalizedTarget === $normalizedForbidden
-                || str_starts_with($normalizedTarget, $normalizedForbidden . '/')
-            ) {
-                return $label;
+        if ($userRoot !== null) {
+            $normalizedTarget = rtrim(str_replace('\\', '/', $absoluteDir), '/');
+            $map = [
+                'accounts' => $userRoot . '/accounts',
+                'config'   => $userRoot . '/config',
+                'env'      => $userRoot . '/env',
+            ];
+            foreach ($map as $label => $forbidden) {
+                $normalizedForbidden = rtrim(str_replace('\\', '/', $forbidden), '/');
+                if (
+                    PathContainment::isWithin($real, $forbidden, true)
+                    || $normalizedTarget === $normalizedForbidden
+                    || str_starts_with($normalizedTarget, $normalizedForbidden . '/')
+                ) {
+                    return $label;
+                }
             }
         }
-        return null;
+
+        // The not-yet-existing tail of the target, re-attached to the resolved
+        // ancestor, so `templates/new-folder` is judged as the folder it will be.
+        $realTarget = $real;
+        if ($probe !== '' && $probe !== $absoluteDir && str_starts_with($absoluteDir, $probe)) {
+            $realTarget = rtrim($real, '/') . substr($absoluteDir, strlen($probe));
+        }
+
+        $targets = array_values(array_unique(array_map(
+            static fn(string $p): string => rtrim(str_replace('\\', '/', $p), '/'),
+            [$absoluteDir, $realTarget]
+        )));
+        $roots = $this->userRoots();
+
+        if ($this->isTemplateDir($targets, $roots)) {
+            return 'templates';
+        }
+        if ($this->isThemeOrPluginDir($targets, $roots)) {
+            return 'theme_or_plugin';
+        }
+        foreach ($roots as $root) {
+            foreach ($targets as $target) {
+                if (PathContainment::isWithin($target, $root, true, '/')) {
+                    return null;
+                }
+            }
+        }
+
+        return 'outside';
+    }
+
+    /**
+     * The user root as resolved (realpath) and as the locator reports it,
+     * with '/' separators, so a logical path and a realpath can each be
+     * compared against the form they were built from.
+     *
+     * @return string[]
+     */
+    private function userRoots(): array
+    {
+        $roots = [];
+        $resolved = $this->userRoot();
+        if ($resolved !== null) {
+            $roots[] = $resolved;
+        }
+        $raw = $this->locator()->findResource('user://', true);
+        if (is_string($raw) && $raw !== '') {
+            $roots[] = $raw;
+        }
+
+        return array_values(array_unique(array_map(
+            static fn(string $p): string => rtrim(str_replace('\\', '/', $p), '/'),
+            $roots
+        )));
+    }
+
+    /**
+     * Whether a directory is, or sits inside, `user/themes/` or `user/plugins/`.
+     *
+     * Judged on the logical path against the user root, and on the realpath
+     * against where the themes and plugins folders, and each installed theme
+     * and plugin, really live (they are often symlinked in). Compared
+     * case-insensitively: on a case-insensitive filesystem `Themes/` is the
+     * same folder, and on a case-sensitive one this can only refuse more.
+     *
+     * @param string[] $targets Logical path and realpath, '/'-separated.
+     * @param string[] $roots   User roots from userRoots().
+     */
+    private function isThemeOrPluginDir(array $targets, array $roots): bool
+    {
+        $targets = array_map('strtolower', $targets);
+
+        foreach ($roots as $root) {
+            $root = strtolower($root);
+            foreach ($targets as $target) {
+                if (!PathContainment::isWithin($target, $root, false, '/')) {
+                    continue;
+                }
+                $relative = substr($target, strlen($root) + 1);
+                if (preg_match('#^(?:themes|plugins)(?:/|$)#', $relative)) {
+                    return true;
+                }
+            }
+        }
+
+        foreach ($this->packageRoots($roots) as $packageRoot) {
+            foreach ($targets as $target) {
+                if (PathContainment::isWithin($target, $packageRoot, true, '/')) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Realpaths of the themes and plugins folders and of every installed theme
+     * and plugin in them, lowercased and '/'-separated.
+     *
+     * @param string[] $userRoots
+     * @return string[]
+     */
+    private function packageRoots(array $userRoots): array
+    {
+        $folders = [];
+        foreach ($userRoots as $root) {
+            $folders[] = $root . '/themes';
+            $folders[] = $root . '/plugins';
+        }
+        $locator = $this->locator();
+        if (method_exists($locator, 'findResources')) {
+            foreach (['themes://', 'plugins://'] as $uri) {
+                try {
+                    $folders = array_merge($folders, (array) $locator->findResources($uri));
+                } catch (\Throwable) {
+                }
+            }
+        }
+
+        $paths = [];
+        foreach (array_unique($folders) as $folder) {
+            if (!is_string($folder) || $folder === '' || !is_dir($folder)) {
+                continue;
+            }
+            $paths[] = $folder;
+            $paths = array_merge($paths, glob(rtrim($folder, '/') . '/*', GLOB_ONLYDIR) ?: []);
+        }
+
+        $normalized = [];
+        foreach ($paths as $path) {
+            $real = realpath($path);
+            if ($real !== false) {
+                $normalized[] = strtolower(rtrim(str_replace('\\', '/', $real), '/'));
+            }
+        }
+
+        return array_values(array_unique($normalized));
+    }
+
+    /**
+     * Whether a directory is, or sits inside, a folder Twig loads templates
+     * from. Twig loads any file there by name, whatever its extension, so the
+     * whole folder counts, not just `.twig` files.
+     *
+     * Two checks, either one is enough:
+     *   - the template paths actually registered: Twig's loader paths when
+     *     Twig is initialized, the locator's `theme://templates` and
+     *     `system://templates` regardless, and the extra site template folder
+     *     the flex-objects and flex-directory plugins can be configured with;
+     *   - by structure, any `templates` folder inside `user/themes/<name>/` or
+     *     `user/plugins/<name>/`, judged on the logical path as well as the
+     *     realpath, since themes and plugins are often symlinked in.
+     *
+     * Twig namespaces a theme or plugin registers on its own folders (a
+     * theme's `images/` as `@images`, say) are not listed here: Twig is not
+     * normally initialized during an API request, so they can't be seen. Those
+     * folders are inside `user/themes/` or `user/plugins/`, which needs config
+     * access anyway (see isThemeOrPluginDir()).
+     *
+     * Compared case-insensitively: on a case-insensitive filesystem
+     * `Templates/` is the same folder.
+     *
+     * @param string[] $targets Logical path and realpath, '/'-separated.
+     * @param string[] $roots   User roots from userRoots().
+     */
+    private function isTemplateDir(array $targets, array $roots): bool
+    {
+        $targets = array_values(array_unique(array_map('strtolower', $targets)));
+
+        // Structural: user/(themes|plugins)/<name>/**/templates/**, against the
+        // resolved user root and the locator's unresolved one.
+        foreach ($roots as $root) {
+            $root = strtolower($root);
+            foreach ($targets as $target) {
+                if (!PathContainment::isWithin($target, $root, false, '/')) {
+                    continue;
+                }
+                $relative = substr($target, strlen($root) + 1);
+                if (preg_match('#^(?:themes|plugins)/[^/]+/(?:.+/)?templates(?:/|$)#', $relative)) {
+                    return true;
+                }
+            }
+        }
+
+        foreach ($this->templatePaths($roots) as $templatePath) {
+            foreach ($targets as $target) {
+                if (PathContainment::isWithin($target, $templatePath, true, '/')) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Every known template folder, normalized for comparison.
+     *
+     * @param string[] $userRoots
+     * @return string[]
+     */
+    private function templatePaths(array $userRoots): array
+    {
+        $paths = [];
+
+        if (isset($this->grav['twig'])) {
+            try {
+                $twig = $this->grav['twig'];
+                if (is_array($twig->twig_paths ?? null)) {
+                    $paths = array_merge($paths, $twig->twig_paths);
+                }
+                $loader = method_exists($twig, 'loader') ? $twig->loader() : null;
+                if ($loader instanceof \Twig\Loader\FilesystemLoader) {
+                    foreach ($loader->getNamespaces() as $namespace) {
+                        $paths = array_merge($paths, $loader->getPaths($namespace));
+                    }
+                }
+            } catch (\Throwable) {
+                // Twig unavailable: the locator and structural checks still apply.
+            }
+        }
+
+        $locator = $this->locator();
+        if (method_exists($locator, 'findResources')) {
+            foreach (['theme://templates', 'system://templates'] as $uri) {
+                try {
+                    $paths = array_merge($paths, (array) $locator->findResources($uri));
+                } catch (\Throwable) {
+                }
+            }
+        }
+
+        // The extra site template folder flex-objects and flex-directory add
+        // to Twig's paths when configured. It can point anywhere, including
+        // a folder under `user/` that doesn't exist yet, so it's taken as
+        // configured as well as resolved.
+        try {
+            $config = $this->grav['config'];
+            foreach (['plugins.flex-objects.extra_site_twig_path', 'plugins.flex-directory.extra_site_twig_path'] as $key) {
+                foreach ((array) $config->get($key) as $uri) {
+                    if (!is_string($uri) || $uri === '') {
+                        continue;
+                    }
+                    if ($locator->isStream($uri)) {
+                        $resolved = $locator->findResource($uri, true, true);
+                        if (is_string($resolved) && $resolved !== '') {
+                            $paths[] = $resolved;
+                        }
+                    } elseif (str_starts_with($uri, '/')) {
+                        $paths[] = $uri;
+                    }
+                }
+            }
+        } catch (\Throwable) {
+        }
+
+        // Existing templates folders of installed themes and plugins, so a
+        // symlinked one is matched by where it really lives too.
+        foreach ($userRoots as $root) {
+            foreach (['themes', 'plugins'] as $kind) {
+                $paths = array_merge($paths, glob($root . '/' . $kind . '/*/templates', GLOB_ONLYDIR) ?: []);
+            }
+        }
+
+        // Realpath where the folder exists, the path as given where it doesn't.
+        $normalized = [];
+        foreach ($paths as $path) {
+            if (!is_string($path) || $path === '') {
+                continue;
+            }
+            $real = realpath($path);
+            $normalized[] = strtolower(rtrim(str_replace('\\', '/', $real !== false ? $real : $path), '/'));
+        }
+
+        return array_values(array_unique($normalized));
     }
 
     public function assertInsideUserRoot(string $path): string
