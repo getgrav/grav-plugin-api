@@ -1,5 +1,5 @@
 # v1.1.3
-## 10/27/2026
+## 10/29/2026
 
 1. [](#new)
     * Page records include `uuid`, the page folder's permanent id (Grav 2.2.15 page ids), or null when it has none, and a page copied with the copy action or a batch copy gets its own id instead of sharing the original's
