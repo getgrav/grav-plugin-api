@@ -159,7 +159,20 @@ trait HandlesMediaUploads
         // other name a browser still renders as SVG, `.svgz` above all
         // (GHSA-66xf-ggf4-6hmc).
         if ($this->isSvgUpload($targetPath, $filename)) {
-            Security::sanitizeSVG($targetPath);
+            try {
+                Security::sanitizeSVG($targetPath);
+            } catch (\Exception) {
+                // Core moved the file to quarantine; rejected just below.
+            }
+
+            // The sanitizer writes back whatever its parser kept, which is
+            // nothing for bytes that aren't SVG markup. Refuse the upload
+            // rather than store an empty file and report success.
+            clearstatcache(true, $targetPath);
+            if (!is_file($targetPath) || filesize($targetPath) === 0) {
+                @unlink($targetPath);
+                throw new ValidationException("'{$filename}' could not be read as SVG markup, so it was not saved.");
+            }
         }
 
         return $filename;
@@ -173,9 +186,13 @@ trait HandlesMediaUploads
      * `.svg`/`.svgz` upload, and the content sniff catches markup parked under
      * some other extension that a browser will still render inline. A gzipped
      * SVG (`.svgz`) is deliberately reported here even though the sanitizer
-     * cannot read compressed markup — it fails closed, quarantining the file
-     * and rejecting the upload, which is the right answer for a format we have
-     * no reason to accept (GHSA-66xf-ggf4-6hmc).
+     * cannot read compressed markup — it fails closed: the sanitizer empties
+     * it and processUploadedFile() rejects the upload, which is the right
+     * answer for a format we have no reason to accept (GHSA-66xf-ggf4-6hmc).
+     *
+     * A file that starts with a raster image signature is never SVG, even when
+     * its binary data happens to contain the bytes "<svg": sanitizing it would
+     * empty it (getgrav/grav-plugin-api#70).
      */
     protected function isSvgUpload(string $path, string $filename): bool
     {
@@ -184,7 +201,7 @@ trait HandlesMediaUploads
         }
 
         $head = @file_get_contents($path, false, null, 0, 1024);
-        if ($head === false || $head === '') {
+        if ($head === false || $head === '' || $this->isRasterImage($head)) {
             return false;
         }
 
@@ -196,6 +213,20 @@ trait HandlesMediaUploads
         }
 
         return stripos($head, '<svg') !== false;
+    }
+
+    /**
+     * Whether the bytes start with the signature of a PNG, JPEG, GIF, WebP,
+     * TIFF or ISO media (AVIF/HEIC) file.
+     */
+    private function isRasterImage(string $head): bool
+    {
+        return str_starts_with($head, "\x89PNG\r\n\x1a\n")
+            || str_starts_with($head, "\xFF\xD8\xFF")
+            || str_starts_with($head, 'GIF87a') || str_starts_with($head, 'GIF89a')
+            || (str_starts_with($head, 'RIFF') && substr($head, 8, 4) === 'WEBP')
+            || str_starts_with($head, "II*\x00") || str_starts_with($head, "MM\x00*")
+            || substr($head, 4, 4) === 'ftyp';
     }
 
     /**

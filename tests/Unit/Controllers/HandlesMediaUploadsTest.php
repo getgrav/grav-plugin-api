@@ -195,6 +195,8 @@ class HandlesMediaUploadsTest extends TestCase
             // ...and the same trick with the bytes compressed.
             'logo.png' => [(string)gzencode($svg), true],
             'photo.png' => ['\x89PNG not-really-but-not-svg-either', false],
+            // A real PNG whose metadata happens to contain "<svg" (#70).
+            'chunk.png' => [$this->pngWithTextChunk("Comment\0<svg>"), false],
         ];
 
         foreach ($cases as $name => [$bytes, $expected]) {
@@ -207,6 +209,45 @@ class HandlesMediaUploadsTest extends TestCase
                 "isSvgUpload() misjudged {$name}"
             );
         }
+    }
+
+    #[Test]
+    public function a_png_that_mentions_svg_in_its_metadata_is_stored_intact(): void
+    {
+        // A text chunk right after IHDR puts "<svg" in the first 1024 bytes of
+        // an otherwise ordinary PNG. Sniffing the binary as text took it for SVG
+        // and the sanitizer emptied it to 0 bytes (getgrav/grav-plugin-api#70).
+        $png = $this->pngWithTextChunk("Comment\0exported from <svg> editor");
+        $file = new TraitTestUploadedFile('photo.png', $png);
+
+        $name = $this->invoke('processUploadedFile', $file, $this->tempDir);
+
+        self::assertSame('photo.png', $name);
+        self::assertSame($png, file_get_contents($this->tempDir . '/photo.png'));
+    }
+
+    #[Test]
+    public function an_svg_the_sanitizer_empties_is_rejected_not_stored_as_zero_bytes(): void
+    {
+        $file = new TraitTestUploadedFile('broken.svg', "\x00\x01 not markup at all");
+
+        try {
+            $this->invoke('processUploadedFile', $file, $this->tempDir);
+            self::fail('Expected ValidationException for an SVG that sanitizes to nothing.');
+        } catch (ValidationException) {
+            self::assertFileDoesNotExist($this->tempDir . '/broken.svg');
+        }
+    }
+
+    /** A real 1x1 PNG with a tEXt chunk inserted straight after IHDR. */
+    private function pngWithTextChunk(string $text): string
+    {
+        $png = (string)base64_decode(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+        );
+        $chunk = pack('N', strlen($text)) . 'tEXt' . $text . pack('N', crc32('tEXt' . $text));
+
+        return substr($png, 0, 33) . $chunk . substr($png, 33);
     }
 
     #[Test]
