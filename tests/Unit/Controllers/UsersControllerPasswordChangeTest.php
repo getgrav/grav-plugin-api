@@ -224,6 +224,75 @@ class UsersControllerPasswordChangeTest extends TestCase
     }
 
     #[Test]
+    public function changing_your_own_email_needs_the_current_password_too(): void
+    {
+        $user = $this->member();
+        $login = $this->fakeLogin();
+        $controller = $this->buildController(['user1' => $user], $login);
+
+        $errors = $this->refusal(fn () => $controller->update($this->patch($user, 'user1', ['email' => 'new@example.com'])));
+
+        $this->assertSame('current_password', $errors[0]['field']);
+        $this->assertSame('Enter your current password to change your email address.', $errors[0]['message']);
+        $this->assertSame('user1@example.com', $user->get('email'));
+        $this->assertSame(0, $login->checked, 'a missing password is not a guess');
+    }
+
+    #[Test]
+    public function a_wrong_current_password_refuses_an_email_change_and_is_counted(): void
+    {
+        $user = $this->member();
+        $login = $this->fakeLogin();
+        $controller = $this->buildController(['user1' => $user], $login);
+
+        $errors = $this->refusal(fn () => $controller->update($this->patch($user, 'user1', [
+            'email' => 'new@example.com',
+            'current_password' => 'not-it',
+        ])));
+
+        $this->assertSame('current_password', $errors[0]['field']);
+        $this->assertSame('user1@example.com', $user->get('email'));
+        $this->assertSame(1, $login->checked);
+    }
+
+    #[Test]
+    public function the_right_current_password_lets_your_email_change_go_ahead(): void
+    {
+        $user = $this->member();
+        $controller = $this->buildController(['user1' => $user], $this->fakeLogin());
+
+        $controller->update($this->patch($user, 'user1', [
+            'email' => 'new@example.com',
+            'current_password' => self::OLD,
+        ]));
+
+        $this->assertSame('new@example.com', $user->get('email'), 'saved at once: this login has no confirmation step');
+    }
+
+    #[Test]
+    public function sending_back_your_unchanged_email_needs_no_password(): void
+    {
+        $user = $this->member();
+        $controller = $this->buildController(['user1' => $user], $this->fakeLogin());
+
+        $controller->update($this->patch($user, 'user1', ['email' => 'User1@Example.com ', 'fullname' => 'Changed']));
+
+        $this->assertSame('Changed', $user->get('fullname'));
+    }
+
+    #[Test]
+    public function an_admin_changes_someone_elses_email_without_a_password(): void
+    {
+        $manager = $this->manager();
+        $user = $this->member('user2');
+        $controller = $this->buildController(['manager' => $manager, 'user2' => $user], $this->fakeLogin());
+
+        $controller->update($this->patch($manager, 'user2', ['email' => 'changed@example.com']));
+
+        $this->assertSame('changed@example.com', $user->get('email'));
+    }
+
+    #[Test]
     public function the_whole_request_is_refused_with_a_wrong_current_password(): void
     {
         $user = $this->member();

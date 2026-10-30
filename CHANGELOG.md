@@ -2,6 +2,7 @@
 ## 10/29/2026
 
 1. [](#bugfix)
+    * [security] Changing your own email address through the API (Admin2's account screen) now needs your current password, as changing your password does and as the Login plugin's profile form asks from 3.11.1, so whoever holds a signed-in session can't move the account to an address they control. An account with no password yet, and an admin changing someone else's address, aren't asked. A wrong password counts against the sign-in limits
     * [security] Settings file fields can no longer upload into or delete from theme and plugin folders without config access, template folders and anything outside `user/` need super-admin access, and file names ending in a space or dot, or carrying control or invisible characters, are refused. Thanks @sagarbanwa
 
 # v1.1.3

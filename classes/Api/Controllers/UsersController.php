@@ -1180,6 +1180,21 @@ class UsersController extends AbstractApiController
         // so a refused or rate limited change leaves the rest of the request
         // unsaved too. An admin editing another account saves at once.
         $oldEmail = mb_strtolower(trim((string) $user->get('email', '')));
+
+        // Your own new address needs your current password too, as a new
+        // password does and as the Login plugin's profile form asks (3.11.1):
+        // whoever holds a signed-in session must not be able to move the
+        // account to an address they control. Asked once when both change.
+        if ($isSelf && !$passwordChanged && isset($body['email']) && is_string($body['email'])
+            && mb_strtolower(trim($body['email'])) !== $oldEmail) {
+            $this->assertCurrentPassword(
+                $request,
+                $user,
+                $body['current_password'] ?? null,
+                'Enter your current password to change your email address.'
+            );
+        }
+
         $pendingEmail = null;
         if ($isSelf && isset($body['email']) && is_string($body['email'])) {
             $pendingEmail = $this->screenOwnEmailChange($user, $body['email']);
@@ -1492,20 +1507,24 @@ class UsersController extends AbstractApiController
     }
 
     /**
-     * Refuse a change of your own password unless `current_password` is right.
+     * Refuse a change of your own password or email unless `current_password` is right.
      * Each try counts against the Login plugin's sign-in limits for the
      * account and the IP (429 once they are used up), so this can't be used to
      * guess the password, and a right one clears the count like a sign-in.
      * An account with no password yet passes without one.
      */
-    private function assertCurrentPassword(ServerRequestInterface $request, UserInterface $user, mixed $current): void
-    {
+    private function assertCurrentPassword(
+        ServerRequestInterface $request,
+        UserInterface $user,
+        mixed $current,
+        string $requiredMessage = 'Enter your current password to set a new one.',
+    ): void {
         if (!$this->accountHasPassword($user)) {
             return;
         }
 
         if (!is_string($current) || $current === '') {
-            $message = 'Enter your current password to set a new one.';
+            $message = $requiredMessage;
             throw new ValidationException($message, [['field' => 'current_password', 'message' => $message]]);
         }
 
