@@ -39,6 +39,10 @@ class PreferencesResolver
     private const VALID_EDITOR_MODE = ['normal', 'expert'];
     private const VALID_EDITOR_KEYMAP = ['default', 'vim'];
     private const VALID_LOGO_MODE = ['default', 'text', 'custom'];
+    // When Admin2 shows its environment switcher: `auto` = when the site has an
+    // environment, or to users who can create one; `when-used` = only when the
+    // site has an environment.
+    private const VALID_ENVIRONMENT_SWITCHER = ['auto', 'when-used'];
     private const LOGO_HEIGHT_MIN = 16;
     private const LOGO_HEIGHT_MAX = 44;
     private const VALID_PAGES_VIEW_MODE = ['tree', 'list', 'miller'];
@@ -169,6 +173,9 @@ class PreferencesResolver
             // Show the "Grav was coded with love by Trilby Media" credit at the
             // bottom of the Admin2 sidebar.
             'showCredit' => true,
+            // When the environment switcher shows in the Admin2 top bar - see
+            // VALID_ENVIRONMENT_SWITCHER.
+            'environmentSwitcher' => 'auto',
             // Custom favicon (basename only, stored alongside the logos). Empty =
             // the SPA's generated accent-coloured favicon.
             'favicon' => '',
@@ -586,6 +593,11 @@ class PreferencesResolver
             $showCredit = is_scalar($showCredit) ? (bool) $showCredit : $defaults['showCredit'];
         }
 
+        $environmentSwitcher = $input['environmentSwitcher'] ?? $defaults['environmentSwitcher'];
+        if (!is_string($environmentSwitcher) || !in_array($environmentSwitcher, self::VALID_ENVIRONMENT_SWITCHER, true)) {
+            $environmentSwitcher = $defaults['environmentSwitcher'];
+        }
+
         $logoHeight = $input['logoHeight'] ?? $defaults['logoHeight'];
         $logoHeight = is_numeric($logoHeight) && (int) $logoHeight > 0
             ? max(self::LOGO_HEIGHT_MIN, min(self::LOGO_HEIGHT_MAX, (int) $logoHeight))
@@ -601,6 +613,7 @@ class PreferencesResolver
             'subtitle' => substr($subtitle, 0, 128),
             'showPoweredBy' => $showPoweredBy,
             'showCredit' => $showCredit,
+            'environmentSwitcher' => $environmentSwitcher,
             'favicon' => $this->sanitizeLogoPath($input['favicon'] ?? ''),
         ];
     }

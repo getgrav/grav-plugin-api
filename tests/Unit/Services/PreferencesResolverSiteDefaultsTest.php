@@ -75,6 +75,21 @@ class PreferencesResolverSiteDefaultsTest extends TestCase
     }
 
     #[Test]
+    public function the_environment_switcher_shows_automatically_until_a_site_limits_it(): void
+    {
+        $resolver = $this->resolver();
+
+        self::assertSame('auto', $resolver->siteBranding()['environmentSwitcher']);
+
+        $resolver->saveSiteBranding(array_replace($resolver->siteBranding(), ['environmentSwitcher' => 'when-used']));
+        self::assertSame('when-used', $resolver->siteBranding()['environmentSwitcher']);
+
+        // Anything unknown falls back to the default rather than hiding it.
+        $resolver->saveSiteBranding(array_replace($resolver->siteBranding(), ['environmentSwitcher' => 'never']));
+        self::assertSame('auto', $resolver->siteBranding()['environmentSwitcher']);
+    }
+
+    #[Test]
     public function dark_shade_defaults_to_graphite(): void
     {
         $resolver = $this->resolver();

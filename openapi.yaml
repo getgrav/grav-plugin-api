@@ -16210,6 +16210,11 @@ components:
           type: boolean
           description: Show the "Grav was coded with love by Trilby Media" credit at the bottom of the Admin2 sidebar.
           example: true
+        environmentSwitcher:
+          type: string
+          enum: [auto, when-used]
+          description: When the environment switcher shows in the Admin2 top bar. `auto` shows it when the site has an environment (a folder in `user/env/`), or to users who can write config and so can create one. `when-used` shows it only when the site has an environment. It always shows while an environment is selected. Unknown values fall back to `auto`.
+          example: auto
         favicon:
           type: string
           description: Basename of a custom favicon inside `user/media/admin-next/`, or empty for the generated accent-colored favicon.
@@ -16336,6 +16341,7 @@ components:
           subtitle: ""
           showPoweredBy: true
           showCredit: true
+          environmentSwitcher: auto
           favicon: ""
         branding_urls:
           light: ""
