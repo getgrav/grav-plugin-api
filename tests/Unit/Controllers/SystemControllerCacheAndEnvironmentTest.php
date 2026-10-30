@@ -140,6 +140,30 @@ class SystemControllerCacheAndEnvironmentTest extends TestCase
         }
     }
 
+    #[Test]
+    public function any_admin_user_can_list_environments(): void
+    {
+        // Admin2 needs the list to reset a stale selection and to decide
+        // whether to show its switcher, for editors too, not only for users
+        // with api.system.read.
+        [$controller] = $this->controller(['uri' => new class {
+            public function environment(): string
+            {
+                return 'localhost';
+            }
+        }]);
+        $editor = TestHelper::createMockUser('editor', ['access' => ['api' => ['access' => true]]]);
+
+        $response = $controller->environments(
+            TestHelper::createMockRequest('GET', '/system/environments', attributes: ['api_user' => $editor])
+        );
+
+        $body = json_decode((string)$response->getBody(), true);
+        $names = array_column($body['data']['environments'] ?? $body['environments'] ?? [], 'name');
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame(['', 'staging'], $names);
+    }
+
     /**
      * @param array<int, string> $scopes
      */
