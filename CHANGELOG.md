@@ -1,3 +1,12 @@
+# v1.1.5
+## 10/30/2026
+
+1. [](#improved)
+    * Listing environments (`GET /system/environments`) needs only `api.access` instead of `api.system.read`, so Admin2 can show every user the right environment and hide its switcher when there's nothing to switch. It lists names only; creating and deleting environments keep their permissions
+2. [](#bugfix)
+    * A PNG or other image whose binary data happened to contain the text `<svg` was taken for SVG and saved as an empty file. Raster images are no longer sent through the SVG sanitizer, and an SVG upload the sanitizer empties is refused instead of saved as 0 bytes [#70](https://github.com/getgrav/grav-plugin-api/issues/70)
+    * Thumbnails of photos taken sideways or upside down (most phone photos) are now turned upright using their EXIF orientation, as the full image already is. Existing thumbnails are made again. Needs PHP's `exif` extension [#68](https://github.com/getgrav/grav-plugin-api/issues/68)
+
 # v1.1.4
 ## 10/29/2026
 

@@ -15,6 +15,14 @@ class ThumbnailService
     /** Where deferred thumbnails wait for their first request, under the cache dir. */
     private const PENDING_DIR = 'pending';
 
+    /**
+     * Part of every thumbnail's hash. Bump it when the generated pixels change:
+     * the thumbnail route tells browsers to keep a file for a year, and a
+     * standard cache clear leaves cache://api alone, so an old thumbnail is
+     * only replaced when its name changes. 2: EXIF orientation applied (#68).
+     */
+    private const CACHE_VERSION = 2;
+
     private string $cacheDir;
     private int $maxSize;
     private int $quality;
@@ -45,7 +53,7 @@ class ThumbnailService
     public function getHash(string $sourcePath): string
     {
         $mtime = file_exists($sourcePath) ? filemtime($sourcePath) : 0;
-        return md5($sourcePath . '|' . $mtime . '|' . $this->maxSize);
+        return md5($sourcePath . '|' . $mtime . '|' . $this->maxSize . '|' . self::CACHE_VERSION);
     }
 
     /**
@@ -297,7 +305,9 @@ class ThumbnailService
 
         // Already small enough — cache as-is so we don't re-check every time
         if ($origWidth <= $this->maxSize && $origHeight <= $this->maxSize) {
-            return $this->saveImage($sourceImage, $cachePath, $mime, $origWidth, $origHeight);
+            $image = $this->applyOrientation($sourceImage, $sourcePath, $mime);
+
+            return $this->saveImage($image, $cachePath, $mime, imagesx($image), imagesy($image));
         }
 
         // Calculate new dimensions maintaining aspect ratio
@@ -324,7 +334,49 @@ class ThumbnailService
 
         imagecopyresampled($thumb, $sourceImage, 0, 0, 0, 0, $newWidth, $newHeight, $origWidth, $origHeight);
 
-        return $this->saveImage($thumb, $cachePath, $mime, $newWidth, $newHeight);
+        // Turned after resizing: the box is square, so the size comes out the
+        // same, and rotating a 12-megapixel photo would need a second
+        // full-size copy of it in memory.
+        $thumb = $this->applyOrientation($thumb, $sourcePath, $mime);
+
+        return $this->saveImage($thumb, $cachePath, $mime, imagesx($thumb), imagesy($thumb));
+    }
+
+    /**
+     * Turn the image upright as the source's EXIF Orientation tag says.
+     * Browsers apply the tag when they show the original, but GD drops it on
+     * re-encoding, so without this a phone photo's thumbnail lies on its side
+     * (#68). Same mapping as Gregwar's applyExifOrientation(), which Grav uses
+     * for its own processed images (system.images.auto_fix_orientation).
+     */
+    private function applyOrientation(\GdImage $image, string $sourcePath, string $mime): \GdImage
+    {
+        // exif_read_data() reads JPEG and TIFF only, and GD can't decode TIFF.
+        if ($mime !== 'image/jpeg' || !function_exists('exif_read_data')) {
+            return $image;
+        }
+
+        $exif = @exif_read_data($sourcePath);
+        $orientation = is_array($exif) ? (int) ($exif['Orientation'] ?? 1) : 1;
+
+        $flip = match ($orientation) {
+            2, 7 => IMG_FLIP_HORIZONTAL,
+            4, 5 => IMG_FLIP_VERTICAL,
+            default => null,
+        };
+        if ($flip !== null) {
+            imageflip($image, $flip);
+        }
+
+        // imagerotate() turns counter-clockwise for a positive angle.
+        $angle = match ($orientation) {
+            3 => 180,
+            5, 6, 7 => -90,
+            8 => 90,
+            default => 0,
+        };
+
+        return $angle === 0 ? $image : (imagerotate($image, $angle, 0) ?: $image);
     }
 
     /**

@@ -54,7 +54,10 @@ class SystemController extends AbstractApiController
      */
     public function environments(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, 'api.system.read');
+        // Any signed-in admin user: only names, and the environment headers
+        // already accept any name from them. Admin2 needs the list to reset a
+        // stale selection and to decide whether to show its switcher.
+        $this->requirePermission($request, 'api.access');
 
         $envService = new EnvironmentService($this->grav);
         $list = [[

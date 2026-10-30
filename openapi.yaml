@@ -5030,7 +5030,7 @@ paths:
       description: |
         Returns the environment Grav detected for this request and the
         environments that can be selected as configuration write targets.
-        Requires `api.system.read`.
+        Requires `api.access`.
 
         The first entry is always the base configuration (`user/config`),
         with `name: ""` and `label: "Default"`. Every other entry is an
