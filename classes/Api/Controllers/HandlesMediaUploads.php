@@ -200,9 +200,17 @@ trait HandlesMediaUploads
 
     /**
      * Validate that none of a filename's extensions are on the dangerous list.
+     *
+     * Also refuses names with control or invisible format characters, or that
+     * end in whitespace or a dot: some filesystems and servers strip those, so
+     * the stored name would not be the one checked here.
      */
     protected function validateFileExtension(string $filename): void
     {
+        if (preg_match('/[\p{Cc}\p{Cf}]/u', $filename) !== 0 || preg_match('/[\s\p{Z}.]$/u', $filename) !== 0) {
+            throw new ValidationException('Invalid filename.');
+        }
+
         $extension = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
 
         if ($extension === '') {
@@ -218,12 +226,15 @@ trait HandlesMediaUploads
         // "shell.php.jpg" passes a last-extension check (".jpg") yet the web
         // server may still execute the earlier ".php" — the classic double-
         // extension RCE (GHSA-66v2-vxxf-xc3v). The basename (first segment) is
-        // skipped; only the trailing extension chain is inspected.
+        // skipped; only the trailing extension chain is inspected. Each part is
+        // also checked URL-decoded and trimmed, so `php%00` or `php%20` can't
+        // slip past as a name the denylist doesn't recognize.
         $parts = array_slice(explode('.', strtolower($filename)), 1);
         foreach ($parts as $part) {
-            if (in_array($part, $dangerousExtensions, true)) {
+            $decoded = strtolower(trim(rawurldecode($part)));
+            if (in_array($part, $dangerousExtensions, true) || in_array($decoded, $dangerousExtensions, true)) {
                 throw new ValidationException(
-                    "File extension '.{$part}' is not allowed for security reasons."
+                    "File extension '.{$decoded}' is not allowed for security reasons."
                 );
             }
         }

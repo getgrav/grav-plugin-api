@@ -11,6 +11,7 @@ use Grav\Plugin\Api\Exceptions\ForbiddenException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Tests\Unit\TestHelper;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\ResponseInterface;
@@ -25,6 +26,9 @@ use Psr\Http\Message\UriInterface;
 #[CoversClass(BlueprintUploadController::class)]
 class BlueprintUploadControllerSecurityTest extends TestCase
 {
+    /** Media and config write: what a theme or plugin settings form needs. */
+    private const CONFIG_WRITER = ['media' => ['write' => true], 'config' => ['write' => true]];
+
     private string $tempDir;
     private Config $config;
 
@@ -53,6 +57,13 @@ class BlueprintUploadControllerSecurityTest extends TestCase
     protected function tearDown(): void
     {
         $this->rmrf($this->tempDir);
+        $this->rmrf($this->siteDir());
+    }
+
+    /** Folders beside `user/`, where the cache, log and system streams point. */
+    private function siteDir(): string
+    {
+        return $this->tempDir . '-site';
     }
 
     #[Test]
@@ -184,7 +195,7 @@ class BlueprintUploadControllerSecurityTest extends TestCase
         $this->expectException(ValidationException::class);
 
         try {
-            $controller->delete($this->deleteRequest('alice', 'user/plugins/api/blueprints.yaml'));
+            $controller->delete($this->deleteRequest('alice', 'user/plugins/api/blueprints.yaml', [], [], self::CONFIG_WRITER));
         } finally {
             self::assertFileExists($this->tempDir . '/plugins/api/blueprints.yaml');
         }
@@ -215,7 +226,7 @@ class BlueprintUploadControllerSecurityTest extends TestCase
         $this->expectException(ValidationException::class);
 
         try {
-            $controller->delete($this->deleteRequest('alice', 'themes/quark/custom.css'));
+            $controller->delete($this->deleteRequest('alice', 'themes/quark/custom.css', [], [], self::CONFIG_WRITER));
         } finally {
             self::assertFileExists($this->tempDir . '/themes/quark/custom.css');
         }
@@ -275,7 +286,7 @@ class BlueprintUploadControllerSecurityTest extends TestCase
 
         $controller = $this->buildController('alice', ['media' => ['write' => true]]);
         $response = $controller->upload(
-            $this->uploadRequest('alice', 'themes://quark/images', 'themes/quark', 'logo.png', 'png')
+            $this->uploadRequest('alice', 'themes://quark/images', 'themes/quark', 'logo.png', 'png', [], self::CONFIG_WRITER)
         );
 
         self::assertSame(201, $response->getStatusCode());
@@ -292,7 +303,7 @@ class BlueprintUploadControllerSecurityTest extends TestCase
         $this->expectException(ValidationException::class);
 
         try {
-            $controller->upload($this->uploadRequest('alice', 'self@:css', 'themes/quark', 'custom.css', 'body{}'));
+            $controller->upload($this->uploadRequest('alice', 'self@:css', 'themes/quark', 'custom.css', 'body{}', [], self::CONFIG_WRITER));
         } finally {
             self::assertFileDoesNotExist($this->tempDir . '/themes/quark/css/custom.css');
         }
@@ -304,7 +315,7 @@ class BlueprintUploadControllerSecurityTest extends TestCase
         $controller = $this->buildController('alice', ['media' => ['write' => true]], $this->themeBlueprint());
 
         $response = $controller->upload(
-            $this->uploadRequest('alice', 'self@:css', 'themes/quark', 'custom.css', 'body{}', ['field' => 'custom_css'])
+            $this->uploadRequest('alice', 'self@:css', 'themes/quark', 'custom.css', 'body{}', ['field' => 'custom_css'], self::CONFIG_WRITER)
         );
 
         self::assertSame(201, $response->getStatusCode());
@@ -317,7 +328,7 @@ class BlueprintUploadControllerSecurityTest extends TestCase
         $controller = $this->buildController('alice', ['media' => ['write' => true]], $this->themeBlueprint());
 
         $response = $controller->upload(
-            $this->uploadRequest('alice', 'self@:content', 'themes/quark', 'intro.md', '# Hi', ['field' => 'header.intro'])
+            $this->uploadRequest('alice', 'self@:content', 'themes/quark', 'intro.md', '# Hi', ['field' => 'header.intro'], self::CONFIG_WRITER)
         );
 
         self::assertSame(201, $response->getStatusCode());
@@ -330,7 +341,7 @@ class BlueprintUploadControllerSecurityTest extends TestCase
         $controller = $this->buildController('alice', ['media' => ['write' => true]], $this->themeBlueprint());
 
         $response = $controller->upload(
-            $this->uploadRequest('alice', 'self@:css', 'themes/quark', 'theme.scss', '$a: 1;', ['field' => 'header.styles.sheet'])
+            $this->uploadRequest('alice', 'self@:css', 'themes/quark', 'theme.scss', '$a: 1;', ['field' => 'header.styles.sheet'], self::CONFIG_WRITER)
         );
 
         self::assertSame(201, $response->getStatusCode());
@@ -346,7 +357,7 @@ class BlueprintUploadControllerSecurityTest extends TestCase
 
         try {
             $controller->upload(
-                $this->uploadRequest('alice', 'self@:css', 'themes/quark', 'custom.css', 'body{}', ['field' => 'logo'])
+                $this->uploadRequest('alice', 'self@:css', 'themes/quark', 'custom.css', 'body{}', ['field' => 'logo'], self::CONFIG_WRITER)
             );
         } finally {
             self::assertFileDoesNotExist($this->tempDir . '/themes/quark/css/custom.css');
@@ -362,7 +373,7 @@ class BlueprintUploadControllerSecurityTest extends TestCase
 
         try {
             $controller->upload(
-                $this->uploadRequest('alice', 'self@:css', 'themes/quark', 'custom.css', 'body{}', ['field' => 'no_such_field'])
+                $this->uploadRequest('alice', 'self@:css', 'themes/quark', 'custom.css', 'body{}', ['field' => 'no_such_field'], self::CONFIG_WRITER)
             );
         } finally {
             self::assertFileDoesNotExist($this->tempDir . '/themes/quark/css/custom.css');
@@ -378,7 +389,7 @@ class BlueprintUploadControllerSecurityTest extends TestCase
 
         try {
             $controller->upload(
-                $this->uploadRequest('alice', 'self@:', 'themes/quark', 'custom.css', 'body{}', ['field' => 'custom_css'])
+                $this->uploadRequest('alice', 'self@:', 'themes/quark', 'custom.css', 'body{}', ['field' => 'custom_css'], self::CONFIG_WRITER)
             );
         } finally {
             self::assertFileDoesNotExist($this->tempDir . '/themes/quark/custom.css');
@@ -394,7 +405,7 @@ class BlueprintUploadControllerSecurityTest extends TestCase
 
         try {
             $controller->upload(
-                $this->uploadRequest('alice', 'self@:code', 'themes/quark', 'evil.php', '<?php evil();', ['field' => 'code'])
+                $this->uploadRequest('alice', 'self@:code', 'themes/quark', 'evil.php', '<?php evil();', ['field' => 'code'], self::CONFIG_WRITER)
             );
         } finally {
             self::assertFileDoesNotExist($this->tempDir . '/themes/quark/code/evil.php');
@@ -410,7 +421,7 @@ class BlueprintUploadControllerSecurityTest extends TestCase
 
         try {
             $controller->upload(
-                $this->uploadRequest('alice', 'self@:code', 'themes/quark', 'settings.yaml', 'a: 1', ['field' => 'code'])
+                $this->uploadRequest('alice', 'self@:code', 'themes/quark', 'settings.yaml', 'a: 1', ['field' => 'code'], self::CONFIG_WRITER)
             );
         } finally {
             self::assertFileDoesNotExist($this->tempDir . '/themes/quark/code/settings.yaml');
@@ -426,7 +437,7 @@ class BlueprintUploadControllerSecurityTest extends TestCase
 
         try {
             $controller->upload(
-                $this->uploadRequest('alice', 'self@:css', 'themes/quark', 'x.yaml.css', 'a: 1', ['field' => 'custom_css'])
+                $this->uploadRequest('alice', 'self@:css', 'themes/quark', 'x.yaml.css', 'a: 1', ['field' => 'custom_css'], self::CONFIG_WRITER)
             );
         } finally {
             self::assertFileDoesNotExist($this->tempDir . '/themes/quark/css/x.yaml.css');
@@ -475,7 +486,8 @@ class BlueprintUploadControllerSecurityTest extends TestCase
             'alice',
             'user/themes/quark/css/custom.css',
             [],
-            ['field' => 'custom_css', 'scope' => 'themes/quark']
+            ['field' => 'custom_css', 'scope' => 'themes/quark'],
+            self::CONFIG_WRITER
         ));
 
         self::assertSame(204, $response->getStatusCode());
@@ -495,7 +507,8 @@ class BlueprintUploadControllerSecurityTest extends TestCase
                 'alice',
                 'themes/quark/custom.css',
                 [],
-                ['field' => 'custom_css', 'scope' => 'themes/quark']
+                ['field' => 'custom_css', 'scope' => 'themes/quark'],
+                self::CONFIG_WRITER
             ));
         } finally {
             self::assertFileExists($this->tempDir . '/themes/quark/custom.css');
@@ -515,11 +528,491 @@ class BlueprintUploadControllerSecurityTest extends TestCase
                 'alice',
                 'themes/quark/css/custom.css',
                 [],
-                ['field' => 'logo', 'scope' => 'themes/quark']
+                ['field' => 'logo', 'scope' => 'themes/quark'],
+                self::CONFIG_WRITER
             ));
         } finally {
             self::assertFileExists($this->tempDir . '/themes/quark/css/custom.css');
         }
+    }
+
+    /**
+     * Every file in a template folder is template code, whatever its
+     * extension, so a non-super caller may not write there at all.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function templateFolderFilenames(): array
+    {
+        return [
+            'plain text' => ['a.txt'],
+            'encoded trailing space' => ['a.twig%20'],
+            'trailing space' => ['a.twig '],
+            'zero-width space' => ["a.twig\u{200B}"],
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('templateFolderFilenames')]
+    public function upload_into_active_theme_templates_is_refused_without_super(string $filename): void
+    {
+        $controller = $this->buildController('alice', ['media' => ['write' => true]]);
+
+        try {
+            $controller->upload($this->uploadRequest('alice', 'theme://templates', 'themes/quark', $filename, 'x'));
+            self::fail('Expected the upload to be refused.');
+        } catch (ForbiddenException $e) {
+            self::assertSame(403, $e->getStatusCode());
+        } finally {
+            self::assertSame([], $this->filesIn($this->tempDir . '/themes/quark/templates'));
+        }
+    }
+
+    #[Test]
+    public function upload_into_a_nested_templates_folder_is_refused_without_super(): void
+    {
+        mkdir($this->tempDir . '/themes/quark/templates/partials', 0775, true);
+        $controller = $this->buildController('alice', ['media' => ['write' => true]]);
+
+        $this->expectException(ForbiddenException::class);
+
+        try {
+            $controller->upload($this->uploadRequest('alice', 'self@:templates/partials', 'themes/quark', 'a.txt', 'x'));
+        } finally {
+            self::assertFileDoesNotExist($this->tempDir . '/themes/quark/templates/partials/a.txt');
+        }
+    }
+
+    #[Test]
+    public function upload_into_plugin_templates_is_refused_without_super(): void
+    {
+        $controller = $this->buildController('alice', ['media' => ['write' => true]]);
+
+        $this->expectException(ForbiddenException::class);
+
+        try {
+            $controller->upload($this->uploadRequest('alice', 'plugins://api/templates', 'plugins/api', 'a.txt', 'x'));
+        } finally {
+            self::assertFileDoesNotExist($this->tempDir . '/plugins/api/templates/a.txt');
+        }
+    }
+
+    #[Test]
+    public function upload_into_templates_by_plain_path_is_refused_without_super(): void
+    {
+        mkdir($this->tempDir . '/themes/quark/templates', 0775, true);
+        $controller = $this->buildController('alice', ['media' => ['write' => true]]);
+
+        $this->expectException(ForbiddenException::class);
+
+        try {
+            $controller->upload($this->uploadRequest('alice', 'themes/quark/templates', '', 'a.txt', 'x'));
+        } finally {
+            self::assertFileDoesNotExist($this->tempDir . '/themes/quark/templates/a.txt');
+        }
+    }
+
+    #[Test]
+    public function upload_into_symlinked_theme_templates_is_refused_without_super(): void
+    {
+        $external = $this->tempDir . '-theme';
+        mkdir($external . '/templates', 0775, true);
+        $this->rmrf($this->tempDir . '/themes/quark');
+        symlink($external, $this->tempDir . '/themes/quark');
+
+        $controller = $this->buildController('alice', ['media' => ['write' => true]]);
+
+        try {
+            $controller->upload($this->uploadRequest('alice', 'themes://quark/templates', 'themes/quark', 'a.txt', 'x'));
+            self::fail('Expected the upload to be refused.');
+        } catch (ForbiddenException) {
+            self::assertFileDoesNotExist($external . '/templates/a.txt');
+        } finally {
+            $this->rmrf($external);
+        }
+    }
+
+    #[Test]
+    public function delete_under_theme_templates_is_refused_without_super(): void
+    {
+        mkdir($this->tempDir . '/themes/quark/templates', 0775, true);
+        file_put_contents($this->tempDir . '/themes/quark/templates/notes.txt', 'x');
+        file_put_contents($this->tempDir . '/themes/quark/templates/icon.svg', '<svg/>');
+        $controller = $this->buildController('alice', ['media' => ['write' => true]]);
+
+        foreach (['notes.txt', 'icon.svg'] as $name) {
+            try {
+                $controller->delete($this->deleteRequest('alice', 'user/themes/quark/templates/' . $name));
+                self::fail("Expected the delete of {$name} to be refused.");
+            } catch (ForbiddenException) {
+                self::assertFileExists($this->tempDir . '/themes/quark/templates/' . $name);
+            }
+        }
+    }
+
+    #[Test]
+    public function super_admin_may_upload_into_theme_templates(): void
+    {
+        $controller = $this->buildController('root', ['super' => true]);
+
+        $response = $controller->upload($this->uploadRequest(
+            'root',
+            'theme://templates',
+            'themes/quark',
+            'notes.txt',
+            'x',
+            [],
+            ['super' => true]
+        ));
+
+        self::assertSame(201, $response->getStatusCode());
+        self::assertFileExists($this->tempDir . '/themes/quark/templates/notes.txt');
+    }
+
+    #[Test]
+    public function super_admin_may_delete_under_theme_templates(): void
+    {
+        mkdir($this->tempDir . '/themes/quark/templates', 0775, true);
+        file_put_contents($this->tempDir . '/themes/quark/templates/notes.txt', 'x');
+        $controller = $this->buildController('root', ['super' => true]);
+
+        $response = $controller->delete(
+            $this->deleteRequest('root', 'user/themes/quark/templates/notes.txt', [], [], ['super' => true])
+        );
+
+        self::assertSame(204, $response->getStatusCode());
+        self::assertFileDoesNotExist($this->tempDir . '/themes/quark/templates/notes.txt');
+    }
+
+    #[Test]
+    public function super_account_on_a_scoped_key_may_not_upload_into_templates(): void
+    {
+        $controller = $this->buildController('root', ['super' => true]);
+        $request = $this->uploadRequest('root', 'theme://templates', 'themes/quark', 'a.txt', 'x', [], ['super' => true])
+            ->withAttribute('api_key_scopes', ['api.media.write']);
+
+        $this->expectException(ForbiddenException::class);
+
+        try {
+            $controller->upload($request);
+        } finally {
+            self::assertFileDoesNotExist($this->tempDir . '/themes/quark/templates/a.txt');
+        }
+    }
+
+    #[Test]
+    public function theme_and_plugin_asset_folders_are_open_to_config_writers(): void
+    {
+        foreach (['themes/quark/images', 'plugins/api/assets', 'themes/quark/templates-preview'] as $dir) {
+            mkdir($this->tempDir . '/' . $dir, 0775, true);
+        }
+        $controller = $this->buildController('alice', self::CONFIG_WRITER);
+
+        foreach ([
+            ['theme://images/logo', 'themes/quark', 'themes/quark/images/logo/logo.png'],
+            ['theme://images/favicon', 'themes/quark', 'themes/quark/images/favicon/logo.png'],
+            ['themes/quark/images', '', 'themes/quark/images/logo.png'],
+            ['plugins://api/assets', 'plugins/api', 'plugins/api/assets/logo.png'],
+            ['self@:templates-preview', 'themes/quark', 'themes/quark/templates-preview/logo.png'],
+        ] as [$destination, $scope, $expected]) {
+            $response = $controller->upload(
+                $this->uploadRequest('alice', $destination, $scope, 'logo.png', 'png', [], self::CONFIG_WRITER)
+            );
+
+            self::assertSame(201, $response->getStatusCode(), $destination);
+            self::assertFileExists($this->tempDir . '/' . $expected);
+        }
+    }
+
+    #[Test]
+    public function config_writer_may_delete_a_theme_logo(): void
+    {
+        mkdir($this->tempDir . '/themes/quark/images/logo', 0775, true);
+        file_put_contents($this->tempDir . '/themes/quark/images/logo/logo.png', 'png');
+        $controller = $this->buildController('alice', self::CONFIG_WRITER);
+
+        $response = $controller->delete(
+            $this->deleteRequest('alice', 'user/themes/quark/images/logo/logo.png', [], [], self::CONFIG_WRITER)
+        );
+
+        self::assertSame(204, $response->getStatusCode());
+        self::assertFileDoesNotExist($this->tempDir . '/themes/quark/images/logo/logo.png');
+    }
+
+    /**
+     * Theme and plugin folders, by stream, `self@` and plain path.
+     *
+     * @return array<string, array{string, string, string}>
+     */
+    public static function themeAndPluginDestinations(): array
+    {
+        return [
+            'active theme logo' => ['theme://images/logo', 'themes/quark', 'themes/quark/images/logo/logo.png'],
+            'theme images' => ['themes://quark/images', 'themes/quark', 'themes/quark/images/logo.png'],
+            'plugin assets' => ['plugins://api/assets', 'plugins/api', 'plugins/api/assets/logo.png'],
+            'theme self' => ['self@:images', 'themes/quark', 'themes/quark/images/logo.png'],
+            'plugin by plain path' => ['plugins/api/assets', '', 'plugins/api/assets/logo.png'],
+            'themes folder itself' => ['themes://', '', 'themes/logo.png'],
+            'mixed case plain path' => ['Themes/quark/images', '', 'Themes/quark/images/logo.png'],
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('themeAndPluginDestinations')]
+    public function theme_and_plugin_folders_need_config_write(string $destination, string $scope, string $written): void
+    {
+        $controller = $this->buildController('alice', ['media' => ['write' => true], 'pages' => ['write' => true]]);
+
+        try {
+            $controller->upload($this->uploadRequest(
+                'alice',
+                $destination,
+                $scope,
+                'logo.png',
+                'png',
+                [],
+                ['media' => ['write' => true], 'pages' => ['write' => true]]
+            ));
+            self::fail('Expected the upload to be refused.');
+        } catch (ForbiddenException $e) {
+            self::assertSame(403, $e->getStatusCode());
+        } finally {
+            self::assertFileDoesNotExist($this->tempDir . '/' . $written);
+        }
+    }
+
+    #[Test]
+    public function delete_in_a_theme_folder_needs_config_write(): void
+    {
+        mkdir($this->tempDir . '/themes/quark/images', 0775, true);
+        file_put_contents($this->tempDir . '/themes/quark/images/logo.png', 'png');
+        $controller = $this->buildController('alice', ['media' => ['write' => true]]);
+
+        $this->expectException(ForbiddenException::class);
+
+        try {
+            $controller->delete($this->deleteRequest('alice', 'user/themes/quark/images/logo.png'));
+        } finally {
+            self::assertFileExists($this->tempDir . '/themes/quark/images/logo.png');
+        }
+    }
+
+    #[Test]
+    public function symlinked_theme_folder_needs_config_write(): void
+    {
+        $external = $this->tempDir . '-theme';
+        mkdir($external . '/images', 0775, true);
+        $this->rmrf($this->tempDir . '/themes/quark');
+        symlink($external, $this->tempDir . '/themes/quark');
+        $controller = $this->buildController('alice', ['media' => ['write' => true]]);
+
+        try {
+            foreach (['themes://quark/images', 'linked://images'] as $destination) {
+                try {
+                    $controller->upload($this->uploadRequest('alice', $destination, 'themes/quark', 'logo.png', 'png'));
+                    self::fail("Expected the upload to {$destination} to be refused.");
+                } catch (ForbiddenException $e) {
+                    self::assertStringContainsString('api.config.write', $e->getMessage(), $destination);
+                }
+            }
+            self::assertFileDoesNotExist($external . '/images/logo.png');
+        } finally {
+            $this->rmrf($external);
+        }
+    }
+
+    #[Test]
+    public function symlinked_theme_reached_by_its_real_location_is_open_to_config_writers(): void
+    {
+        $external = $this->tempDir . '-theme';
+        mkdir($external . '/images', 0775, true);
+        $this->rmrf($this->tempDir . '/themes/quark');
+        symlink($external, $this->tempDir . '/themes/quark');
+        $controller = $this->buildController('alice', self::CONFIG_WRITER);
+
+        try {
+            $response = $controller->upload(
+                $this->uploadRequest('alice', 'linked://images', 'themes/quark', 'logo.png', 'png', [], self::CONFIG_WRITER)
+            );
+            self::assertSame(201, $response->getStatusCode());
+            self::assertFileExists($external . '/images/logo.png');
+        } finally {
+            $this->rmrf($external);
+        }
+    }
+
+    #[Test]
+    public function config_writer_still_needs_super_for_templates(): void
+    {
+        $controller = $this->buildController('alice', self::CONFIG_WRITER);
+
+        foreach (['theme://templates', 'plugins://api/templates'] as $destination) {
+            try {
+                $controller->upload(
+                    $this->uploadRequest('alice', $destination, 'themes/quark', 'a.txt', 'x', [], self::CONFIG_WRITER)
+                );
+                self::fail("Expected the upload to {$destination} to be refused.");
+            } catch (ForbiddenException $e) {
+                self::assertStringContainsString('super admin', $e->getMessage(), $destination);
+            }
+        }
+        self::assertSame([], $this->filesIn($this->tempDir . '/themes/quark/templates'));
+        self::assertSame([], $this->filesIn($this->tempDir . '/plugins/api/templates'));
+    }
+
+    /**
+     * Streams that resolve outside `user/`.
+     *
+     * @return array<string, array{string, string}>
+     */
+    public static function outsideUserDestinations(): array
+    {
+        return [
+            'cache' => ['cache://x', 'cache/x'],
+            'logs' => ['log://x', 'logs/x'],
+            'system' => ['system://x', 'system/x'],
+            'root assets' => ['asset://x', 'assets/x'],
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('outsideUserDestinations')]
+    public function writes_outside_the_user_folder_need_super(string $destination, string $siteDir): void
+    {
+        foreach ([['alice', ['media' => ['write' => true]]], ['alice', self::CONFIG_WRITER]] as [$username, $access]) {
+            $controller = $this->buildController($username, $access);
+
+            try {
+                $controller->upload($this->uploadRequest($username, $destination, '', 'logo.png', 'png', [], $access));
+                self::fail("Expected the upload to {$destination} to be refused.");
+            } catch (ForbiddenException $e) {
+                self::assertSame(403, $e->getStatusCode());
+                self::assertStringContainsString('outside the user folder', $e->getMessage());
+            }
+            self::assertFileDoesNotExist($this->siteDir() . '/' . $siteDir . '/logo.png');
+        }
+    }
+
+    #[Test]
+    public function super_account_on_a_scoped_key_may_not_write_outside_the_user_folder(): void
+    {
+        $controller = $this->buildController('root', ['super' => true]);
+        $request = $this->uploadRequest('root', 'cache://x', '', 'logo.png', 'png', [], ['super' => true])
+            ->withAttribute('api_key_scopes', ['api.media.write', 'api.config.write']);
+
+        $this->expectException(ForbiddenException::class);
+
+        try {
+            $controller->upload($request);
+        } finally {
+            self::assertFileDoesNotExist($this->siteDir() . '/cache/x/logo.png');
+        }
+    }
+
+    #[Test]
+    public function super_admin_may_write_into_every_guarded_folder(): void
+    {
+        $controller = $this->buildController('root', ['super' => true]);
+
+        foreach ([
+            ['theme://images/logo', 'themes/quark', $this->tempDir . '/themes/quark/images/logo/logo.png'],
+            ['plugins://api/assets', 'plugins/api', $this->tempDir . '/plugins/api/assets/logo.png'],
+            ['theme://templates', 'themes/quark', $this->tempDir . '/themes/quark/templates/logo.png'],
+            ['cache://x', '', $this->siteDir() . '/cache/x/logo.png'],
+            ['log://x', '', $this->siteDir() . '/logs/x/logo.png'],
+        ] as [$destination, $scope, $expected]) {
+            $response = $controller->upload(
+                $this->uploadRequest('root', $destination, $scope, 'logo.png', 'png', [], ['super' => true])
+            );
+
+            self::assertSame(201, $response->getStatusCode(), $destination);
+            self::assertFileExists($expected);
+        }
+    }
+
+    #[Test]
+    public function publisher_keeps_page_and_site_media_uploads(): void
+    {
+        mkdir($this->tempDir . '/pages/01.home/gallery', 0775, true);
+        $access = ['media' => ['write' => true], 'pages' => ['write' => true]];
+        $controller = $this->buildController('alice', $access);
+
+        foreach ([
+            ['self@', 'pages/home', 'pages/01.home/photo.png'],
+            ['self@:gallery', 'pages/home', 'pages/01.home/gallery/photo.png'],
+            ['page://01.home', '', 'pages/01.home/photo.png'],
+            ['user://images', '', 'images/photo.png'],
+            ['image://zoom', '', 'images/zoom/photo.png'],
+            ['user://assets', '', 'assets/photo.png'],
+            ['user-data://uploads', '', 'data/uploads/photo.png'],
+            ['account://avatars', 'users/alice', 'accounts/avatars/photo.png'],
+            ['self@:', 'users/alice', 'accounts/photo.png'],
+        ] as [$destination, $scope, $expected]) {
+            @unlink($this->tempDir . '/' . $expected);
+            $response = $controller->upload(
+                $this->uploadRequest('alice', $destination, $scope, 'photo.png', 'png', [], $access)
+            );
+
+            self::assertSame(201, $response->getStatusCode(), $destination);
+            self::assertFileExists($this->tempDir . '/' . $expected, $destination);
+        }
+
+        $response = $controller->delete(
+            $this->deleteRequest('alice', 'user/pages/01.home/photo.png', [], [], $access)
+        );
+        self::assertSame(204, $response->getStatusCode());
+        self::assertFileDoesNotExist($this->tempDir . '/pages/01.home/photo.png');
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function unsafeFilenames(): array
+    {
+        return [
+            'encoded trailing space' => ['logo.twig%20'],
+            'encoded null byte' => ['logo.php%00.png'],
+            'trailing space' => ['logo.png '],
+            'trailing dot' => ['logo.png.'],
+            'zero-width space' => ["logo\u{200B}.png"],
+            'right-to-left override' => ["logo\u{202E}gnp.png"],
+            'control character' => ["logo\x01.png"],
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('unsafeFilenames')]
+    public function unsafe_filenames_are_refused(string $filename): void
+    {
+        $controller = $this->buildController('alice', ['media' => ['write' => true]]);
+
+        try {
+            $controller->upload($this->uploadRequest('alice', 'user://media', 'plugins/api', $filename, 'png'));
+            self::fail('Expected the filename to be refused.');
+        } catch (ValidationException $e) {
+            self::assertSame(422, $e->getStatusCode());
+        } finally {
+            self::assertSame([], $this->filesIn($this->tempDir . '/media'));
+        }
+    }
+
+    #[Test]
+    public function percent_sign_in_a_filename_is_still_allowed(): void
+    {
+        $controller = $this->buildController('alice', ['media' => ['write' => true]]);
+
+        $response = $controller->upload($this->uploadRequest('alice', 'user://media', 'plugins/api', '100%.pdf', 'pdf'));
+
+        self::assertSame(201, $response->getStatusCode());
+        self::assertFileExists($this->tempDir . '/media/100%.pdf');
+    }
+
+    /**
+     * @return string[]
+     */
+    private function filesIn(string $dir): array
+    {
+        return is_dir($dir) ? array_values(array_diff(scandir($dir) ?: [], ['.', '..'])) : [];
     }
 
     /**
@@ -602,6 +1095,7 @@ class BlueprintUploadControllerSecurityTest extends TestCase
             },
             'permissions' => new Permissions(),
             'accounts' => TestHelper::createMockAccounts([$username => $user]),
+            'pages' => new BlueprintUploadTestPages($this->tempDir, ['/home' => '01.home']),
         ]);
 
         return new class (\Grav\Common\Grav::instance(), $this->config, $blueprints) extends BlueprintUploadController {
@@ -624,9 +1118,10 @@ class BlueprintUploadControllerSecurityTest extends TestCase
         string $filename,
         string $contents,
         array $extra = [],
+        array $apiAccess = ['media' => ['write' => true]],
     ): ServerRequestInterface {
         $user = TestHelper::createMockUser($username, [
-            'access' => ['api' => ['access' => true, 'media' => ['write' => true]]],
+            'access' => ['api' => ['access' => true] + $apiAccess],
         ]);
 
         return new BlueprintUploadTestRequest(
@@ -637,10 +1132,15 @@ class BlueprintUploadControllerSecurityTest extends TestCase
         );
     }
 
-    private function deleteRequest(string $username, string $path, array $avatar = [], array $extra = []): ServerRequestInterface
-    {
+    private function deleteRequest(
+        string $username,
+        string $path,
+        array $avatar = [],
+        array $extra = [],
+        array $apiAccess = ['media' => ['write' => true]],
+    ): ServerRequestInterface {
         $user = TestHelper::createMockUser($username, [
-            'access' => ['api' => ['access' => true, 'media' => ['write' => true]]],
+            'access' => ['api' => ['access' => true] + $apiAccess],
             'avatar' => $avatar,
         ]);
 
@@ -687,8 +1187,15 @@ final class BlueprintUploadTestLocator
             'themes://' => $this->base . '/themes',
             'theme://' => $this->base . '/themes/quark',
             'image://' => $this->base . '/images',
-            'asset://' => $this->base . '/assets',
             'page://' => $this->base . '/pages',
+            'user-data://' => $this->base . '/data',
+            // A stream pointing straight at where a symlinked theme really lives.
+            'linked://' => $this->base . '-theme',
+            // Outside user/.
+            'cache://' => $this->base . '-site/cache',
+            'log://' => $this->base . '-site/logs',
+            'system://' => $this->base . '-site/system',
+            'asset://' => $this->base . '-site/assets',
         ];
 
         foreach ($map as $prefix => $root) {
@@ -702,6 +1209,29 @@ final class BlueprintUploadTestLocator
         }
 
         return false;
+    }
+}
+
+final class BlueprintUploadTestPages
+{
+    /**
+     * @param array<string, string> $routes Route => folder under user/pages.
+     */
+    public function __construct(private readonly string $base, private readonly array $routes) {}
+
+    public function find(string $route): ?object
+    {
+        $folder = $this->routes[$route] ?? null;
+        if ($folder === null) {
+            return null;
+        }
+        $path = $this->base . '/pages/' . $folder;
+
+        return new class ($path, $folder) {
+            public function __construct(private readonly string $path, private readonly string $folder) {}
+            public function path(): string { return $this->path; }
+            public function relativePagePath(): string { return 'user/pages/' . $this->folder; }
+        };
     }
 }
 
