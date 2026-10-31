@@ -429,6 +429,9 @@ class PageSerializer implements SerializerInterface
         }
 
         if (is_string($timestamp) && !is_numeric($timestamp)) {
+            if (strlen($timestamp) > 256) {
+                return null;
+            }
             $parsed = strtotime($timestamp);
             if ($parsed === false) {
                 return null;
