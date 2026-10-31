@@ -2187,6 +2187,8 @@ class UsersController extends AbstractApiController
             return false;
         }
 
+        $this->assertAccessKeys($access);
+
         foreach (['admin', 'api'] as $scope) {
             if (isset($access[$scope]) && !is_array($access[$scope]) && Utils::isPositive($access[$scope])) {
                 return true;
@@ -2198,6 +2200,18 @@ class UsersController extends AbstractApiController
         }
 
         return false;
+    }
+
+    private function assertAccessKeys(array $access): void
+    {
+        if (array_key_exists('<<', $access)) {
+            throw new ValidationException("'<<' cannot be used as an access key.");
+        }
+        foreach ($access as $value) {
+            if (is_array($value)) {
+                $this->assertAccessKeys($value);
+            }
+        }
     }
 
     private function loadUserOrFail(?string $username): UserInterface
