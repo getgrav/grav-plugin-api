@@ -3,6 +3,7 @@
 
 1. [](#bugfix)
     * [security] The security fixes below were found by Anthropic's OSS Scanner
+    * [security] Disabled groups no longer grant API permissions.
     * [security] First-run setup now refuses to replace an existing account.
 
 # v1.1.5

@@ -30,6 +30,19 @@ class PermissionResolverTest extends TestCase
     }
 
     #[Test]
+    public function disabled_groups_grant_no_permissions(): void
+    {
+        $resolver = $this->resolver([
+            'disabled' => ['enabled' => false, 'access' => ['api' => ['pages' => true, 'super' => true]]],
+            'enabled' => ['enabled' => true, 'access' => ['api' => ['media' => true]]],
+        ]);
+        $user = TestHelper::createMockUser('member', ['access' => [], 'groups' => ['disabled', 'enabled']]);
+        self::assertNull($resolver->resolve($user, 'api.pages.read'));
+        self::assertNull($resolver->resolveExact($user, 'api.super'));
+        self::assertTrue($resolver->resolve($user, 'api.media.read'));
+    }
+
+    #[Test]
     public function group_only_access_resolves_true(): void
     {
         $resolver = $this->resolver([
