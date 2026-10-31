@@ -165,7 +165,16 @@ class AuthController extends AbstractApiController
 
         $username = $user->username;
 
-        $this->enforceLoginRateLimit($username);
+        $login = $this->grav['login'] ?? null;
+        $limiter = is_object($login) && method_exists($login, 'getRateLimiter')
+            ? $login->getRateLimiter('twofa_attempts')
+            : null;
+        if ($limiter && $limiter->hasReachedLimit($username)) {
+            $seconds = method_exists($limiter, 'getRetryAfter')
+                ? (int) $limiter->getRetryAfter($username)
+                : (int) $limiter->getInterval() * 60;
+            throw new TooManyRequestsException('Too many wrong codes. Try again later.', max(1, $seconds));
+        }
 
         if ($user->get('state', 'enabled') === 'disabled') {
             throw new ForbiddenException('This user account is disabled.');
@@ -180,6 +189,7 @@ class AuthController extends AbstractApiController
 
         $twoFa = new TwoFactorAuth();
         if (!$secret || !$twoFa->verifyCode($secret, $code)) {
+            $limiter?->registerRateLimitedAction($username);
             $this->fireEvent('onApiUserLoginFailure', [
                 'username' => $username,
                 'reason' => '2fa',
@@ -193,7 +203,9 @@ class AuthController extends AbstractApiController
         if (!$jwt->consumeToken($body['challenge_token'])) {
             throw new UnauthorizedException('Invalid or expired challenge token.');
         }
-        $this->resetLoginRateLimit($username);
+        if ($limiter && method_exists($limiter, 'resetRateLimit')) {
+            $limiter->resetRateLimit($username);
+        }
 
         $this->fireEvent('onApiUserLogin', [
             'user' => $user,

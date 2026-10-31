@@ -361,16 +361,22 @@ class ApiRouter extends ProcessorBase
             // CORS headers on error responses so browsers don't block them
             $response = (new CorsMiddleware($this->config))->addHeaders($request, $response);
         } catch (Throwable $e) {
-            $this->container['log']->error('API unhandled exception: ' . $e->getMessage(), [
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-                'trace' => $e->getTraceAsString(),
-            ]);
-            $response = ErrorResponse::create(
-                500,
-                'Internal Server Error',
-                $this->config->get('system.debugger.enabled') ? $e->getMessage() : 'An unexpected error occurred.'
-            );
+            if ($e instanceof \RuntimeException && $e->getMessage() === "Encoding YAML failed: '<<' cannot be used as a key") {
+                $response = ErrorResponse::create(422, 'Unprocessable Entity', "'<<' cannot be used as a YAML key.");
+            } elseif ($e instanceof \RuntimeException && $e->getCode() === 409) {
+                $response = ErrorResponse::create(409, 'Conflict', 'The saved record has changed. Reload it before saving again.');
+            } else {
+                $this->container['log']->error('API unhandled exception: ' . $e->getMessage(), [
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
+                $response = ErrorResponse::create(
+                    500,
+                    'Internal Server Error',
+                    $this->config->get('system.debugger.enabled') ? $e->getMessage() : 'An unexpected error occurred.'
+                );
+            }
             // CORS headers on error responses so browsers don't block them
             $response = (new CorsMiddleware($this->config))->addHeaders($request, $response);
         }

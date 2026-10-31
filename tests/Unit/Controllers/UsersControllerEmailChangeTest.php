@@ -205,6 +205,43 @@ class UsersControllerEmailChangeTest extends TestCase
     }
 
     #[Test]
+    public function non_string_email_is_rejected_on_create_and_update(): void
+    {
+        foreach ([[], ['other@example.com'], true, 123, null] as $email) {
+            foreach (['create', 'update', 'self'] as $operation) {
+                $manager = $this->manager();
+                $user = $this->member();
+                $controller = $this->buildController(['manager' => $manager, 'user1' => $user, 'newmember' => TestHelper::createMockUser('newmember', [], false)], null);
+                $body = ['email' => $email];
+                $method = $operation === 'self' ? 'update' : $operation;
+                $caller = $operation === 'self' ? $user : $manager;
+                if ($method === 'create') {
+                    $body += ['username' => 'newmember', 'password' => 'Example-password-482!'];
+                }
+                try {
+                    $controller->$method($this->patch($caller, 'user1', $body));
+                    self::fail('Expected email validation.');
+                } catch (ValidationException $e) {
+                    self::assertSame(422, $e->getStatusCode());
+                    self::assertSame('user1@example.com', $user->get('email'));
+                }
+            }
+        }
+    }
+
+    #[Test]
+    public function a_manager_can_replace_a_legacy_array_email(): void
+    {
+        $manager = $this->manager();
+        $user = $this->member();
+        $user->set('email', ['legacy@example.com']);
+        $controller = $this->buildController(['manager' => $manager, 'user1' => $user], null);
+        $response = $controller->update($this->patch($manager, 'user1', ['email' => 'repaired@example.com']));
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame('repaired@example.com', $user->get('email'));
+    }
+
+    #[Test]
     public function own_email_change_goes_pending_and_the_old_address_stays(): void
     {
         $user = $this->member();

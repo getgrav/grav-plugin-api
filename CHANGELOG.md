@@ -1,3 +1,20 @@
+# v1.1.6
+## 10/31/2026
+
+1. [](#bugfix)
+    * [security] The security fixes below were found by Anthropic's OSS Scanner
+    * [security] Page dates that are too long are now ignored when preparing API responses.
+    * [security] Pages edited in demo mode now keep their safe rendering settings.
+    * [security] SVG upload checks now finish before files become publicly available.
+    * [security] Media descriptions must now be plain text.
+    * [security] Media renaming now keeps metadata and ordering files reserved for their intended use.
+    * [security] Two-factor sign-in attempts now have a separate limit for each account.
+    * [security] Saving an account that has changed elsewhere now returns a conflict response.
+    * [security] Saving unsupported settings now returns a validation error.
+    * [security] Account email addresses must be text, and existing invalid addresses can be corrected.
+    * [security] Disabled groups no longer grant API permissions.
+    * [security] First-run setup now refuses to replace an existing account.
+
 # v1.1.5
 ## 10/30/2026
 

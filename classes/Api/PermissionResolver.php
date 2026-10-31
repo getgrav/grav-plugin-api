@@ -152,6 +152,9 @@ class PermissionResolver
                 if (!is_string($group)) {
                     continue;
                 }
+                if (!$config->get("groups.{$group}.enabled", true)) {
+                    continue;
+                }
                 $groupAccess = $config->get("groups.{$group}.access");
                 if (!is_array($groupAccess)) {
                     continue;

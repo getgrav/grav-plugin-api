@@ -958,6 +958,7 @@ class UsersController extends AbstractApiController
 
         $body = $this->getRequestBody($request);
         $this->requireFields($body, ['username', 'password', 'email']);
+        $this->validateEmailType($body);
 
         $username = $body['username'];
 
@@ -1087,6 +1088,8 @@ class UsersController extends AbstractApiController
 
         $body = $this->getRequestBody($request);
 
+        $this->validateEmailType($body);
+
         if (empty($body)) {
             throw new ValidationException('Request body must contain fields to update.');
         }
@@ -1179,7 +1182,8 @@ class UsersController extends AbstractApiController
         // the link mailed to it is opened. Checked before anything is written,
         // so a refused or rate limited change leaves the rest of the request
         // unsaved too. An admin editing another account saves at once.
-        $oldEmail = mb_strtolower(trim((string) $user->get('email', '')));
+        $storedEmail = $user->get('email', '');
+        $oldEmail = is_string($storedEmail) ? mb_strtolower(trim($storedEmail)) : '';
 
         // Your own new address needs your current password too, as a new
         // password does and as the Login plugin's profile form asks (3.11.1):
@@ -1341,7 +1345,8 @@ class UsersController extends AbstractApiController
         }
 
         $newEmail = trim($email);
-        $oldEmail = trim((string) $user->get('email', ''));
+        $storedEmail = $user->get('email', '');
+        $oldEmail = is_string($storedEmail) ? trim($storedEmail) : '';
         if ($newEmail === '' || mb_strtolower($newEmail) === mb_strtolower($oldEmail)) {
             return null;
         }
@@ -2156,6 +2161,15 @@ class UsersController extends AbstractApiController
         return false;
     }
 
+    private function validateEmailType(array $body): void
+    {
+        if (array_key_exists('email', $body) && !is_string($body['email'])) {
+            throw new ValidationException('The email must be a string.', [
+                ['field' => 'email', 'message' => 'The email must be a string.'],
+            ]);
+        }
+    }
+
     /**
      * Detect whether an `access` payload would confer super-admin privileges
      * (admin.super or api.super), in either nested (`['admin' => ['super' => 1]]`)
@@ -2173,6 +2187,8 @@ class UsersController extends AbstractApiController
             return false;
         }
 
+        $this->assertAccessKeys($access);
+
         foreach (['admin', 'api'] as $scope) {
             if (isset($access[$scope]) && !is_array($access[$scope]) && Utils::isPositive($access[$scope])) {
                 return true;
@@ -2184,6 +2200,18 @@ class UsersController extends AbstractApiController
         }
 
         return false;
+    }
+
+    private function assertAccessKeys(array $access): void
+    {
+        if (array_key_exists('<<', $access)) {
+            throw new ValidationException("'<<' cannot be used as an access key.");
+        }
+        foreach ($access as $value) {
+            if (is_array($value)) {
+                $this->assertAccessKeys($value);
+            }
+        }
     }
 
     private function loadUserOrFail(?string $username): UserInterface

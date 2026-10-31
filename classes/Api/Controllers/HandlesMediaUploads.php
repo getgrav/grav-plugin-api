@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Grav\Plugin\Api\Controllers;
 
-use Grav\Common\Security;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Serializers\MediaSerializer;
 use Grav\Plugin\Api\Services\ThumbnailService;
@@ -26,6 +25,7 @@ use Psr\Http\Message\UploadedFileInterface;
  */
 trait HandlesMediaUploads
 {
+    use StoresMediaUploads;
     /** Maximum upload size: 64 MB */
     private const int MAX_UPLOAD_SIZE = 67_108_864;
 
@@ -142,91 +142,9 @@ trait HandlesMediaUploads
             $filename = $settings->resolveFilename($filename, $targetDir);
         }
 
-        // Move the file to the target directory
-        $targetPath = $targetDir . '/' . $filename;
-        $file->moveTo($targetPath);
-
-        // An SVG can carry executable <script>/event-handler payloads that run
-        // when the file is later served inline as image/svg+xml — a stored XSS
-        // vector (GHSA-7vhm-8x52-2r5p). The extension denylist can't cover it
-        // because SVG is a legitimate media type, so sanitize the markup in
-        // place with core's canonical routine (honors security.sanitize_svg;
-        // quarantines and throws if it can't be cleaned). This matches how the
-        // admin and Form plugin upload paths already protect SVG uploads.
-        //
-        // Decide by what the file IS, not by what it is called: keying the gate
-        // on the literal extension "svg" let the same markup through under any
-        // other name a browser still renders as SVG, `.svgz` above all
-        // (GHSA-66xf-ggf4-6hmc).
-        if ($this->isSvgUpload($targetPath, $filename)) {
-            try {
-                Security::sanitizeSVG($targetPath);
-            } catch (\Exception) {
-                // Core moved the file to quarantine; rejected just below.
-            }
-
-            // The sanitizer writes back whatever its parser kept, which is
-            // nothing for bytes that aren't SVG markup. Refuse the upload
-            // rather than store an empty file and report success.
-            clearstatcache(true, $targetPath);
-            if (!is_file($targetPath) || filesize($targetPath) === 0) {
-                @unlink($targetPath);
-                throw new ValidationException("'{$filename}' could not be read as SVG markup, so it was not saved.");
-            }
-        }
+        $this->storeUploadedFile($file, $targetDir . '/' . $filename, $filename);
 
         return $filename;
-    }
-
-    /**
-     * Whether a stored upload is SVG markup and therefore has to go through
-     * the sanitizer, regardless of the name it arrived under.
-     *
-     * Both the name and the bytes are consulted: the name catches the ordinary
-     * `.svg`/`.svgz` upload, and the content sniff catches markup parked under
-     * some other extension that a browser will still render inline. A gzipped
-     * SVG (`.svgz`) is deliberately reported here even though the sanitizer
-     * cannot read compressed markup — it fails closed: the sanitizer empties
-     * it and processUploadedFile() rejects the upload, which is the right
-     * answer for a format we have no reason to accept (GHSA-66xf-ggf4-6hmc).
-     *
-     * A file that starts with a raster image signature is never SVG, even when
-     * its binary data happens to contain the bytes "<svg": sanitizing it would
-     * empty it (getgrav/grav-plugin-api#70).
-     */
-    protected function isSvgUpload(string $path, string $filename): bool
-    {
-        if (in_array(strtolower(pathinfo($filename, PATHINFO_EXTENSION)), ['svg', 'svgz'], true)) {
-            return true;
-        }
-
-        $head = @file_get_contents($path, false, null, 0, 1024);
-        if ($head === false || $head === '' || $this->isRasterImage($head)) {
-            return false;
-        }
-
-        // Gzip magic — an SVG under any name, compressed. Sniff the inflated
-        // head so a renamed .svgz is caught the same way.
-        if (str_starts_with($head, "\x1f\x8b")) {
-            $inflated = @gzdecode((string)@file_get_contents($path));
-            $head = $inflated === false ? $head : substr($inflated, 0, 1024);
-        }
-
-        return stripos($head, '<svg') !== false;
-    }
-
-    /**
-     * Whether the bytes start with the signature of a PNG, JPEG, GIF, WebP,
-     * TIFF or ISO media (AVIF/HEIC) file.
-     */
-    private function isRasterImage(string $head): bool
-    {
-        return str_starts_with($head, "\x89PNG\r\n\x1a\n")
-            || str_starts_with($head, "\xFF\xD8\xFF")
-            || str_starts_with($head, 'GIF87a') || str_starts_with($head, 'GIF89a')
-            || (str_starts_with($head, 'RIFF') && substr($head, 8, 4) === 'WEBP')
-            || str_starts_with($head, "II*\x00") || str_starts_with($head, "MM\x00*")
-            || substr($head, 4, 4) === 'ftyp';
     }
 
     /**
