@@ -3,6 +3,7 @@
 
 1. [](#bugfix)
     * [security] The security fixes below were found by Anthropic's OSS Scanner
+    * [security] Two-factor sign-in attempts now have a separate limit for each account.
     * [security] Saving an account that has changed elsewhere now returns a conflict response.
     * [security] Saving unsupported settings now returns a validation error.
     * [security] Account email addresses must be text, and existing invalid addresses can be corrected.
