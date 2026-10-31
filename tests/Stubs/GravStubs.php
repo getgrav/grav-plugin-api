@@ -661,6 +661,16 @@ namespace Grav\Common {
          */
         class Utils
         {
+            /** Mirrors core's unicode-safe basename(), which core's Security calls. */
+            public static function basename($path, string $suffix = ''): string
+            {
+                if (!preg_match('/[^\x20-\x7E]/', $path)) {
+                    return \basename($path, $suffix);
+                }
+
+                return rawurldecode(\basename(str_replace(['%2F', '%5C'], '/', rawurlencode($path)), $suffix));
+            }
+
             public static function arrayFlattenDotNotation(array $array, string $prepend = ''): array
             {
                 $results = [];
