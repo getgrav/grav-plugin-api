@@ -3,6 +3,7 @@
 
 1. [](#bugfix)
     * [security] The security fixes below were found by Anthropic's OSS Scanner
+    * [security] SVG upload checks now finish before files become publicly available.
     * [security] Media descriptions must now be plain text.
     * [security] Media renaming now keeps metadata and ordering files reserved for their intended use.
     * [security] Two-factor sign-in attempts now have a separate limit for each account.

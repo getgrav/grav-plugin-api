@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Grav\Plugin\Api\Controllers;
 
 use Grav\Common\Filesystem\Folder;
-use Grav\Common\Security;
 use Grav\Plugin\Api\Exceptions\ForbiddenException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
@@ -32,6 +31,8 @@ use Psr\Http\Message\UploadedFileInterface;
  */
 class BlueprintUploadController extends AbstractApiController
 {
+    use StoresMediaUploads;
+
     private const MAX_UPLOAD_SIZE = 64 * 1_048_576; // 64 MB
 
     /**
@@ -346,15 +347,7 @@ class BlueprintUploadController extends AbstractApiController
             $filename = $settings->resolveFilename($filename, $targetDir);
         }
 
-        $targetPath = $targetDir . '/' . $filename;
-        $file->moveTo($targetPath);
-
-        // SVG can carry stored-XSS payloads that execute when served inline as
-        // image/svg+xml (GHSA-7vhm-8x52-2r5p) — sanitize in place like core's
-        // upload paths. Relevant here for avatar SVGs under user/accounts/.
-        if (strtolower(pathinfo($filename, PATHINFO_EXTENSION)) === 'svg') {
-            Security::sanitizeSVG($targetPath);
-        }
+        $this->storeUploadedFile($file, $targetDir . '/' . $filename, $filename);
 
         return $filename;
     }

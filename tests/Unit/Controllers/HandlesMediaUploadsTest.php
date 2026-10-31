@@ -239,6 +239,33 @@ class HandlesMediaUploadsTest extends TestCase
         }
     }
 
+    #[Test]
+    public function a_namespaced_svg_root_is_detected_under_another_extension(): void
+    {
+        $path = $this->tempDir . '/drawing.xml';
+        file_put_contents($path, '<s:svg xmlns:s="http://www.w3.org/2000/svg"><s:rect width="10" height="10"/></s:svg>');
+        self::assertTrue($this->invoke('isSvgUpload', $path, 'drawing.xml'));
+    }
+
+    #[Test]
+    public function raw_upload_bytes_are_never_moved_to_the_public_folder(): void
+    {
+        $file = new class ($this->tempDir) implements UploadedFileInterface {
+            public function __construct(private string $publicDir) {}
+            public function getError(): int { return UPLOAD_ERR_OK; }
+            public function getSize(): ?int { return 64; }
+            public function getClientFilename(): ?string { return 'logo.svg'; }
+            public function getClientMediaType(): ?string { return 'image/svg+xml'; }
+            public function getStream(): StreamInterface { throw new \LogicException('Unused.'); }
+            public function moveTo(string $targetPath): void
+            {
+                TestCase::assertNotSame($this->publicDir, dirname($targetPath));
+                file_put_contents($targetPath, '<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10"/></svg>');
+            }
+        };
+        self::assertSame('logo.svg', $this->invoke('processUploadedFile', $file, $this->tempDir));
+    }
+
     /** A real 1x1 PNG with a tEXt chunk inserted straight after IHDR. */
     private function pngWithTextChunk(string $text): string
     {
@@ -420,6 +447,13 @@ final class TraitTestUploadedFile implements UploadedFileInterface
     ) {
         $this->source = tempnam(sys_get_temp_dir(), 'grav_api_trait_upload_') ?: '';
         file_put_contents($this->source, $contents);
+    }
+
+    public function __destruct()
+    {
+        if (!$this->moved && is_file($this->source)) {
+            unlink($this->source);
+        }
     }
 
     public function getStream(): StreamInterface
