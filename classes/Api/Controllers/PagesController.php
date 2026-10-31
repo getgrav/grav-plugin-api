@@ -4216,7 +4216,11 @@ class PagesController extends AbstractApiController
 
         $process = is_array($header['process'] ?? null) ? $header['process'] : [];
         $gate = (bool) $this->config->get('security.twig_content.process_enabled', false);
-        $twig = (bool) ($process['twig'] ?? $this->config->get('system.pages.process.twig', false));
+        $defaults = (array) $this->config->get('system.pages.process', []);
+        $defaults = method_exists(Security::class, 'applyTwigContentDefault')
+            ? Security::applyTwigContentDefault($defaults)
+            : $defaults + ['twig' => $gate];
+        $twig = (bool) ($process['twig'] ?? $defaults['twig'] ?? $gate);
 
         // Without the gate Grav renders no editor-authored Twig, so only a page
         // asking for it outright is refused there.
@@ -4231,7 +4235,7 @@ class PagesController extends AbstractApiController
             if (!(bool) ($process['markdown'] ?? $this->config->get('system.pages.process.markdown', true))) {
                 throw new DemoModeException('Pages that skip Markdown cannot be saved in this demo.');
             }
-            $header['markdown'] = array_merge((array) ($header['markdown'] ?? []), ['escape_markup' => true]);
+            $header['markdown'] = ['escape_markup' => true];
         }
 
         return $header;

@@ -3,6 +3,7 @@
 
 1. [](#bugfix)
     * [security] The security fixes below were found by Anthropic's OSS Scanner
+    * [security] Pages edited in demo mode now keep their safe rendering settings.
     * [security] SVG upload checks now finish before files become publicly available.
     * [security] Media descriptions must now be plain text.
     * [security] Media renaming now keeps metadata and ordering files reserved for their intended use.
