@@ -52,7 +52,12 @@ class SetupController extends AbstractApiController
 
         $username = (string) $body['username'];
         $password = (string) $body['password'];
-        $email = (string) $body['email'];
+        if (!is_string($body['email'])) {
+            throw new ValidationException('The email must be a string.', [
+                ['field' => 'email', 'message' => 'The email must be a string.'],
+            ]);
+        }
+        $email = $body['email'];
 
         // Validate username format. Delegate the character rules to the core
         // helper (Grav\Common\User\DataUser\User::isValidUsername) so setup
