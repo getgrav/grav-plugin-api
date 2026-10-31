@@ -940,6 +940,13 @@ class MediaController extends AbstractApiController
         $toName = $this->sanitizeMediaFilename(basename($rawTo), $originalExt);
         $to = $this->validateRelativePath(($toDir !== '' ? $toDir . '/' : '') . $toName, $mediaPath);
 
+        foreach ([$from, $rawTo, $to] as $name) {
+            $basename = strtolower(basename($name));
+            if (str_ends_with($basename, '.meta.yaml') || $basename === 'media_order.yaml') {
+                throw new ValidationException('Media sidecar files cannot be renamed directly.');
+            }
+        }
+
         $fromAbsolute = $mediaPath . '/' . $from;
         $toAbsolute = $mediaPath . '/' . $to;
 
