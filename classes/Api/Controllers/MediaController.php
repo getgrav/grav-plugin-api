@@ -836,7 +836,7 @@ class MediaController extends AbstractApiController
         $this->requirePermission($request, 'api.media.write');
 
         $mediaPath = $this->getSiteMediaPath();
-        $body = json_decode((string) $request->getBody(), true) ?? [];
+        $body = $this->getRequestBody($request);
 
         if (empty($body['path'])) {
             throw new ValidationException('Folder path is required.');
@@ -921,7 +921,7 @@ class MediaController extends AbstractApiController
         $this->requirePermission($request, 'api.media.write');
 
         $mediaPath = $this->getSiteMediaPath();
-        $body = json_decode((string) $request->getBody(), true) ?? [];
+        $body = $this->getRequestBody($request);
 
         if (empty($body['from']) || empty($body['to'])) {
             throw new ValidationException("Both 'from' and 'to' paths are required.");
@@ -1014,7 +1014,7 @@ class MediaController extends AbstractApiController
         $this->requirePermission($request, 'api.media.write');
 
         $mediaPath = $this->getSiteMediaPath();
-        $body = json_decode((string) $request->getBody(), true) ?? [];
+        $body = $this->getRequestBody($request);
 
         if (empty($body['from']) || empty($body['to'])) {
             throw new ValidationException("Both 'from' and 'to' paths are required.");
@@ -1068,7 +1068,7 @@ class MediaController extends AbstractApiController
         $this->requirePermission($request, 'api.media.write');
 
         $mediaPath = $this->getSiteMediaPath();
-        $body = json_decode((string) $request->getBody(), true) ?? [];
+        $body = $this->getRequestBody($request);
 
         $relativePath = '';
         if (!empty($body['path'])) {
