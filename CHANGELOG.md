@@ -1,3 +1,9 @@
+# v1.1.7
+## 10/31/2026
+
+1. [](#bugfix)
+    * Deleting a user now removes the account when the site uses Flex accounts, instead of reporting success and leaving it in place.
+
 # v1.1.6
 ## 10/31/2026
 
