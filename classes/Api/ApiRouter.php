@@ -363,6 +363,8 @@ class ApiRouter extends ProcessorBase
         } catch (Throwable $e) {
             if ($e instanceof \RuntimeException && $e->getMessage() === "Encoding YAML failed: '<<' cannot be used as a key") {
                 $response = ErrorResponse::create(422, 'Unprocessable Entity', "'<<' cannot be used as a YAML key.");
+            } elseif ($e instanceof \RuntimeException && $e->getCode() === 409) {
+                $response = ErrorResponse::create(409, 'Conflict', 'The saved record has changed. Reload it before saving again.');
             } else {
                 $this->container['log']->error('API unhandled exception: ' . $e->getMessage(), [
                     'file' => $e->getFile(),

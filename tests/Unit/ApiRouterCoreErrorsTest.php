@@ -21,6 +21,14 @@ final class ApiRouterCoreErrorsTest extends TestCase
         self::assertSame('https://example.com', $response->getHeaderLine('Access-Control-Allow-Origin'));
     }
 
+    public function testStaleAccountSaveIsAConflictResponse(): void
+    {
+        $response = $this->responseFor(new \RuntimeException('User account has been changed since it was loaded', 409));
+        self::assertSame(409, $response->getStatusCode());
+        self::assertSame('Conflict', json_decode((string) $response->getBody(), true)['title']);
+        self::assertSame('https://example.com', $response->getHeaderLine('Access-Control-Allow-Origin'));
+    }
+
     public function testOtherRuntimeErrorsRemainServerErrors(): void
     {
         self::assertSame(500, $this->responseFor(new \RuntimeException('Storage unavailable'))->getStatusCode());
