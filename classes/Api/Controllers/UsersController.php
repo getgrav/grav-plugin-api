@@ -1611,10 +1611,10 @@ class UsersController extends AbstractApiController
 
         $this->fireEvent('onApiBeforeUserDelete', ['user' => $user]);
 
-        // Remove user file
-        $file = $user->file();
-        if ($file) {
-            $file->delete();
+        // Remove the account through the accounts collection: a Flex account has no
+        // file() to delete, and both account types take the per-account lock there.
+        if (!$this->grav['accounts']->delete($username)) {
+            throw new \RuntimeException('Failed to delete user account.');
         }
 
         $this->fireEvent('onApiUserDeleted', ['username' => $username]);
