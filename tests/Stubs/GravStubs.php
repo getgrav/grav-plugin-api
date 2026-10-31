@@ -791,3 +791,18 @@ namespace Grav\Common\Data {
         }
     }
 }
+
+namespace Grav\Common\User\DataUser {
+    if (!class_exists(User::class, false)) {
+        class User
+        {
+            public static function isValidUsername(string $username): bool
+            {
+                return $username !== ''
+                    && preg_match('/^[^\\/?*:;{}\\\\\\n]+$/u', $username) === 1
+                    && !str_contains($username, '..')
+                    && !str_starts_with($username, '.');
+            }
+        }
+    }
+}

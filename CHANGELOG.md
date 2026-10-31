@@ -1,3 +1,10 @@
+# v1.1.6
+## 10/31/2026
+
+1. [](#bugfix)
+    * [security] The security fixes below were found by Anthropic's OSS Scanner
+    * [security] First-run setup now refuses to replace an existing account.
+
 # v1.1.5
 ## 10/30/2026
 

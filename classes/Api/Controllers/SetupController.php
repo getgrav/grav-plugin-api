@@ -87,6 +87,10 @@ class SetupController extends AbstractApiController
         }
 
         $user = $accounts->load($username);
+        if ($user->exists()) {
+            throw new ConflictException('Setup has already been completed.');
+        }
+
         $user->set('email', $email);
         $user->set('fullname', $body['fullname'] ?? $username);
         $user->set('title', $body['title'] ?? 'Administrator');
