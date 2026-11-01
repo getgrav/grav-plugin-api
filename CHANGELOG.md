@@ -6,6 +6,7 @@
 1. [](#improved)
     * The Twig in Content report names the template each block happened in, and when it's a partial the page includes, offers trusting that partial instead of allowing what it uses (such as `raw`) for all page content. Blocks from partials the site now trusts drop out of the report
     * The report's hints no longer suggest turning the Twig sandbox off, and say that an allowed filter or function is open to every page editor
+    * A page that keeps getting blocked is listed once in the Twig in Content report, instead of once per visit
 
 # v1.1.8
 ## 10/31/2026

@@ -442,7 +442,8 @@ class ReportsController extends AbstractApiController
     /**
      * Add `template` (the template the block happened in) and `partial` (the
      * name to trust, when trusting it is the fix) to each sandbox event, and
-     * drop events from partials the site now trusts.
+     * drop events from partials the site now trusts. A block recorded again by
+     * later requests of the same page is listed once.
      *
      * The event store has no template field, so the name comes from the same
      * block's line in logs/security.log, whose message says where it happened
@@ -459,10 +460,18 @@ class ReportsController extends AbstractApiController
         $trusted = method_exists(Security::class, 'twigTrustedPartials') ? Security::twigTrustedPartials() : null;
         $contents = [];
         $out = [];
+        $seen = [];
 
         foreach ($events as $event) {
             $type = (string) ($event['type'] ?? '');
             $route = (string) ($event['route'] ?? '');
+            // Every request of a blocked page records the block again; list it
+            // once (the newest, as events come newest first).
+            $id = $type . '|' . ($event['token'] ?? '') . '|' . ($event['class'] ?? '') . '|' . $route;
+            if (isset($seen[$id])) {
+                continue;
+            }
+            $seen[$id] = true;
             $template = null;
             if (str_starts_with($type, 'sandbox_')) {
                 $key = substr($type, 8) . '|' . ($event['token'] ?? '') . '|' . ($event['class'] ?? '') . '|' . $route;
