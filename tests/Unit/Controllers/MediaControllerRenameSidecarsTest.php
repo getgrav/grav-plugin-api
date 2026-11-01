@@ -40,7 +40,8 @@ final class MediaControllerRenameSidecarsTest extends TestCase
         try {
             try {
                 (new MediaController($grav, $config))->renameFile(TestHelper::createMockRequest(
-                    method: 'POST', body: json_encode(['from' => $from, 'to' => $to]), attributes: ['api_user' => $user],
+                    method: 'POST', body: json_encode(['from' => $from, 'to' => $to]),
+                    attributes: ['api_user' => $user, 'json_body' => ['from' => $from, 'to' => $to]],
                 ));
                 self::fail('Expected a validation response.');
             } catch (ValidationException $e) {

@@ -75,8 +75,10 @@ class MediaControllerSiteListingTest extends TestCase
     {
         $user = $this->user;
         $request = $this->createMock(ServerRequestInterface::class);
+        // The body as JsonBodyParserMiddleware hands it to the controller.
+        $attributes = ['api_user' => $user, 'json_body' => $body === '' ? null : json_decode($body, true)];
         $request->method('getAttribute')->willReturnCallback(
-            static fn (string $name, $default = null) => $name === 'api_user' ? $user : $default
+            static fn (string $name, $default = null) => $attributes[$name] ?? $default
         );
         $request->method('getQueryParams')->willReturn($query);
         $stream = $this->createMock(\Psr\Http\Message\StreamInterface::class);

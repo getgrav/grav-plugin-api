@@ -1,3 +1,9 @@
+# v1.1.8
+## 10/31/2026
+
+1. [](#bugfix)
+    * JSON request bodies are now read once instead of twice, and with Grav 2.2.20 or later a body over the site's JSON limits gets a clear "Payload Too Large" error.
+
 # v1.1.7
 ## 10/31/2026
 
