@@ -204,6 +204,51 @@ class ReportsTwigContentTest extends TestCase
         $this->controller()->clearTwigEvents($request);
     }
 
+    // -- trusted partials (Grav 2.2.18) ---------------------------------------
+
+    #[Test]
+    public function trustable_partial_names_are_template_paths_only(): void
+    {
+        $c = $this->controller();
+        foreach (['partials/teams.html.twig', 'components/page-toc.html.twig', '@theme/partials/x.html.twig'] as $ok) {
+            self::assertTrue($this->invoke($c, 'isTrustablePartialName', [$ok]), $ok);
+        }
+        foreach (['', 'partials/teams.html', '../config/x.twig', 'partials/../../x.twig', '/etc/x.twig', '@Page:/var/www/user/pages/01.home', 'a//b.twig', "x\n.twig", '__string_template__abc'] as $bad) {
+            self::assertFalse($this->invoke($c, 'isTrustablePartialName', [$bad]), $bad);
+        }
+    }
+
+    #[Test]
+    public function trusted_partial_add_rejects_a_bad_name_for_super(): void
+    {
+        $request = TestHelper::createMockRequest(
+            'POST',
+            '/reports/twig-content/trusted-partial',
+            body: json_encode(['template' => '../../user/config/site.yaml']),
+            attributes: ['api_user' => $this->super()],
+        );
+
+        $this->expectException(ValidationException::class);
+        $this->controller()->trustedPartialAdd($request);
+    }
+
+    #[Test]
+    public function trusted_partial_add_is_capped_by_key_scope(): void
+    {
+        // Like the allowlist, trusting a partial widens what page content can
+        // run, so a key limited to reading reports can't do it, even on a super
+        // account.
+        $request = TestHelper::createMockRequest(
+            'POST',
+            '/reports/twig-content/trusted-partial',
+            body: json_encode(['template' => 'partials/teams.html.twig']),
+            attributes: ['api_user' => $this->super(), 'api_key_scopes' => ['api.reports.read']],
+        );
+
+        $this->expectException(ForbiddenException::class);
+        $this->controller()->trustedPartialAdd($request);
+    }
+
     private function nonSuper(): UserInterface
     {
         return TestHelper::createMockUser('config-admin', [

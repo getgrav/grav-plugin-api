@@ -1,3 +1,12 @@
+# v1.1.9
+## 11/01/2026
+
+1. [](#new)
+    * `POST /reports/twig-content/trusted-partial` adds a theme or plugin template to `security.twig_sandbox.trusted_partials`, the fix for a page whose include of a partial shows its Twig as plain text since Grav 2.2.18. Super admins only, needs Grav 2.2.18 or later
+1. [](#improved)
+    * The Twig in Content report names the template each block happened in, and when it's a partial the page includes, offers trusting that partial instead of allowing what it uses (such as `raw`) for all page content. Blocks from partials the site now trusts drop out of the report
+    * The report's hints no longer suggest turning the Twig sandbox off, and say that an allowed filter or function is open to every page editor
+
 # v1.1.8
 ## 10/31/2026
 

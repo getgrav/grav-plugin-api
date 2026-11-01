@@ -226,7 +226,7 @@ class ReportsController extends AbstractApiController
         $globalRequest      = $config->get('system.pages.process.twig') === true;
         $frontmatterRequest = (bool) $config->get('system.pages.frontmatter.process_twig', false);
 
-        $events = Security::recentTwigContentEvents();
+        $events = $this->withBlockedPartials(Security::recentTwigContentEvents());
 
         $items = [];
 
@@ -250,7 +250,9 @@ class ReportsController extends AbstractApiController
                 'class'     => $event['class'],
                 'hint'      => $event['hint'],
                 'timestamp' => $event['timestamp'],
-                'allowlist' => $this->allowlistDescriptor($event),
+                'template'  => $event['template'],
+                'partial'   => $event['partial'],
+                'allowlist' => $event['partial'] === null ? $this->allowlistDescriptor($event) : null,
             ];
         }
 
@@ -385,6 +387,177 @@ class ReportsController extends AbstractApiController
     }
 
     /**
+     * POST /reports/twig-content/trusted-partial
+     *
+     * Add a theme or plugin template to `security.twig_sandbox.trusted_partials`,
+     * the fix for a page whose `{% include %}` of a partial is blocked since
+     * Grav 2.2.18. Allowing the blocked filter or function instead (e.g. `raw`)
+     * would open it to every page editor on the site. Super users only, like the
+     * allowlist. The report drops blocks from partials that are now trusted.
+     *
+     * Body: { template: string }
+     */
+    public function trustedPartialAdd(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requireSuper($request);
+
+        if (!method_exists(Security::class, 'twigTrustedPartials')) {
+            throw new ValidationException('Trusted partials need Grav 2.2.18 or later.');
+        }
+
+        $body = $this->getRequestBody($request);
+        $template = is_string($body['template'] ?? null) ? trim($body['template']) : '';
+        if (!self::isTrustablePartialName($template)) {
+            throw new ValidationException('A theme or plugin template name such as partials/teams.html.twig is required.');
+        }
+
+        $current = (array) $this->grav['config']->get('security.twig_sandbox.trusted_partials', []);
+        $updated = $this->appendToList($current, $template);
+        $this->persistSecurityKey('trusted_partials', $updated);
+
+        return ApiResponse::ok([
+            'key'      => 'trusted_partials',
+            'template' => $template,
+            'value'    => $updated,
+        ]);
+    }
+
+    /**
+     * A name content may include and the site can trust: a relative `.twig`
+     * template path, not page content, a string template or a path that climbs
+     * out of the template folders.
+     */
+    private static function isTrustablePartialName(string $name): bool
+    {
+        if ($name === '' || strlen($name) > 255) {
+            return false;
+        }
+        if (!preg_match('#^[A-Za-z0-9_@][A-Za-z0-9_\-./@]*\.twig$#', $name)) {
+            return false;
+        }
+
+        return !str_contains($name, '..') && !str_contains($name, '//') && !str_starts_with($name, '@Page');
+    }
+
+    /**
+     * Add `template` (the template the block happened in) and `partial` (the
+     * name to trust, when trusting it is the fix) to each sandbox event, and
+     * drop events from partials the site now trusts.
+     *
+     * The event store has no template field, so the name comes from the same
+     * block's line in logs/security.log, whose message says where it happened
+     * ('Filter "raw" is not allowed in "partials/teams.html.twig" at line 7.').
+     * A partial is only offered when the page's own content names it, since a
+     * template that a partial includes in turn can't be fixed by trusting it.
+     *
+     * @param list<array<string,mixed>> $events
+     * @return list<array<string,mixed>>
+     */
+    private function withBlockedPartials(array $events): array
+    {
+        $templates = $this->sandboxBlockTemplates();
+        $trusted = method_exists(Security::class, 'twigTrustedPartials') ? Security::twigTrustedPartials() : null;
+        $contents = [];
+        $out = [];
+
+        foreach ($events as $event) {
+            $type = (string) ($event['type'] ?? '');
+            $route = (string) ($event['route'] ?? '');
+            $template = null;
+            if (str_starts_with($type, 'sandbox_')) {
+                $key = substr($type, 8) . '|' . ($event['token'] ?? '') . '|' . ($event['class'] ?? '') . '|' . $route;
+                $template = $templates[$key] ?? null;
+            }
+
+            $partial = null;
+            if ($template !== null && $trusted !== null && self::isTrustablePartialName($template)) {
+                if (in_array($template, $trusted, true)) {
+                    continue; // Trusted since the block happened, so it's fixed.
+                }
+                $contents[$route] ??= $this->pageContent($route);
+                if ($contents[$route] !== null && str_contains($contents[$route], $template)) {
+                    $partial = $template;
+                    $event['hint'] = "The page includes the theme or plugin template '{$template}', which uses '{$event['token']}'. "
+                        . 'Trust this partial so it renders as your theme renders it, or move the include into a page template.';
+                }
+            }
+            if ($partial === null && isset($event['hint']) && is_string($event['hint'])) {
+                // Turning the sandbox off is never the advice to act on.
+                $event['hint'] = (string) preg_replace('/\s+—\s+OR disable the sandbox via .*$/u', '. Every page editor will be able to use it.', $event['hint']);
+            }
+
+            $event['template'] = $template;
+            $event['partial'] = $partial;
+            $out[] = $event;
+        }
+
+        return $out;
+    }
+
+    /**
+     * Template names of recent sandbox blocks, keyed `rule|token|class|route`,
+     * read from the end of logs/security.log (newest wins).
+     *
+     * @return array<string,string>
+     */
+    private function sandboxBlockTemplates(): array
+    {
+        $file = $this->grav['locator']->findResource('log://security.log', true, true);
+        if (!is_string($file) || !is_file($file)) {
+            return [];
+        }
+
+        $size = (int) @filesize($file);
+        $handle = @fopen($file, 'rb');
+        if ($handle === false) {
+            return [];
+        }
+        $length = min($size, 262144);
+        if ($size > $length) {
+            fseek($handle, -$length, SEEK_END);
+        }
+        $tail = (string) fread($handle, max(1, $length));
+        fclose($handle);
+
+        $map = [];
+        foreach (explode("\n", $tail) as $line) {
+            if (!str_contains($line, '[TwigSandbox] blocked')) {
+                continue;
+            }
+            $start = strpos($line, '{"rule"');
+            if ($start === false) {
+                continue;
+            }
+            $end = strrpos($line, '}');
+            $context = $end !== false ? json_decode(substr($line, $start, $end - $start + 1), true) : null;
+            if (!is_array($context) || !preg_match('/ in "([^"]+)" at line \d+/', (string) ($context['extra'] ?? ''), $m)) {
+                continue;
+            }
+            $key = ($context['rule'] ?? '') . '|' . ($context['token'] ?? '') . '|' . ($context['class'] ?? '') . '|' . ($context['route'] ?? '');
+            $map[$key] = $m[1];
+        }
+
+        return $map;
+    }
+
+    /**
+     * The raw content of the page at a route, or null when there's none.
+     */
+    private function pageContent(string $route): ?string
+    {
+        try {
+            /** @var Pages $pages */
+            $pages = $this->grav['pages'];
+            $pages->enablePages();
+            $page = $pages->find($route);
+
+            return $page && $page->exists() ? (string) $page->rawMarkdown() : null;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
      * DELETE /reports/twig-content/events — clear the diagnostics ring buffer
      * once the operator has dealt with the flagged blocks.
      *
@@ -439,11 +612,11 @@ class ReportsController extends AbstractApiController
 
         // Recent events whose route matches this page (newest-first order kept).
         $events = array_values(array_filter(
-            Security::recentTwigContentEvents(),
+            $this->withBlockedPartials(Security::recentTwigContentEvents()),
             static fn($e) => ($e['route'] ?? '') === $route
         ));
         foreach ($events as &$event) {
-            $event['allowlist'] = $this->allowlistDescriptor($event);
+            $event['allowlist'] = $event['partial'] === null ? $this->allowlistDescriptor($event) : null;
         }
         unset($event);
 
