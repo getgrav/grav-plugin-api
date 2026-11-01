@@ -7893,6 +7893,60 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  /reports/twig-content/trusted-partial:
+    post:
+      operationId: addTwigTrustedPartial
+      tags: [Reports]
+      summary: Trust a theme or plugin template that page content includes
+      description: |
+        Appends one template name to `security.twig_sandbox.trusted_partials` and saves it to `user/config/security.yaml`. Since Grav 2.2.18, a theme or plugin template that page content includes follows the content sandbox, so a page that includes a partial using `raw` or a theme function shows its Twig as plain text. Trusting the partial lets it render as the theme renders it, without allowing the blocked filter or function for all page content. The live config is updated, the standard cache is cleared and `onApiConfigUpdated` fires with scope `security`.
+
+        The name must be a relative `.twig` template path, written exactly as the page's `{% include %}` names it. The report offers it as an event's `partial`. Report events from a partial that is now trusted are left out of the report.
+
+        Needs Grav 2.2.18 or later. Super admin only. An API key needs `admin.super` in its scopes; demo accounts are rejected.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [template]
+              properties:
+                template:
+                  type: string
+                  description: Template name as the page's include tag writes it.
+                  example: partials/teams.html.twig
+      responses:
+        "200":
+          description: Template added (or already present) and the list saved.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      key:
+                        type: string
+                        enum: [trusted_partials]
+                      template:
+                        type: string
+                        example: partials/teams.html.twig
+                      value:
+                        type: array
+                        description: The site's full `trusted_partials` list (Grav's built-in entries are added to it in code).
+                        items:
+                          type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   /reports/twig-content/events:
     delete:
       operationId: clearTwigContentEvents
@@ -15818,6 +15872,16 @@ components:
           type: integer
           description: Unix epoch seconds.
           example: 1758441600
+        template:
+          type: string
+          nullable: true
+          description: The template the block happened in, from the same block's line in `logs/security.log`. Null when the log doesn't have it.
+          example: partials/teams.html.twig
+        partial:
+          type: string
+          nullable: true
+          description: Set when the block happened in a theme or plugin template that the page's content includes. Trusting it with `POST /reports/twig-content/trusted-partial` is the fix, and `allowlist` is null.
+          example: partials/teams.html.twig
         allowlist:
           type: object
           allOf:

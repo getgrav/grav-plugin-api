@@ -936,6 +936,7 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('GET', '/systeminfo', [SchedulerController::class, 'systemInfo']);
         $r->addRoute('GET', '/reports', [ReportsController::class, 'index']);
         $r->addRoute('POST', '/reports/twig-content/allowlist', [ReportsController::class, 'allowlistAdd']);
+        $r->addRoute('POST', '/reports/twig-content/trusted-partial', [ReportsController::class, 'trustedPartialAdd']);
         $r->addRoute('DELETE', '/reports/twig-content/events', [ReportsController::class, 'clearTwigEvents']);
         $r->addRoute('GET', '/reports/twig-content/page', [ReportsController::class, 'twigContentPageStatus']);
         $r->addRoute('GET', '/reports/twig-content/scan', [ReportsController::class, 'twigContentScan']);
