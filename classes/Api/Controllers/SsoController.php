@@ -54,11 +54,16 @@ class SsoController extends AbstractApiController
      * GET /auth/sso/providers
      *
      * Aggregate the login providers every SSO plugin wants shown on the login
-     * screen. Public — the list is non-sensitive (ids, labels, icons).
+     * screen, and whether it shows the username and password form
+     * (password_login: the plugin setting, which a plugin can turn off for the
+     * request). Public — the list is non-sensitive (ids, labels, icons).
      */
     public function providers(ServerRequestInterface $request): ResponseInterface
     {
-        $event = $this->fireEvent('onApiLoginProviders', ['providers' => []]);
+        $event = $this->fireEvent('onApiLoginProviders', [
+            'providers'      => [],
+            'password_login' => (bool) $this->config->get('plugins.api.login.password_login', true),
+        ]);
 
         $providers = [];
         foreach ((array) ($event['providers'] ?? []) as $provider) {
@@ -73,7 +78,11 @@ class SsoController extends AbstractApiController
             ];
         }
 
-        return ApiResponse::create(['providers' => $providers]);
+        // Without a provider the password form is the only way in, so it stays.
+        return ApiResponse::create([
+            'providers'      => $providers,
+            'password_login' => (bool) ($event['password_login'] ?? true) || $providers === [],
+        ]);
     }
 
     /**

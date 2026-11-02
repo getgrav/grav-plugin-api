@@ -1,3 +1,9 @@
+# v1.1.11
+## 11/03/2026
+
+1. [](#new)
+    * New **Password Login Form** setting to hide the username and password form on the admin login screen, to offer only other login options such as single sign-on buttons. It only hides the form; password logins still work
+
 # v1.1.10
 ## 11/03/2026
 

@@ -14,6 +14,13 @@ auth:
   session_enabled: true
 
 login:
+  # Whether the admin login screen shows the username and password form
+  # (GET /auth/sso/providers reports it as password_login). A plugin answering
+  # onApiLoginProviders can turn it off for the request, e.g. Login OAuth2 with
+  # "Enforce OAuth2". Reported as on anyway while no provider is offered, so the
+  # login screen always has a way in.
+  password_login: true
+
   # Challenge shown in front of the unauthenticated auth endpoints. Off by
   # default; the admin login is already rate-limited by the Login plugin and
   # supports per-account 2FA, so this is defense in depth rather than the first

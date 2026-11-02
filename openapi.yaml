@@ -1056,7 +1056,7 @@ paths:
       tags: [Auth]
       summary: List SSO login providers
       description: |
-        Return the single sign-on buttons to show on the login screen, collected from every plugin that answers the `onApiLoginProviders` event (for example Login OAuth2). An empty list means password login only. Public.
+        Return the single sign-on buttons to show on the login screen, collected from every plugin that answers the `onApiLoginProviders` event (for example Login OAuth2), and whether the login screen shows the username and password form (`password_login`, the `login.password_login` setting, which those plugins can turn off; always true while no provider is offered). An empty list means password login only. Public.
       security: []
       responses:
         "200":
@@ -1073,6 +1073,9 @@ paths:
                         type: array
                         items:
                           $ref: "#/components/schemas/AuthSsoProvider"
+                      password_login:
+                        type: boolean
+                        description: Whether the login screen shows the username and password form.
               example:
                 data:
                   providers:
@@ -1080,6 +1083,7 @@ paths:
                       label: GitHub
                       icon: fa-github
                       plugin: login-oauth2
+                  password_login: true
 
   /auth/sso/{provider}/start:
     parameters:

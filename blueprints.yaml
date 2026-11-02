@@ -243,6 +243,23 @@ form:
               validate:
                 type: bool
 
+            section_login_screen:
+              type: section
+              title: PLUGIN_API.LOGIN_SCREEN
+              underline: true
+
+            login.password_login:
+              type: toggle
+              label: PLUGIN_API.PASSWORD_LOGIN
+              help: PLUGIN_API.PASSWORD_LOGIN_HELP
+              highlight: 1
+              default: 1
+              options:
+                1: PLUGIN_ADMIN.ENABLED
+                0: PLUGIN_ADMIN.DISABLED
+              validate:
+                type: bool
+
             section_login_captcha:
               type: section
               title: PLUGIN_API.LOGIN_CAPTCHA
