@@ -1,3 +1,9 @@
+# v1.1.10
+## 11/02/2026
+
+1. [](#bugfix)
+    * A parent page whose collection is ordered by `publish_date` or `unpublish_date` now lists its children in that order in the admin, instead of falling back to folder order ([admin2#208](https://github.com/getgrav/grav-plugin-admin2/issues/208))
+
 # v1.1.9
 ## 11/01/2026
 
