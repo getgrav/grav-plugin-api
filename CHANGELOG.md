@@ -1,6 +1,8 @@
 # v1.1.11
 ## 11/03/2026
 
+1. [](#new)
+    * New **Show Password Form** setting (`login.show_password_form`) to hide the username and password form on the admin login screen, to offer only other login options such as single sign-on buttons. It only hides the form; password logins still work
 1. [](#bugfix)
     * `GET /admin/languages` needs only `api.access` instead of `api.system.read`, so every Admin2 user can pick from all the admin languages in their settings, not just English ([#73](https://github.com/getgrav/grav-plugin-api/issues/73))
 

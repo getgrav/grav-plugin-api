@@ -14,6 +14,17 @@ auth:
   session_enabled: true
 
 login:
+  # Whether the admin login screen shows the username and password form
+  # (GET /auth/sso/providers reports it as show_password_form). A plugin answering
+  # onApiLoginProviders can turn it off for the request, e.g. Login OAuth2 with
+  # "Enforce OAuth2". Reported as on anyway while no provider is offered, so the
+  # login screen always has a way in.
+  #
+  # If single sign-on stops working, set `show_password_form` back to true in
+  # user/config/plugins/api.yaml and run `bin/grav clear`. If a plugin turns it
+  # off, undo that in the plugin's own settings.
+  show_password_form: true
+
   # Challenge shown in front of the unauthenticated auth endpoints. Off by
   # default; the admin login is already rate-limited by the Login plugin and
   # supports per-account 2FA, so this is defense in depth rather than the first

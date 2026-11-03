@@ -54,11 +54,16 @@ class SsoController extends AbstractApiController
      * GET /auth/sso/providers
      *
      * Aggregate the login providers every SSO plugin wants shown on the login
-     * screen. Public — the list is non-sensitive (ids, labels, icons).
+     * screen, and whether it shows the username and password form
+     * (show_password_form: the plugin setting, which a plugin can turn off for the
+     * request). Public — the list is non-sensitive (ids, labels, icons).
      */
     public function providers(ServerRequestInterface $request): ResponseInterface
     {
-        $event = $this->fireEvent('onApiLoginProviders', ['providers' => []]);
+        $event = $this->fireEvent('onApiLoginProviders', [
+            'providers'          => [],
+            'show_password_form' => self::toBool($this->config->get('plugins.api.login.show_password_form', true)),
+        ]);
 
         $providers = [];
         foreach ((array) ($event['providers'] ?? []) as $provider) {
@@ -73,7 +78,23 @@ class SsoController extends AbstractApiController
             ];
         }
 
-        return ApiResponse::create(['providers' => $providers]);
+        // Without a provider the password form is the only way in, so it stays.
+        return ApiResponse::create([
+            'providers'          => $providers,
+            'show_password_form' => self::toBool($event['show_password_form'] ?? null) || $providers === [],
+        ]);
+    }
+
+    /**
+     * Read a yes/no value from config or a plugin, which may be a string such
+     * as 'false' or 'off'. Anything not clearly false (null, a typo, an array)
+     * comes back true, so a bad value keeps the password form.
+     */
+    private static function toBool(mixed $value): bool
+    {
+        // filter_var() reads null as false, so it is handled first.
+        return $value === null
+            || (filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? true);
     }
 
     /**
