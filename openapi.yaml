@@ -10767,7 +10767,7 @@ paths:
       tags: [Languages]
       summary: List admin interface languages
       description: |
-        Returns the locales the admin interface itself can be shown in, one per `languages/*.yaml` file shipped by the admin2 plugin (as opposed to `GET /languages`, which lists the site's content languages). Requires `api.system.read`. Sorted by native name; an empty list when admin2 is not installed.
+        Returns the locales the admin interface itself can be shown in, one per `languages/*.yaml` file shipped by the admin2 plugin (as opposed to `GET /languages`, which lists the site's content languages). Requires only `api.access`, since every admin user picks their own language from this list. Sorted by native name; an empty list when admin2 is not installed.
       responses:
         "200":
           description: Admin interface languages.

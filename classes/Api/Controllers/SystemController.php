@@ -1032,10 +1032,14 @@ class SystemController extends AbstractApiController
      * configured in system.yaml. This endpoint returns locales for which a
      * translation file exists in the admin2 plugin's languages directory —
      * i.e. languages a user can pick for their admin interface.
+     *
+     * Needs only api.access: every admin user picks their own language from
+     * this list, and the answer is locale codes and names, nothing about the
+     * system (getgrav/grav-plugin-api#73).
      */
     public function adminLanguages(ServerRequestInterface $request): ResponseInterface
     {
-        $this->requirePermission($request, 'api.system.read');
+        $this->requirePermission($request, 'api.access');
 
         $dir = $this->grav['locator']->findResource('plugins://admin2/languages', true);
         $languages = [];
