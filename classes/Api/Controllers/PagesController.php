@@ -2942,8 +2942,9 @@ class PagesController extends AbstractApiController
      * Every row also carries `ancestor_only`: true for a folder-listing row
      * the caller can't open (or, under `editable=true`, can't edit) that is
      * listed only because a page below it can be (getgrav/grav-plugin-admin2#209),
-     * false for every other row. An `ancestor_only` row is cut down to
-     * ANCESTOR_ONLY_FIELDS plus `permissions`.
+     * false for every other row. An `ancestor_only` row the caller can't read
+     * is cut down to ANCESTOR_ONLY_FIELDS plus `permissions`; one they can read
+     * (a page they can't edit, under `editable=true`) keeps every field.
      *
      * Only the paginated slice is annotated. Which pages make it into the
      * listing at all is decided earlier, by PageListVisibility.
@@ -2970,15 +2971,18 @@ class PagesController extends AbstractApiController
                     ? $visibility->capabilities($page)
                     : $this->pageCapabilities($request, $page, false);
 
-                if (isset($ancestorOnly[PageAclIndex::keyOf($page)])) {
+                $wayDown = isset($ancestorOnly[PageAclIndex::keyOf($page)]);
+                if ($wayDown && !($permissions['read'] ?? false)) {
                     // A page the caller can't read: only what the tree needs.
                     $item = array_intersect_key($item, array_flip(self::ANCESTOR_ONLY_FIELDS));
                     $item['permissions'] = $permissions;
                     $item['ancestor_only'] = true;
                 } else {
+                    // Under `editable=true` a page the caller can read but not
+                    // edit is a way down as well, and opens like any other.
                     $item['permissions'] = $permissions;
                     $item['delete_recoverable'] = $recoverable;
-                    $item['ancestor_only'] = false;
+                    $item['ancestor_only'] = $wayDown;
                 }
                 $data[$index] = $item;
             }

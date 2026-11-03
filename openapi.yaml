@@ -1139,7 +1139,10 @@ paths:
         so a tree can still be opened down to that page: such a row has
         `ancestor_only: true`, its real `permissions` (`read: false`, …) and
         only `route`, `raw_route`, `parent_route`, `slug`, `title`, `menu`,
-        `order` and `has_children`; opening it on its own route is a 403.
+        `order` and `has_children`; opening it on its own route is a 403. With
+        `editable=true` a child the caller can read but not update is kept the
+        same way, but as a full row: it has `ancestor_only: true` and
+        `permissions.read: true`, and opens (read-only) like any other page.
         Every other row has `ancestor_only: false`. A flat listing never keeps such rows. Super
         admins, and sites where no page has a `permissions` block, see every
         page as before.
@@ -13800,10 +13803,13 @@ components:
             True for a folder-listing row kept only as the way down to a page
             below it: the caller may not read or list this page (or, with
             `editable=true`, may not update it), but may read and list (or
-            update) a page somewhere below. Clients should let the row be
-            expanded but not opened. Such a row carries only `route`,
-            `raw_route`, `parent_route`, `slug`, `title`, `menu`, `order`,
-            `has_children`, `permissions` (the real ones) and `ancestor_only`.
+            update) a page somewhere below. A client should let the row be
+            expanded but not opened, unless `permissions.read` is true (a page
+            the caller may read but not update, under `editable=true`), which
+            opens like any other. A row the caller can't read carries only
+            `route`, `raw_route`, `parent_route`, `slug`, `title`, `menu`,
+            `order`, `has_children`, `permissions` (the real ones) and
+            `ancestor_only`; one they can read is a full row.
             False on every other row, and always false in a flat listing.
           example: false
       required:

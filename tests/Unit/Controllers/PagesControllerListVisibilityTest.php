@@ -206,6 +206,12 @@ class PagesControllerListVisibilityTest extends TestCase
         self::assertSame(['/communication' => true, '/outils' => false, '/rh' => true], self::sorted(self::ancestorFlags($root['rows'])));
         // A read-only way down still says the caller may read it.
         self::assertTrue($root['rows']['/communication']['permissions']['read']);
+        // …and it is a full row, so the admin can open it read-only and show its
+        // state. A way down the caller can't read stays cut down.
+        self::assertArrayHasKey('published', $root['rows']['/communication']);
+        self::assertArrayHasKey('delete_recoverable', $root['rows']['/communication']);
+        self::assertArrayNotHasKey('published', $root['rows']['/rh']);
+        self::assertFalse($root['rows']['/rh']['permissions']['read']);
 
         // editable=false is not "read-only pages only": it changes nothing.
         $all = $this->list($this->info(), ['editable' => 'false', 'sort' => 'order']);
