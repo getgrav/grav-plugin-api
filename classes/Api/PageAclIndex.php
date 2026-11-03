@@ -33,9 +33,9 @@ use Throwable;
  */
 final class PageAclIndex
 {
-    private const CACHE_PREFIX = 'api-page-acl-index-v2-';
+    private const CACHE_PREFIX = 'api-page-acl-index-v3-';
 
-    /** Bumped by every page write made through the API, see invalidate(). */
+    /** Bumped by every page write made through the API, see invalidate() and refresh(). */
     private const GENERATION_KEY = 'api-page-acl-index-generation';
 
     /** Parent-walk guard, as in PageAcl. */
@@ -48,11 +48,14 @@ final class PageAclIndex
      * @param array<string, string|null> $parents page key => parent page key (null for the pages root)
      * @param array<string, array<string, mixed>> $rules page key => its non-empty `permissions` block
      * @param array<string, true> $listable keys of the pages a listing can return
+     * @param array<string, string> $stamps page key => the storage's checksum of the page when it was indexed
+     *                                       (empty when the storage has none), which is what refresh() compares
      */
     public function __construct(
         private readonly array $parents,
         private readonly array $rules,
         private readonly array $listable,
+        private readonly array $stamps = [],
     ) {
     }
 
@@ -81,9 +84,45 @@ final class PageAclIndex
      * by (the Flex index's, or the Pages service's cache id), plus the active
      * language, `root.md` and a stamp every API page write bumps
      * (invalidate()), so an edited rule is picked up as soon as the page list
-     * is.
+     * is. A write that goes through refresh() stores the updated index under
+     * the new stamp instead of leaving the next listing to rebuild it.
      */
     public static function load(Grav $grav, ?FlexDirectory $directory, PageAcl $acl): self
+    {
+        $env = self::environment($grav, $directory);
+
+        $cache = null;
+        $key = null;
+        if ($env['checksum'] !== null && $env['checksum'] !== '') {
+            try {
+                $cache = $grav['cache'];
+            } catch (Throwable) {
+                $cache = null;
+            }
+            $key = self::cacheKey($env, (string) ($cache?->fetch(self::GENERATION_KEY) ?: '0'));
+            $cached = $cache?->fetch($key);
+            if (is_array($cached)) {
+                $index = self::fromArray($cached);
+                if ($index !== null) {
+                    return $index;
+                }
+            }
+        }
+
+        $index = self::build($env['source'], $acl, $env['listable'], self::stampsOf($env['index']));
+        if ($cache !== null && $key !== null) {
+            $cache->save($key, $index->toArray());
+        }
+
+        return $index;
+    }
+
+    /**
+     * Everything besides the generation that the cached index is keyed by.
+     *
+     * @return array{checksum: string|null, language: string, root: string, flex: bool, index: object|null, source: iterable<mixed>, listable: callable(PageInterface): bool}
+     */
+    private static function environment(Grav $grav, ?FlexDirectory $directory): array
     {
         $language = '';
         try {
@@ -91,10 +130,14 @@ final class PageAclIndex
         } catch (Throwable) {
         }
 
+        $index = null;
         if ($directory !== null) {
-            $collection = $directory->getCollection();
-            $checksum = method_exists($collection, 'getCacheChecksum') ? (string) $collection->getCacheChecksum() : null;
-            $source = $collection;
+            // The index, whatever the directory has loaded so far: a
+            // collection works its checksum out of its objects by another
+            // formula, and the stamp has to come out the same on every request.
+            $index = $directory->getIndex();
+            $checksum = method_exists($index, 'getCacheChecksum') ? (string) $index->getCacheChecksum() : null;
+            $source = $directory->getCollection();
             $isListable = static fn (PageInterface $page): bool => !$page->root() && $page->exists();
         } else {
             $pages = $grav['pages'];
@@ -105,47 +148,269 @@ final class PageAclIndex
                 && (get_class($page) === \Grav\Common\Page\Page::class ? $page->file() !== null : $page->exists());
         }
 
-        $cache = null;
-        $key = null;
-        if ($checksum !== null && $checksum !== '') {
-            $rootFile = self::rootFile($grav);
-            $rootStamp = $rootFile !== null && is_file($rootFile) ? (string) filemtime($rootFile) : '-';
-            try {
-                $cache = $grav['cache'];
-            } catch (Throwable) {
-                $cache = null;
-            }
-            $generation = (string) ($cache?->fetch(self::GENERATION_KEY) ?: '0');
-            $key = self::CACHE_PREFIX . md5($checksum . '|' . $language . '|' . $rootStamp . '|' . $generation . '|' . ($directory !== null ? 'flex' : 'pages'));
-            $cached = $cache?->fetch($key);
-            if (is_array($cached)) {
-                $index = self::fromArray($cached);
-                if ($index !== null) {
-                    return $index;
-                }
-            }
+        $rootFile = self::rootFile($grav);
+        $rootStamp = $rootFile !== null && is_file($rootFile) ? (string) filemtime($rootFile) : '-';
+
+        return [
+            'checksum' => $checksum,
+            'language' => $language,
+            'root' => $rootStamp,
+            'flex' => $directory !== null,
+            'index' => $index,
+            'source' => $source,
+            'listable' => $isListable,
+        ];
+    }
+
+    /**
+     * @param array{checksum: string|null, language: string, root: string, flex: bool} $env
+     */
+    private static function cacheKey(array $env, string $generation): string
+    {
+        return self::CACHE_PREFIX . md5($env['checksum'] . '|' . $env['language'] . '|' . $env['root'] . '|' . $generation . '|' . ($env['flex'] ? 'flex' : 'pages'));
+    }
+
+    /**
+     * What each page looked like to the storage when it was indexed, from the
+     * Flex pages index (page key => checksum). Nothing for any other source.
+     *
+     * @return array<string, string>
+     */
+    private static function stampsOf(?object $source): array
+    {
+        $stamps = [];
+        foreach (self::entriesOf($source) ?? [] as $key => [, $stamp]) {
+            $stamps[$key] = $stamp;
         }
 
-        $index = self::build($source, $acl, $isListable);
-        if ($cache !== null && $key !== null) {
-            $cache->save($key, $index->toArray());
+        return $stamps;
+    }
+
+    /**
+     * The Flex pages index entries as page key => [flex key, stamp], or null
+     * when $source isn't a Flex index.
+     *
+     * @return array<string, array{0: string, 1: string}>|null
+     */
+    private static function entriesOf(?object $source): ?array
+    {
+        if ($source === null || !method_exists($source, 'getIndexMap')) {
+            return null;
         }
 
-        return $index;
+        $entries = [];
+        foreach ($source->getIndexMap() as $flexKey => $meta) {
+            $storageKey = is_array($meta) ? ($meta['storage_key'] ?? null) : null;
+            if (!is_string($storageKey) || $storageKey === '') {
+                return null;
+            }
+            $entries['/' . $storageKey] = [(string) $flexKey, (string) ($meta['checksum'] ?? $meta['storage_timestamp'] ?? '')];
+        }
+
+        return $entries;
     }
 
     /**
      * Forget every cached index. The pages checksums only move by whole
      * seconds, so two saves of the same page within one second (adding a rule
      * and taking it out again) would otherwise leave the first rule cached.
-     * Called wherever the API itself writes pages.
+     * Called wherever the API itself writes pages. Returns the new stamp, for
+     * refresh(), or null when it couldn't be stored.
      */
-    public static function invalidate(Grav $grav): void
+    public static function invalidate(Grav $grav): ?string
     {
         try {
-            $grav['cache']->save(self::GENERATION_KEY, bin2hex(random_bytes(8)));
+            $generation = bin2hex(random_bytes(8));
+            $grav['cache']->save(self::GENERATION_KEY, $generation);
+
+            return $generation;
         } catch (Throwable) {
+            return null;
         }
+    }
+
+    /**
+     * The cached index as it stands before an API write, for refresh(). Null
+     * when there isn't one (nobody has listed pages since the last change),
+     * in which case there is nothing to update and the next listing builds it.
+     *
+     * @return array{data: array<string, mixed>, language: string, root: string}|null
+     */
+    public static function snapshot(Grav $grav, ?FlexDirectory $directory): ?array
+    {
+        if ($directory === null) {
+            return null;
+        }
+
+        try {
+            $env = self::environment($grav, $directory);
+            if ($env['checksum'] === null || $env['checksum'] === '') {
+                return null;
+            }
+            $cached = $grav['cache']->fetch(self::cacheKey($env, (string) ($grav['cache']->fetch(self::GENERATION_KEY) ?: '0')));
+        } catch (Throwable) {
+            return null;
+        }
+
+        return is_array($cached) && self::fromArray($cached) !== null
+            ? ['data' => $cached, 'language' => $env['language'], 'root' => $env['root']]
+            : null;
+    }
+
+    /**
+     * Carry the index from before an API write (see snapshot()) over to the
+     * pages as they are now, and store it under the new checksum and the stamp
+     * invalidate() returned, instead of leaving the next listing to read every
+     * page's frontmatter again.
+     *
+     * Only pages the storage reports as new or changed since the snapshot, the
+     * ones in $exact and everything at or below a folder in $subtrees are read
+     * again (keys are folder paths, as keyOf() gives them); pages that are gone
+     * are dropped. $exact is the page an API save wrote: its checksum can stay
+     * the same when it was written twice within a second. $subtrees is each
+     * folder a move, copy or reorder renamed, old path and new path, since the
+     * same path can end up holding a different page.
+     *
+     * Does nothing, leaving the next listing to build the index, whenever it
+     * can't be sure of the result: no snapshot, not a Flex site, another write
+     * or a different language or `root.md` since the snapshot, a page that
+     * can't be loaded, or a tree that no longer hangs together. An edit made on
+     * disk still moves the checksum, so it is never read from a stale index.
+     *
+     * @param array{data: array<string, mixed>, language: string, root: string}|null $snapshot
+     * @param list<string> $exact
+     * @param list<string> $subtrees
+     * @return bool whether the refreshed index was stored
+     */
+    public static function refresh(Grav $grav, ?FlexDirectory $directory, ?array $snapshot, ?string $generation, array $exact, array $subtrees): bool
+    {
+        if ($snapshot === null || $directory === null || $generation === null) {
+            return false;
+        }
+
+        try {
+            $env = self::environment($grav, $directory);
+            $cache = $grav['cache'];
+            if ($env['checksum'] === null || $env['checksum'] === ''
+                || $env['language'] !== $snapshot['language']
+                || $env['root'] !== $snapshot['root']
+                || (string) $cache->fetch(self::GENERATION_KEY) !== $generation
+            ) {
+                return false;
+            }
+
+            $old = self::fromArray($snapshot['data']);
+            $collection = $env['index'];
+            $entries = self::entriesOf($collection);
+            if ($old === null || $entries === null || !method_exists($collection, 'get')) {
+                return false;
+            }
+
+            // A fresh resolver reading the files: the request's own one, and the
+            // page objects, remember what they read before the pages were saved.
+            $acl = new PageAcl();
+            $index = $old->refreshed(
+                $entries,
+                static fn (string $flexKey): ?PageInterface => ($page = $collection->get($flexKey)) instanceof PageInterface ? $page : null,
+                static fn (PageInterface $page): array => $acl->rulesFromDisk($page),
+                $env['listable'],
+                $exact,
+                $subtrees,
+            );
+            if ($index === null) {
+                return false;
+            }
+
+            $cache->save(self::cacheKey($env, $generation), $index->toArray());
+
+            return true;
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    /**
+     * This index brought up to date with $entries (page key => [flex key,
+     * stamp]), the pages as they are now. See refresh().
+     *
+     * @param array<string, array{0: string, 1: string}> $entries
+     * @param callable(string): ?PageInterface $loadPage page by flex key
+     * @param callable(PageInterface): array<string, mixed> $rulesOf the page's own `permissions` block
+     * @param callable(PageInterface): bool $isListable
+     * @param list<string> $exact
+     * @param list<string> $subtrees
+     */
+    public function refreshed(array $entries, callable $loadPage, callable $rulesOf, callable $isListable, array $exact, array $subtrees): ?self
+    {
+        $parents = $this->parents;
+        $rules = $this->rules;
+        $listable = $this->listable;
+        $exactSet = array_flip($exact);
+        $subtrees = array_map(static fn (string $path): string => rtrim($path, '/'), $subtrees);
+
+        // Pages that are gone. The pages root (the page with no parent, '/' on
+        // Flex) isn't a storage entry.
+        foreach ($this->parents as $key => $parentKey) {
+            if ($parentKey !== null && !isset($entries[$key])) {
+                unset($parents[$key], $rules[$key], $listable[$key]);
+            }
+        }
+
+        $stamps = [];
+        foreach ($entries as $key => [$flexKey, $stamp]) {
+            $stamps[$key] = $stamp;
+
+            $dirty = !array_key_exists($key, $this->parents)
+                || ($this->stamps[$key] ?? null) !== $stamp
+                || isset($exactSet[$key]);
+            foreach ($subtrees as $path) {
+                if ($dirty) {
+                    break;
+                }
+                $dirty = $path !== '' && ($key === $path || str_starts_with($key, $path . '/'));
+            }
+            if (!$dirty) {
+                continue;
+            }
+
+            $page = $loadPage($flexKey);
+            if ($page === null || self::keyOf($page) !== $key) {
+                return null;
+            }
+
+            $parent = $page->parent();
+            $parentKey = $parent !== null ? self::keyOf($parent) : '';
+            $parents[$key] = $parentKey !== '' && $parentKey !== $key ? $parentKey : null;
+
+            $block = $rulesOf($page);
+            if ($block !== []) {
+                $rules[$key] = $block;
+            } else {
+                unset($rules[$key]);
+            }
+
+            if ($isListable($page)) {
+                $listable[$key] = true;
+            } else {
+                unset($listable[$key]);
+            }
+        }
+
+        // Every page hangs off a page that is indexed too, and every page the
+        // storage lists is indexed: anything else means this walk missed
+        // something, so leave it to a full build.
+        foreach ($parents as $key => $parentKey) {
+            if ($parentKey !== null && !array_key_exists($parentKey, $parents)) {
+                return null;
+            }
+        }
+        foreach ($entries as $key => $_) {
+            if (!array_key_exists($key, $parents)) {
+                return null;
+            }
+        }
+
+        return new self($parents, $rules, $listable, $stamps);
     }
 
     /**
@@ -153,8 +418,9 @@ final class PageAclIndex
      *
      * @param iterable<mixed> $pages
      * @param callable(PageInterface): bool $isListable
+     * @param array<string, string> $stamps see __construct()
      */
-    public static function build(iterable $pages, PageAcl $acl, callable $isListable): self
+    public static function build(iterable $pages, PageAcl $acl, callable $isListable, array $stamps = []): self
     {
         $parents = [];
         $rules = [];
@@ -193,7 +459,7 @@ final class PageAclIndex
             }
         }
 
-        return new self($parents, $rules, $listable);
+        return new self($parents, $rules, $listable, $stamps);
     }
 
     /**
@@ -201,14 +467,15 @@ final class PageAclIndex
      */
     public static function fromArray(array $data): ?self
     {
-        if (($data['v'] ?? null) !== 2
+        if (($data['v'] ?? null) !== 3
             || !is_array($data['parents'] ?? null)
             || !is_array($data['rules'] ?? null)
-            || !is_array($data['listable'] ?? null)) {
+            || !is_array($data['listable'] ?? null)
+            || !is_array($data['stamps'] ?? null)) {
             return null;
         }
 
-        return new self($data['parents'], $data['rules'], $data['listable']);
+        return new self($data['parents'], $data['rules'], $data['listable'], $data['stamps']);
     }
 
     /**
@@ -216,7 +483,7 @@ final class PageAclIndex
      */
     public function toArray(): array
     {
-        return ['v' => 2, 'parents' => $this->parents, 'rules' => $this->rules, 'listable' => $this->listable];
+        return ['v' => 3, 'parents' => $this->parents, 'rules' => $this->rules, 'listable' => $this->listable, 'stamps' => $this->stamps];
     }
 
     /** Whether any page on the site carries a `permissions` block. */

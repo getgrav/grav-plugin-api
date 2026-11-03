@@ -147,6 +147,23 @@ final class PageAcl
     }
 
     /**
+     * rulesOf(), but read from the page's file on disk instead of from the
+     * page object, which can still hold the header it was loaded with when the
+     * page has just been saved. For bringing an index up to date after a write.
+     *
+     * @return array<string, mixed>
+     */
+    public function rulesFromDisk(PageInterface $page): array
+    {
+        $header = $page->root()
+            ? FrontmatterReader::parse(rtrim((string) $page->path(), '/') . '/root.md')
+            : FrontmatterReader::forPage($page);
+        $permissions = $header['permissions'] ?? null;
+
+        return is_array($permissions) ? $permissions : [];
+    }
+
+    /**
      * Whether a `permissions` block ends the walk up to the parent: a page that
      * sets `inherit: false` and has no verdict of its own has no opinion.
      *

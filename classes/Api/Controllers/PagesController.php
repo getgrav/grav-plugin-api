@@ -43,6 +43,12 @@ class PagesController extends AbstractApiController
     private const PERMISSION_READ = 'api.pages.read';
     private const PERMISSION_WRITE = 'api.pages.write';
 
+    /** @var array{data: array<string, mixed>, language: string, root: string}|null see snapshotAclIndex() */
+    private ?array $aclSnapshot = null;
+
+    /** The page-rules index stamp this request's last write set, see clearPagesCache(). */
+    private ?string $aclGeneration = null;
+
     /**
      * The order prefix of a page folder, as core strips it before it reads the
      * slug (PAGE_ORDER_PREFIX_REGEX in Grav\Common\Page\Page, repeated here
@@ -877,6 +883,8 @@ class PagesController extends AbstractApiController
                 'data' => $body,
             ]);
 
+            $this->snapshotAclIndex();
+
             if ($kind === 'folder') {
                 // Folder-only page: create the directory with no .md inside.
                 // Grav treats such folders as routing/grouping containers.
@@ -909,6 +917,7 @@ class PagesController extends AbstractApiController
             // Re-init pages and fetch the newly created page for serialization
             $this->enablePages(true);
             $newPage = $this->grav['pages']->find($route);
+            $this->refreshAclIndex([$pagePath], [$pagePath]);
 
             $resolved = $newPage ?? $page;
             if ($resolved !== null) {
@@ -1301,6 +1310,7 @@ class PagesController extends AbstractApiController
             // returns 422 instead of saving silently.
             $this->validatePageChanges($page, $body);
 
+            $this->snapshotAclIndex();
             $page->save();
 
             // Remove old template file after successful save, unless the save
@@ -1310,6 +1320,7 @@ class PagesController extends AbstractApiController
             }
 
             $this->clearPagesCache();
+            $this->refreshAclIndex([$page->path()]);
 
             $this->fireAdminEvent('onAdminAfterSave', ['object' => $page, 'page' => $page]);
             // `previous_template` is only present when the template actually
@@ -1384,9 +1395,11 @@ class PagesController extends AbstractApiController
             $this->fireEvent('onApiBeforePageDelete', ['page' => $page]);
 
             $pagePath = $page->path();
+            $this->snapshotAclIndex();
             Folder::delete($pagePath);
 
             $this->clearPagesCache();
+            $this->refreshAclIndex([], [$pagePath]);
 
             $this->fireAdminEvent('onAdminAfterDelete', ['object' => $page, 'page' => $page]);
             $deleted = $this->fireEvent('onApiPageDeleted', ['route' => '/' . $route, 'undo' => null]);
@@ -1558,6 +1571,7 @@ class PagesController extends AbstractApiController
             throw new ValidationException("A page already exists at the destination path (folder '{$clash}').");
         }
 
+        $this->snapshotAclIndex();
         Folder::move($oldPath, $newPath);
         $this->clearPagesCache();
 
@@ -1565,6 +1579,7 @@ class PagesController extends AbstractApiController
 
         // Re-init and find the moved page
         $this->enablePages(true);
+        $this->refreshAclIndex([], [$oldPath, $newPath]);
         $newRoute = $newParentRoute === '/' ? '/' . $newSlug : $newParentRoute . '/' . $newSlug;
         $movedPage = $this->grav['pages']->find($newRoute);
 
@@ -1644,6 +1659,7 @@ class PagesController extends AbstractApiController
         $this->assertDescendantsNotDenied($request, $page, 'read');
 
         $sourcePath = $page->path();
+        $this->snapshotAclIndex();
         Folder::copy($sourcePath, $destPath);
         $this->renewCopiedPageId($destPath);
         $this->rewriteCopiedSlug($destPath, $destSlug, $page->extension());
@@ -1651,6 +1667,7 @@ class PagesController extends AbstractApiController
 
         // Re-init and find the copied page
         $this->enablePages(true);
+        $this->refreshAclIndex([], [$destPath]);
         $copiedPage = $this->grav['pages']->find($destRoute);
 
         // A copy produces a new page, so it announces itself exactly like
@@ -2266,6 +2283,7 @@ class PagesController extends AbstractApiController
             $parent->route(),
             $this->isSuperAdmin($this->getUser($request)),
         );
+        $this->snapshotAclIndex();
         $this->applyRenames($plan);
 
         $this->clearPagesCache();
@@ -2274,6 +2292,10 @@ class PagesController extends AbstractApiController
 
         // Re-init and return updated children
         $this->enablePages(true);
+        $this->refreshAclIndex([], array_merge(...array_map(
+            static fn (array $rename): array => [$rename['old'], $rename['final']],
+            $plan,
+        )));
         $updatedParent = $this->grav['pages']->find('/' . $route);
         $childData = [];
         if ($updatedParent) {
@@ -2728,6 +2750,7 @@ class PagesController extends AbstractApiController
         }
 
         $this->fireEvent('onApiBeforePagesReorganize', ['operations' => $resolved]);
+        $this->snapshotAclIndex();
 
         // --- Phase 2: Move to temp names ---
         // Only ops that rename something take part. A no-op sent through a
@@ -2784,6 +2807,10 @@ class PagesController extends AbstractApiController
 
         $this->clearPagesCache();
         $this->enablePages(true);
+        $this->refreshAclIndex([], array_merge(...array_map(
+            static fn (array $op): array => [(string) $op['oldPath'], (string) ($op['finalPath'] ?? $op['oldPath'])],
+            $resolved,
+        )));
 
         $this->fireEvent('onApiPagesReorganized', ['operations' => $resolved]);
 
@@ -4071,13 +4098,62 @@ class PagesController extends AbstractApiController
     }
 
     /**
+     * Take the page-rules index as it is before this request writes pages, so
+     * refreshAclIndex() can bring it up to date afterwards instead of the next
+     * listing reading every page's frontmatter again (#209).
+     */
+    private function snapshotAclIndex(): void
+    {
+        $this->aclSnapshot = PageAclIndex::snapshot($this->grav, $this->getFlexDirectory('pages'));
+    }
+
+    /**
+     * Update the page-rules index for the pages this request wrote, once the
+     * pages cache has been cleared (see PageAclIndex::refresh()). Never needed
+     * for correctness: whatever it can't do, the next listing builds instead.
+     *
+     * Pages are named by their folder (absolute path), which is all a page the
+     * API loaded through the Pages service has in common with the Flex object
+     * the index is built from.
+     *
+     * @param list<string|null> $saved folders of pages whose own file this request saved
+     * @param list<string|null> $changed folders this request created, deleted, moved, copied or renamed,
+     *                                   old and new places alike, with everything below them
+     */
+    private function refreshAclIndex(array $saved = [], array $changed = []): void
+    {
+        $snapshot = $this->aclSnapshot;
+        $this->aclSnapshot = null;
+        if ($snapshot === null) {
+            return;
+        }
+
+        $root = rtrim((string) $this->grav['locator']->findResource('page://', true), '/');
+        $keys = static function (array $folders) use ($root): array {
+            $keys = [];
+            foreach ($folders as $folder) {
+                $folder = rtrim((string) $folder, '/');
+                if ($root !== '' && str_starts_with($folder, $root . '/')) {
+                    $keys[] = substr($folder, strlen($root));
+                }
+            }
+
+            return $keys;
+        };
+
+        PageAclIndex::refresh($this->grav, $this->getFlexDirectory('pages'), $snapshot, $this->aclGeneration, $keys($saved), $keys($changed));
+    }
+
+    /**
      * Clear the pages cache after a mutation.
      */
     private function clearPagesCache(): void
     {
         // The page-rules index behind filtered listings (#209) follows the
-        // same writes, including two within the same second.
-        PageAclIndex::invalidate($this->grav);
+        // same writes, including two within the same second. A write that
+        // calls refreshAclIndex() afterwards hands the index over to the new
+        // state instead of leaving it to be rebuilt.
+        $this->aclGeneration = PageAclIndex::invalidate($this->grav);
 
         // Grav 2.2+ can rebuild just the pages index on the next request.
         // A standard clear also drops compiled config, languages and Twig,
