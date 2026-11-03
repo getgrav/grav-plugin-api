@@ -55,14 +55,14 @@ class SsoController extends AbstractApiController
      *
      * Aggregate the login providers every SSO plugin wants shown on the login
      * screen, and whether it shows the username and password form
-     * (password_login: the plugin setting, which a plugin can turn off for the
+     * (show_password_form: the plugin setting, which a plugin can turn off for the
      * request). Public — the list is non-sensitive (ids, labels, icons).
      */
     public function providers(ServerRequestInterface $request): ResponseInterface
     {
         $event = $this->fireEvent('onApiLoginProviders', [
-            'providers'      => [],
-            'password_login' => self::toBool($this->config->get('plugins.api.login.password_login', true)),
+            'providers'          => [],
+            'show_password_form' => self::toBool($this->config->get('plugins.api.login.show_password_form', true)),
         ]);
 
         $providers = [];
@@ -80,8 +80,8 @@ class SsoController extends AbstractApiController
 
         // Without a provider the password form is the only way in, so it stays.
         return ApiResponse::create([
-            'providers'      => $providers,
-            'password_login' => self::toBool($event['password_login'] ?? null) || $providers === [],
+            'providers'          => $providers,
+            'show_password_form' => self::toBool($event['show_password_form'] ?? null) || $providers === [],
         ]);
     }
 

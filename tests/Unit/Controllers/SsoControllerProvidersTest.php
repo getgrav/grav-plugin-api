@@ -16,7 +16,7 @@ use Psr\Http\Message\ServerRequestInterface;
 use RocketTheme\Toolbox\Event\Event;
 
 /**
- * GET /auth/sso/providers reports password_login from the login.password_login
+ * GET /auth/sso/providers reports show_password_form from the login.show_password_form
  * setting, which a plugin answering onApiLoginProviders can override. It is
  * always true while no valid provider is offered, so the login screen keeps a
  * way in, and a value that isn't clearly false keeps the form too.
@@ -33,21 +33,21 @@ class SsoControllerProvidersTest extends TestCase
 
     /**
      * @return array<string, array{0: array<string, mixed>, 1: array<string, mixed>, 2: bool}>
-     *         login config (empty: key missing), what the plugin sets on the event, expected password_login
+     *         login config (empty: key missing), what the plugin sets on the event, expected show_password_form
      */
     public static function cases(): array
     {
         return [
-            'setting off, no provider'               => [['password_login' => false], [], true],
-            'setting off, with a provider'           => [['password_login' => false], ['providers' => [self::PROVIDER]], false],
-            'setting on, with a provider'            => [['password_login' => true], ['providers' => [self::PROVIDER]], true],
+            'setting off, no provider'               => [['show_password_form' => false], [], true],
+            'setting off, with a provider'           => [['show_password_form' => false], ['providers' => [self::PROVIDER]], false],
+            'setting on, with a provider'            => [['show_password_form' => true], ['providers' => [self::PROVIDER]], true],
             'setting missing, with a provider'       => [[], ['providers' => [self::PROVIDER]], true],
-            'setting off as the string "false"'      => [['password_login' => 'false'], ['providers' => [self::PROVIDER]], false],
-            'plugin sets false'                      => [['password_login' => true], ['providers' => [self::PROVIDER], 'password_login' => false], false],
-            'plugin sets false, only provider bad'   => [['password_login' => true], ['providers' => [['label' => 'No id']], 'password_login' => false], true],
-            'plugin sets the string "false"'         => [['password_login' => true], ['providers' => [self::PROVIDER], 'password_login' => 'false'], false],
-            'plugin sets junk'                       => [['password_login' => false], ['providers' => [self::PROVIDER], 'password_login' => 'garbage'], true],
-            'plugin sets null'                       => [['password_login' => false], ['providers' => [self::PROVIDER], 'password_login' => null], true],
+            'setting off as the string "false"'      => [['show_password_form' => 'false'], ['providers' => [self::PROVIDER]], false],
+            'plugin sets false'                      => [['show_password_form' => true], ['providers' => [self::PROVIDER], 'show_password_form' => false], false],
+            'plugin sets false, only provider bad'   => [['show_password_form' => true], ['providers' => [['label' => 'No id']], 'show_password_form' => false], true],
+            'plugin sets the string "false"'         => [['show_password_form' => true], ['providers' => [self::PROVIDER], 'show_password_form' => 'false'], false],
+            'plugin sets junk'                       => [['show_password_form' => false], ['providers' => [self::PROVIDER], 'show_password_form' => 'garbage'], true],
+            'plugin sets null'                       => [['show_password_form' => false], ['providers' => [self::PROVIDER], 'show_password_form' => null], true],
         ];
     }
 
@@ -57,7 +57,7 @@ class SsoControllerProvidersTest extends TestCase
      */
     #[Test]
     #[DataProvider('cases')]
-    public function password_login_follows_the_setting_and_plugins(array $login, array $pluginSets, bool $expected): void
+    public function show_password_form_follows_the_setting_and_plugins(array $login, array $pluginSets, bool $expected): void
     {
         $data = $this->providers($login, static function (Event $event) use ($pluginSets): void {
             foreach ($pluginSets as $key => $value) {
@@ -65,15 +65,15 @@ class SsoControllerProvidersTest extends TestCase
             }
         });
 
-        self::assertSame($expected, $data['password_login']);
+        self::assertSame($expected, $data['show_password_form']);
     }
 
     #[Test]
     public function plugins_see_the_setting_as_a_boolean(): void
     {
         $seen = 'not called';
-        $this->providers(['password_login' => 'off'], static function (Event $event) use (&$seen): void {
-            $seen = $event['password_login'];
+        $this->providers(['show_password_form' => 'off'], static function (Event $event) use (&$seen): void {
+            $seen = $event['show_password_form'];
         });
 
         self::assertFalse($seen);
