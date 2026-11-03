@@ -3101,6 +3101,8 @@ class PagesController extends AbstractApiController
                 'title' => 'title',
                 'date' => 'date',
                 'modified', 'timestamp' => 'modified',
+                'publish_date' => 'publish_date',
+                'unpublish_date' => 'unpublish_date',
                 'slug', 'basename' => 'slug',
                 default => 'order',
             };
@@ -3385,6 +3387,8 @@ class PagesController extends AbstractApiController
             $result = match ($field) {
                 'date' => ($a->date() ?? 0) <=> ($b->date() ?? 0),
                 'modified' => ($a->modified() ?? 0) <=> ($b->modified() ?? 0),
+                'publish_date' => ($a->publishDate() ?? 0) <=> ($b->publishDate() ?? 0),
+                'unpublish_date' => ($a->unpublishDate() ?? 0) <=> ($b->unpublishDate() ?? 0),
                 'title' => strcasecmp($a->title() ?? '', $b->title() ?? ''),
                 'slug' => strcmp($a->slug() ?? '', $b->slug() ?? ''),
                 'order' => ($a->order() ?? PHP_INT_MAX) <=> ($b->order() ?? PHP_INT_MAX),
