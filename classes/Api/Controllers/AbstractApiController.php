@@ -493,14 +493,44 @@ abstract class AbstractApiController
      */
     protected function pageCapabilities(ServerRequestInterface $request, PageInterface $page): array
     {
+        $policy = $this->pageCapabilityPolicy($request);
+        if ($policy['fixed'] !== null) {
+            return $policy['fixed'];
+        }
+
+        return self::applyPageCapabilityMask(
+            $this->getPageAcl()->capabilities($page, $this->getUser($request), $policy['base']),
+            $policy['deny'],
+        );
+    }
+
+    /**
+     * Everything about the caller that goes into a page's capabilities except
+     * the page's own rules, worked out once so a listing can apply it to every
+     * row without asking the permission resolver again per page.
+     *
+     *   - fixed: the capabilities of every page, when page rules can't change
+     *     them (super admins, accounts without `api.access`); null otherwise
+     *   - base:  the account-wide fallback PageAcl uses where a page has no rule
+     *   - deny:  actions the credential can never perform, whatever a page
+     *            grants (API-key scope cap, demo grants)
+     *
+     * @return array{fixed: array<string, bool>|null, base: array<string, bool>, deny: list<string>}
+     */
+    protected function pageCapabilityPolicy(ServerRequestInterface $request): array
+    {
         $user = $this->getUser($request);
 
         if ($this->isSuperWithinScope($request)) {
-            return $this->demoCapPageActions($request, array_fill_keys(PageAcl::ACTIONS, true));
+            return [
+                'fixed' => $this->demoCapPageActions($request, array_fill_keys(PageAcl::ACTIONS, true)),
+                'base' => [],
+                'deny' => [],
+            ];
         }
 
         if (!$this->hasPermission($user, 'api.access')) {
-            return array_fill_keys(PageAcl::ACTIONS, false);
+            return ['fixed' => array_fill_keys(PageAcl::ACTIONS, false), 'base' => [], 'deny' => []];
         }
 
         $read = $this->hasPermissionWithinScope($request, 'api.pages.read');
@@ -515,22 +545,70 @@ abstract class AbstractApiController
             'list' => $read,
         ];
 
-        $capabilities = $this->getPageAcl()->capabilities($page, $user, $base);
+        $deny = [];
 
         // A page grant never escapes the credential's own limits (see
         // authorizePageAction()), so cap writes the same way here — otherwise
         // the UI offers a Save button the server would reject.
         if (!$this->scopeAllows($request, 'api.pages.write')) {
-            foreach (['create', 'update', 'delete', 'publish'] as $action) {
-                $capabilities[$action] = false;
-            }
+            array_push($deny, 'create', 'update', 'delete', 'publish');
         }
         if (!$this->scopeAllows($request, 'api.pages.read')) {
-            $capabilities['read'] = false;
-            $capabilities['list'] = false;
+            array_push($deny, 'read', 'list');
         }
 
-        return $this->demoCapPageActions($request, $capabilities);
+        $demo = $this->demoCapPageActions($request, array_fill_keys(PageAcl::ACTIONS, true));
+        foreach ($demo as $action => $allowed) {
+            if (!$allowed) {
+                $deny[] = $action;
+            }
+        }
+
+        return ['fixed' => null, 'base' => $base, 'deny' => array_values(array_unique($deny))];
+    }
+
+    /**
+     * @param array<string, bool> $capabilities
+     * @param list<string> $deny
+     * @return array<string, bool>
+     */
+    protected static function applyPageCapabilityMask(array $capabilities, array $deny): array
+    {
+        foreach ($deny as $action) {
+            $capabilities[$action] = false;
+        }
+
+        return $capabilities;
+    }
+
+    /**
+     * Refuse a change to a page's own files (its media, or a file field that
+     * saves into its folder) unless the caller may update that page.
+     *
+     * The account's `api.media.write` decides whether it may touch media at
+     * all and is checked by the caller. This decides whether it may touch THIS
+     * page: the page's own `update` rule when it has one, the account's
+     * `api.pages.write` otherwise — the same verdict that gives a listing row
+     * `permissions.update` (getgrav/grav-plugin-admin2#209). A page-level deny
+     * wins over the account permission, and a page-level grant stands in for
+     * it, exactly as for saving the page. Super admins pass, as everywhere.
+     */
+    protected function assertPageUpdatable(ServerRequestInterface $request, PageInterface $page): void
+    {
+        $user = $this->getUser($request);
+        if ($this->isSuperAdmin($user)) {
+            return;
+        }
+
+        $verdict = $this->getPageAcl()->authorize($page, $user, 'update');
+        if ($verdict === false) {
+            throw new ForbiddenException("Page permissions deny 'update' on this page.");
+        }
+        if ($verdict === null && !$this->hasPermission($user, 'api.pages.write')) {
+            throw new ForbiddenException(
+                "Changing this page's media requires permission to update the page."
+            );
+        }
     }
 
     /**

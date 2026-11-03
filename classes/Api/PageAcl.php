@@ -69,12 +69,10 @@ final class PageAcl
      */
     public function authorize(PageInterface $page, UserInterface $user, string $action): ?bool
     {
-        $userGroups = $this->userGroups($user);
-
         // Authorship is a property of the page being acted on, not of whichever
         // ancestor happens to carry the rule — same as core, where isAuthor is
         // computed once and passed down the parent chain.
-        $isAuthor = $this->isAuthor($this->permissionsOf($page), $user);
+        $isAuthor = $this->isAuthorOf($this->permissionsOf($page), $user);
 
         $current = $page;
         $depth = 0;
@@ -82,14 +80,12 @@ final class PageAcl
         while ($current !== null && $depth < self::MAX_DEPTH) {
             $permissions = $this->permissionsOf($current);
 
-            $verdict = $this->verdict($permissions, $userGroups, $isAuthor, $action);
+            $verdict = $this->blockVerdict($permissions, $user, $isAuthor, $action);
             if ($verdict !== null) {
                 return $verdict;
             }
 
-            // `inherit: false` stops the walk at this page.
-            if (array_key_exists('inherit', $permissions)
-                && !filter_var($permissions['inherit'], FILTER_VALIDATE_BOOLEAN)) {
+            if (self::stopsInheritance($permissions)) {
                 return null;
             }
 
@@ -109,20 +105,72 @@ final class PageAcl
      */
     public function capabilities(PageInterface $page, UserInterface $user, array $base): array
     {
+        return self::combine(fn (string $action): ?bool => $this->authorize($page, $user, $action), $base);
+    }
+
+    /**
+     * Turn per-action verdicts into a full capability map: each action takes
+     * the page's verdict, or the account-wide fallback where there is none.
+     *
+     * Publishing edits the page's frontmatter, so a page that denies editing
+     * denies publishing too unless it says otherwise. Sites rarely write an
+     * explicit publish rule — `crud` has no `p` — and without this fallback a
+     * page marked `-u` would still advertise a working publish toggle.
+     *
+     * @param callable(string): ?bool $authorize verdict for one action
+     * @param array<string, bool> $base account-level fallback, keyed by action
+     * @return array<string, bool>
+     */
+    public static function combine(callable $authorize, array $base): array
+    {
+        $verdicts = [];
         $result = [];
         foreach (self::ACTIONS as $action) {
-            $result[$action] = $this->authorize($page, $user, $action) ?? ($base[$action] ?? false);
+            $verdicts[$action] = $authorize($action);
+            $result[$action] = $verdicts[$action] ?? ($base[$action] ?? false);
         }
 
-        // Publishing edits the page's frontmatter, so a page that denies editing
-        // denies publishing too unless it says otherwise. Sites rarely write an
-        // explicit publish rule — `crud` has no `p` — and without this fallback
-        // a page marked `-u` would still advertise a working publish toggle.
-        $result['publish'] = $this->authorize($page, $user, 'publish')
-            ?? $this->authorize($page, $user, 'update')
-            ?? ($base['publish'] ?? false);
+        $result['publish'] = $verdicts['publish'] ?? $verdicts['update'] ?? ($base['publish'] ?? false);
 
         return $result;
+    }
+
+    /**
+     * A page's own `permissions` block, as the rules above read it. Used to
+     * index every page's rules once (see PageAclIndex).
+     *
+     * @return array<string, mixed>
+     */
+    public function rulesOf(PageInterface $page): array
+    {
+        return $this->permissionsOf($page);
+    }
+
+    /**
+     * Whether a `permissions` block ends the walk up to the parent: a page that
+     * sets `inherit: false` and has no verdict of its own has no opinion.
+     *
+     * @param array<string, mixed> $permissions
+     */
+    public static function stopsInheritance(array $permissions): bool
+    {
+        return array_key_exists('inherit', $permissions)
+            && !filter_var($permissions['inherit'], FILTER_VALIDATE_BOOLEAN);
+    }
+
+    /**
+     * Apply one page's `permissions` block to an action for this user.
+     *
+     * @param array<string, mixed> $permissions
+     * @param bool $isAuthor whether the user is an author of the page being acted on
+     */
+    public function blockVerdict(array $permissions, UserInterface $user, bool $isAuthor, string $action): ?bool
+    {
+        if (empty($permissions['groups'])) {
+            return null;
+        }
+
+        return $this->verdict($permissions, $this->userGroups($user), $isAuthor, $action);
     }
 
     /**
@@ -140,8 +188,7 @@ final class PageAcl
             if (!empty($permissions['groups'])) {
                 return true;
             }
-            if (array_key_exists('inherit', $permissions)
-                && !filter_var($permissions['inherit'], FILTER_VALIDATE_BOOLEAN)) {
+            if (self::stopsInheritance($permissions)) {
                 return false;
             }
             $current = $current->parent();
@@ -253,9 +300,11 @@ final class PageAcl
     }
 
     /**
+     * Whether the user is listed in a page's own `permissions.authors`.
+     *
      * @param array<string, mixed> $permissions
      */
-    private function isAuthor(array $permissions, UserInterface $user): bool
+    public function isAuthorOf(array $permissions, UserInterface $user): bool
     {
         $authors = $permissions['authors'] ?? null;
         if (!is_array($authors) || $authors === []) {
