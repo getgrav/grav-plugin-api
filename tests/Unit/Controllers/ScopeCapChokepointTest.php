@@ -55,6 +55,12 @@ class ScopeCapChokepointTest extends TestCase
      */
     private const WAIVER = '@scope-cap-exempt';
 
+    /**
+     * The functions in the chokepoint that implement the cap itself, and so may
+     * read the account's super flag without a waiver.
+     */
+    private const CAP_HELPERS = ['requirePermission', 'isSuperWithinScope'];
+
     /** How many lines above the call a waiver marker may sit. */
     private const WAIVER_LOOKBEHIND = 6;
 
@@ -94,6 +100,44 @@ class ScopeCapChokepointTest extends TestCase
             "Bare isSuperAdmin() outside %s skips the API-key scope cap.\n\n%s\n\n"
             . "Use requireSuper(\$request) / requirePermission(\$request, \$perm) / "
             . "isSuperWithinScope(\$request) / scopeAllows(\$request, \$perm), or add a "
+            . "`%s: <reason>` comment if the cap genuinely does not apply.",
+            self::CHOKEPOINT,
+            implode("\n", $violations),
+            self::WAIVER,
+        ));
+    }
+
+    /**
+     * The chokepoint file is not a free pass. Outside the helpers that define the
+     * cap, a bare isSuperAdmin() in AbstractApiController is the same bug as
+     * anywhere else: the shared page-rule checks (pageUpdateRefusal(),
+     * assertPageNotDenied()) sat here and let a scoped key on a super account
+     * override a page's own deny.
+     */
+    #[Test]
+    public function chokepoint_uses_bare_is_super_admin_only_inside_the_cap_helpers(): void
+    {
+        $lines = file($this->chokepointPath(), FILE_IGNORE_NEW_LINES);
+        $this->assertIsArray($lines);
+
+        $violations = [];
+        $function = null;
+        foreach ($lines as $i => $line) {
+            if (preg_match('/function\s+(\w+)\s*\(/', $line, $m)) {
+                $function = $m[1];
+            }
+            if (!str_contains($line, '$this->isSuperAdmin(')) {
+                continue;
+            }
+            if (in_array($function, self::CAP_HELPERS, true) || $this->hasWaiverNear($lines, $i)) {
+                continue;
+            }
+            $violations[] = sprintf('%s:%d (%s)%s    %s', self::CHOKEPOINT, $i + 1, $function, "\n", trim($line));
+        }
+
+        $this->assertSame([], $violations, sprintf(
+            "Bare isSuperAdmin() in %s outside the cap helpers skips the API-key scope cap.\n\n%s\n\n"
+            . "Use isSuperWithinScope(\$request) / scopeAllows(\$request, \$perm), or add a "
             . "`%s: <reason>` comment if the cap genuinely does not apply.",
             self::CHOKEPOINT,
             implode("\n", $violations),
