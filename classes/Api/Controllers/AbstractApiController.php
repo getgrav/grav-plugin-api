@@ -587,11 +587,12 @@ abstract class AbstractApiController
      *
      * The account's `api.media.write` decides whether it may touch media at
      * all and is checked by the caller. This decides whether it may touch THIS
-     * page: the page's own `update` rule when it has one, the account's
-     * `api.pages.write` otherwise — the same verdict that gives a listing row
-     * `permissions.update` (getgrav/grav-plugin-admin2#209). A page-level deny
-     * wins over the account permission, and a page-level grant stands in for
-     * it, exactly as for saving the page. Super admins pass, as everywhere.
+     * page (getgrav/grav-plugin-admin2#209). A page whose rules deny `update`
+     * to the caller refuses it. A page with rules that grant the caller no
+     * `update` (only `rl`, say) needs the account's `api.pages.write`, the
+     * same verdict as its `permissions.update`. A page without any rules keeps
+     * the account permission alone, so a group that may change media but not
+     * page content keeps working there. Super admins pass, as everywhere.
      */
     protected function assertPageUpdatable(ServerRequestInterface $request, PageInterface $page): void
     {
@@ -600,11 +601,12 @@ abstract class AbstractApiController
             return;
         }
 
-        $verdict = $this->getPageAcl()->authorize($page, $user, 'update');
+        $acl = $this->getPageAcl();
+        $verdict = $acl->authorize($page, $user, 'update');
         if ($verdict === false) {
             throw new ForbiddenException("Page permissions deny 'update' on this page.");
         }
-        if ($verdict === null && !$this->hasPermission($user, 'api.pages.write')) {
+        if ($verdict === null && $acl->hasRules($page) && !$this->hasPermission($user, 'api.pages.write')) {
             throw new ForbiddenException(
                 "Changing this page's media requires permission to update the page."
             );

@@ -2353,11 +2353,10 @@ paths:
         settings) are rejected, checked against every dot-separated part of
         the name, and SVG content is sanitized on arrival.
 
-        Requires `api.media.write` and the right to update the page: the
-        page's own `update` rule when it has one, `api.pages.write` otherwise
-        (the page's `permissions.update`). Without it the request is a 403,
-        for example for an editor who may read the page but not edit it
-        (getgrav/grav-plugin-admin2#209).
+        Requires `api.media.write`. On a page with page-level rules it also
+        needs the right to update that page (its `permissions.update`): a 403
+        for an editor who may read the page but not edit it. Pages without
+        rules need `api.media.write` alone (getgrav/grav-plugin-admin2#209).
       parameters:
         - $ref: "#/components/parameters/pageRoute"
       requestBody:
@@ -2438,11 +2437,10 @@ paths:
         stored only as a retina variant can still be deleted by its base
         name.
 
-        Requires `api.media.write` and the right to update the page: the
-        page's own `update` rule when it has one, `api.pages.write` otherwise
-        (the page's `permissions.update`). Without it the request is a 403,
-        for example for an editor who may read the page but not edit it
-        (getgrav/grav-plugin-admin2#209).
+        Requires `api.media.write`. On a page with page-level rules it also
+        needs the right to update that page (its `permissions.update`): a 403
+        for an editor who may read the page but not edit it. Pages without
+        rules need `api.media.write` alone (getgrav/grav-plugin-admin2#209).
       parameters:
         - $ref: "#/components/parameters/pageRoute"
         - name: filename
@@ -2507,11 +2505,10 @@ paths:
         Values are stripped of HTML tags and control characters on save, since
         they render into `<img>` attributes on the site.
 
-        Requires `api.media.write` and the right to update the page: the
-        page's own `update` rule when it has one, `api.pages.write` otherwise
-        (the page's `permissions.update`). Without it the request is a 403,
-        for example for an editor who may read the page but not edit it
-        (getgrav/grav-plugin-admin2#209).
+        Requires `api.media.write`. On a page with page-level rules it also
+        needs the right to update that page (its `permissions.update`): a 403
+        for an editor who may read the page but not edit it. Pages without
+        rules need `api.media.write` alone (getgrav/grav-plugin-admin2#209).
       parameters:
         - $ref: "#/components/parameters/pageRoute"
         - $ref: "#/components/parameters/mediaFilename"
@@ -2541,11 +2538,10 @@ paths:
         Reserved/technical keys are preserved; the sidecar is deleted only if
         nothing else remains in it.
 
-        Requires `api.media.write` and the right to update the page: the
-        page's own `update` rule when it has one, `api.pages.write` otherwise
-        (the page's `permissions.update`). Without it the request is a 403,
-        for example for an editor who may read the page but not edit it
-        (getgrav/grav-plugin-admin2#209).
+        Requires `api.media.write`. On a page with page-level rules it also
+        needs the right to update that page (its `permissions.update`): a 403
+        for an editor who may read the page but not edit it. Pages without
+        rules need `api.media.write` alone (getgrav/grav-plugin-admin2#209).
       parameters:
         - $ref: "#/components/parameters/pageRoute"
         - $ref: "#/components/parameters/mediaFilename"
@@ -2574,11 +2570,10 @@ paths:
         (no path separators). The number of files is capped by
         `plugins.api.batch.max_items` (default 50).
 
-        Requires `api.media.write` and the right to update the page: the
-        page's own `update` rule when it has one, `api.pages.write` otherwise
-        (the page's `permissions.update`). Without it the request is a 403,
-        for example for an editor who may read the page but not edit it
-        (getgrav/grav-plugin-admin2#209).
+        Requires `api.media.write`. On a page with page-level rules it also
+        needs the right to update that page (its `permissions.update`): a 403
+        for an editor who may read the page but not edit it. Pages without
+        rules need `api.media.write` alone (getgrav/grav-plugin-admin2#209).
       parameters:
         - $ref: "#/components/parameters/pageRoute"
       requestBody:
@@ -9981,7 +9976,7 @@ paths:
         Every multipart file part is saved (nested file arrays are flattened). Each file is capped at 64 MB, and the field's own `filesize` can only tighten that. Extensions listed in `security.uploads_dangerous_extensions` are refused in any dot-separated part of the name (so `shell.php.jpg` fails), as are config-type extensions (`yaml`, `yml`, `json`, `twig`, `env`, `neon`, `lock`), page content (`md`, `markdown`) and stylesheets (`css`, `scss`, `sass`, `less`). Uploads into `user/accounts/` are restricted to image extensions, and uploads resolving into `user/config/` or `user/env/*/config/` are refused with 403. SVG files are sanitized after saving.
         A developer can allow page content or stylesheets for one field by listing them in that field's blueprint, for example `allow_extensions: [css]`. The server reads this from the blueprint that owns `scope` (a plugin or theme config blueprint, the page template's blueprint, or the account blueprint), never from the request: the request only names the field in `field`, and the upload's `destination` must be that field's own `destination`. `allow_extensions` can only lift `md`, `markdown`, `css`, `scss`, `sass` and `less`; dangerous and config-type extensions, the accounts image-only rule and the config directory block always apply.
         `self@:` against a `users/<username>` scope for another account needs `api.users.write` or super-admin.
-        Where the file lands also decides who may write it, judged on the logical path and on the realpath (themes and plugins are often symlinked in): anywhere in `user/themes/` or `user/plugins/` (a theme logo or favicon, a plugin asset) also needs `api.config.write`; a Twig template folder (a theme's or plugin's `templates/`, at any depth, or another registered template path) and anything outside `user/` (`cache://`, `log://`, `system://`, the root `assets/`) need super-admin. A file that lands in a page's folder under `user/pages/` (`self@:` on a page blueprint, a `page://` destination) changes that page's media, so it also needs the right to update the page: the page's own `update` rule when it has one, `api.pages.write` otherwise; the pages root itself needs `api.pages.write` (getgrav/grav-plugin-admin2#209). Refusals are 403, and an API key's scopes cap both permissions.
+        Where the file lands also decides who may write it, judged on the logical path and on the realpath (themes and plugins are often symlinked in): anywhere in `user/themes/` or `user/plugins/` (a theme logo or favicon, a plugin asset) also needs `api.config.write`; a Twig template folder (a theme's or plugin's `templates/`, at any depth, or another registered template path) and anything outside `user/` (`cache://`, `log://`, `system://`, the root `assets/`) need super-admin. A file that lands in a page's folder under `user/pages/` (`self@:` on a page blueprint, a `page://` destination) changes that page's media, so on a page with page-level rules it also needs the right to update that page, as page media does (getgrav/grav-plugin-admin2#209). Refusals are 403, and an API key's scopes cap both permissions.
         File names ending in a space or a dot, or containing control or invisible formatting characters, are refused with 422.
       requestBody:
         required: true

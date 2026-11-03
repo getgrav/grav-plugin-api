@@ -84,7 +84,7 @@ class MediaControllerPageUpdateAclTest extends TestCase
      */
     public static function cases(): iterable
     {
-        yield 'media write alone, page without rules' => [self::MEDIA_ONLY, null, false];
+        yield 'media write alone, page without rules' => [self::MEDIA_ONLY, null, true];
         yield 'media write alone, page grants update to the group' => [self::MEDIA_ONLY, ['groups' => ['editors' => 'ru']], true];
         yield 'media write alone, page grants only read' => [self::MEDIA_ONLY, ['groups' => ['editors' => 'rl']], false];
         yield 'editor, page without rules' => [self::EDITOR, null, true];

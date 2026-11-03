@@ -620,13 +620,11 @@ class BlueprintUploadController extends AbstractApiController
     /**
      * A file field that saves into a page's folder (`self@:` on a page
      * blueprint, a `page://` destination, or a delete of such a file) changes
-     * that page's media, so it needs the right to update that page, exactly as
-     * `POST /pages/{route}/media` does (getgrav/grav-plugin-admin2#209).
+     * that page's media, so it follows the same page rules as
+     * `POST /pages/{route}/media` (getgrav/grav-plugin-admin2#209).
      *
      * The page is the nearest folder at or above the target that is a page;
-     * a file field can save into a subfolder of one. A folder under
-     * `user/pages` that belongs to no page (the pages root itself) needs the
-     * account-wide `api.pages.write`. Super admins pass both checks.
+     * a file field can save into a subfolder of one. Super admins pass.
      */
     private function guardPageFolder(ServerRequestInterface $request, string $absoluteDir): void
     {
@@ -673,8 +671,6 @@ class BlueprintUploadController extends AbstractApiController
             }
             $probe = dirname($probe);
         }
-
-        $this->requirePermission($request, 'api.pages.write');
     }
 
     /**

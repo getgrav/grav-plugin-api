@@ -9,7 +9,7 @@
 1. [](#bugfix)
     * A parent page whose collection is ordered by `publish_date` or `unpublish_date` now lists its children in that order in the admin, instead of falling back to folder order ([admin2#208](https://github.com/getgrav/grav-plugin-admin2/issues/208))
     * Dragging pages into a new order no longer gives a page the same number as a sibling you can't see: the server numbers against every page in the folder, and moves a hidden page along only when it has to. Reordering with a partial list keeps the pages you didn't list in their place ([admin2#209](https://github.com/getgrav/grav-plugin-admin2/issues/209))
-    * Uploading, deleting or editing the media of a page now needs permission to edit that page. Before, `api.media.write` alone let an editor change the images of any page, including pages they could only read. This also applies to file fields that save into a page's folder ([admin2#209](https://github.com/getgrav/grav-plugin-admin2/issues/209))
+    * On a page with page-level rules, changing its media (and file fields that save into its folder) now needs the right to update that page, so an editor who may only read the page can't change its images. Pages without rules work as before with `api.media.write` ([admin2#209](https://github.com/getgrav/grav-plugin-admin2/issues/209))
 
 # v1.1.9
 ## 11/01/2026

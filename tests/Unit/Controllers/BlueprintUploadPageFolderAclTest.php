@@ -32,12 +32,13 @@ class BlueprintUploadPageFolderAclTest extends TestCase
         $this->dir = sys_get_temp_dir() . '/grav_api_bp_page_acl_' . bin2hex(random_bytes(4));
         mkdir($this->dir . '/pages/02.outils', 0777, true);
         mkdir($this->dir . '/pages/04.communication', 0777, true);
+        mkdir($this->dir . '/pages/05.blog', 0777, true);
         mkdir($this->dir . '/images', 0777, true);
     }
 
     protected function tearDown(): void
     {
-        foreach (['pages/02.outils', 'pages/04.communication', 'pages', 'images', ''] as $sub) {
+        foreach (['pages/02.outils', 'pages/04.communication', 'pages/05.blog', 'pages', 'images', ''] as $sub) {
             @rmdir(rtrim($this->dir . '/' . $sub, '/'));
         }
         Grav::resetInstance();
@@ -49,12 +50,14 @@ class BlueprintUploadPageFolderAclTest extends TestCase
     private function guard(array $access, string $dir): void
     {
         $outils = $this->page($this->dir . '/pages/02.outils', ['groups' => ['editors' => 'ru']]);
-        $communication = $this->page($this->dir . '/pages/04.communication', null);
+        $communication = $this->page($this->dir . '/pages/04.communication', ['groups' => ['editors' => 'rl']]);
+        $blog = $this->page($this->dir . '/pages/05.blog', null);
 
         $pages = $this->createMock(Pages::class);
         $pages->method('get')->willReturnCallback(static fn (string $path): ?PageInterface => match ($path) {
             $outils->path() => $outils,
             $communication->path() => $communication,
+            $blog->path() => $blog,
             default => null,
         });
 
@@ -114,13 +117,11 @@ class BlueprintUploadPageFolderAclTest extends TestCase
     }
 
     #[Test]
-    public function the_pages_root_needs_account_wide_page_write(): void
+    public function a_page_without_rules_and_the_pages_root_need_only_media_write(): void
     {
-        $this->guard(['api' => ['access' => true, 'media' => ['write' => true], 'pages' => ['write' => true]]], $this->dir . '/pages');
-        $this->addToAssertionCount(1);
-
-        $this->expectException(ForbiddenException::class);
+        $this->guard(self::MEDIA_ONLY, $this->dir . '/pages/05.blog');
         $this->guard(self::MEDIA_ONLY, $this->dir . '/pages');
+        $this->addToAssertionCount(2);
     }
 
     #[Test]
