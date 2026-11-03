@@ -10,6 +10,7 @@ use Grav\Common\Page\Interfaces\PageInterface;
 use Grav\Common\Page\Pages;
 use Grav\Plugin\Api\Controllers\PagesController;
 use Grav\Plugin\Api\Exceptions\ValidationException;
+use Grav\Plugin\Api\Tests\Unit\BuildsPageAclTree;
 use Grav\Plugin\Api\Tests\Unit\TestHelper;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
@@ -25,6 +26,8 @@ use PHPUnit\Framework\TestCase;
 #[CoversClass(PagesController::class)]
 class PagesControllerHiddenSiblingOrderTest extends TestCase
 {
+    use BuildsPageAclTree;
+
     private string $dir;
 
     protected function setUp(): void
@@ -199,5 +202,137 @@ class PagesControllerHiddenSiblingOrderTest extends TestCase
         $order = ['unnumbered', 'charte', 'newsletter', 'actualites', 'evenements'];
 
         self::assertSame($order, self::merge($order));
+    }
+
+    /**
+     * A caller may only name the slugs its own folder listing shows. The
+     * mock tree in BuildsPageAclTree hides /communication/charte from the
+     * informatique group.
+     */
+    private function reorderAs(string $username, array $access, array $order): void
+    {
+        $tree = $this->buildTree();
+        $byPath = [];
+        foreach ($tree as $page) {
+            $byPath[(string) $page->path()] = $page;
+        }
+        $pages = $this->createMock(Pages::class);
+        $pages->method('instances')->willReturn($byPath);
+        $pages->method('root')->willReturn($tree['/']);
+        $pages->method('getPagesCacheId')->willReturn(null);
+        $pages->method('find')->willReturnCallback(
+            static fn (string $route): ?PageInterface => $route !== '/' ? ($tree[$route] ?? null) : null
+        );
+        $config = new Config([
+            'plugins' => ['api' => ['route' => '/api', 'version_prefix' => 'v1', 'flex_backend' => ['pages' => false]]],
+        ]);
+        $grav = TestHelper::createMockGrav([
+            'config' => $config,
+            'pages' => $pages,
+            'permissions' => new \Grav\Framework\Acl\Permissions(),
+            'language' => new class {
+                public function getActive(): ?string { return null; }
+                public function enabled(): bool { return false; }
+            },
+            'events' => new class {
+                public function dispatch(object $event, ?string $eventName = null): object { return $event; }
+            },
+            'locator' => new class {
+                public function findResource(string $uri, bool $absolute = false): string
+                {
+                    return sys_get_temp_dir() . '/grav_api_hidden_sibling_locator';
+                }
+            },
+        ]);
+        $user = TestHelper::createMockUser($username, ['username' => $username, 'groups' => ['redaction-informatique'], 'access' => $access]);
+
+        (new PagesController($grav, $config))->reorder(TestHelper::createMockRequest(
+            attributes: ['api_user' => $user, 'route_params' => ['route' => 'communication'], 'json_body' => ['order' => $order]],
+        ));
+    }
+
+    private const WRITER = ['api' => ['access' => true, 'pages' => ['read' => true, 'write' => true]]];
+
+    #[Test]
+    public function a_hidden_childs_slug_is_unknown_to_a_caller_who_cannot_see_it(): void
+    {
+        try {
+            $this->reorderAs('info', self::WRITER, ['charte', 'newsletter']);
+            self::fail('The hidden slug should have been refused.');
+        } catch (ValidationException $e) {
+            self::assertSame("Child page with slug 'charte' not found under '/communication'.", $e->getMessage());
+        }
+
+        // Same answer as for a slug that was never there.
+        try {
+            $this->reorderAs('info', self::WRITER, ['no-such-page', 'newsletter']);
+            self::fail('The unknown slug should have been refused.');
+        } catch (ValidationException $e) {
+            self::assertSame("Child page with slug 'no-such-page' not found under '/communication'.", $e->getMessage());
+        }
+    }
+
+    #[Test]
+    public function a_super_admin_can_name_every_child(): void
+    {
+        // Listing the hidden slug twice gets past the "not found" check, to "more than once".
+        try {
+            $this->reorderAs('root', ['api' => ['access' => true, 'super' => true]], ['charte', 'charte']);
+            self::fail('The repeated slug should have been refused.');
+        } catch (ValidationException $e) {
+            self::assertSame("Child page with slug 'charte' is listed more than once.", $e->getMessage());
+        }
+    }
+
+    #[Test]
+    public function the_reorder_plan_names_a_folder_in_the_way_only_to_a_caller_who_sees_them_all(): void
+    {
+        $parent = $this->dir . '/communication';
+        $childMap = ['actualites' => '01.actualites', 'evenements' => '02.evenements'];
+        // `04.newsletter` isn't in the request, so it sits on the name the plan wants.
+        $order = ['evenements', 'actualites'];
+        mkdir($parent . '/_temp_1_evenements');
+        try {
+            $plan = new \ReflectionMethod(PagesController::class, 'planReorder');
+            $controller = $this->controller();
+
+            try {
+                $plan->invoke($controller, $parent, $childMap, $order, 3, '/communication', true);
+                self::fail('The folder in the way should have been refused.');
+            } catch (ValidationException $e) {
+                self::assertStringContainsString('_temp_1_evenements', $e->getMessage());
+            }
+
+            try {
+                $plan->invoke($controller, $parent, $childMap, $order, 3, '/communication', false);
+                self::fail('The folder in the way should have been refused.');
+            } catch (ValidationException $e) {
+                self::assertStringNotContainsString('_temp_1_evenements', $e->getMessage());
+                self::assertStringContainsString("Cannot reorder '/communication'", $e->getMessage());
+            }
+        } finally {
+            rmdir($parent . '/_temp_1_evenements');
+        }
+    }
+
+    #[Test]
+    public function making_room_names_a_sibling_that_cannot_be_found_only_to_a_caller_who_sees_them_all(): void
+    {
+        $method = new \ReflectionMethod(PagesController::class, 'keepSiblingNumbersUnique');
+        $controller = $this->controller(null);
+
+        try {
+            $method->invoke($controller, [$this->op('04.newsletter', 3)], true);
+            self::fail('The sibling should have been refused.');
+        } catch (ValidationException $e) {
+            self::assertStringContainsString('03.charte', $e->getMessage());
+        }
+
+        try {
+            $method->invoke($controller, [$this->op('04.newsletter', 3)], false);
+            self::fail('The sibling should have been refused.');
+        } catch (ValidationException $e) {
+            self::assertStringNotContainsString('charte', $e->getMessage());
+        }
     }
 }

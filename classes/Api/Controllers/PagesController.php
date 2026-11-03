@@ -2204,18 +2204,31 @@ class PagesController extends AbstractApiController
         // slug two children share (under different order prefixes) cannot be told
         // apart here; keep every folder so it can be refused below instead of
         // letting the last one win.
+        //
+        // The caller's own folder listing decides which slugs it may name: a
+        // child it can't see is unknown to it, whatever is on disk, so the
+        // errors below can't be used to find out which hidden folders exist
+        // (getgrav/grav-plugin-admin2#209).
+        $visibility = $this->pageVisibility($request, false);
         $childMap = [];
         $dirsBySlug = [];
+        $shown = [];
+        $hiddenHolder = [];
         foreach ($children as $child) {
             $dir = basename($child->path());
             $childMap[$child->slug()] = $dir;
             $dirsBySlug[$child->slug()][] = $dir;
+            if ($this->listedChildRow($visibility, $child) !== null) {
+                $shown[$child->slug()] = true;
+            } else {
+                $hiddenHolder[$child->slug()] = true;
+            }
         }
 
         // Validate all slugs exist, are listed once, and name exactly one folder
         $listed = [];
         foreach ($order as $slug) {
-            if (!is_string($slug) || !isset($childMap[$slug])) {
+            if (!is_string($slug) || !isset($childMap[$slug]) || !isset($shown[$slug])) {
                 throw new ValidationException("Child page with slug '" . (is_string($slug) ? $slug : gettype($slug)) . "' not found under '{$parent->route()}'.");
             }
             if (isset($listed[$slug])) {
@@ -2223,8 +2236,10 @@ class PagesController extends AbstractApiController
             }
             $listed[$slug] = true;
             if (count($dirsBySlug[$slug]) > 1) {
+                // Folder names only when every one of them is in the caller's listing.
+                $names = isset($hiddenHolder[$slug]) ? '' : ' (' . implode(', ', $dirsBySlug[$slug]) . ')';
                 throw new ValidationException(
-                    "More than one child of '{$parent->route()}' has the slug '{$slug}' (" . implode(', ', $dirsBySlug[$slug]) . "). Rename or delete one before reordering."
+                    "More than one child of '{$parent->route()}' has the slug '{$slug}'{$names}. Rename or delete one before reordering."
                 );
             }
         }
@@ -2249,6 +2264,7 @@ class PagesController extends AbstractApiController
             self::mergeReorder($childMap, $dirsBySlug, $order),
             $digits ?: null,
             $parent->route(),
+            $this->isSuperAdmin($this->getUser($request)),
         );
         $this->applyRenames($plan);
 
@@ -2419,9 +2435,11 @@ class PagesController extends AbstractApiController
      * with the rest of the batch, as a reorder of the folder always could.
      *
      * @param list<array<string, mixed>> $resolved
+     * @param bool $detailed name the sibling that can't be renumbered; false for a caller who may not
+     *                       see every sibling, whose folder could be a hidden one
      * @return list<array<string, mixed>>
      */
-    private function keepSiblingNumbersUnique(array $resolved): array
+    private function keepSiblingNumbersUnique(array $resolved, bool $detailed = true): array
     {
         $byParent = [];
         $inBatch = [];
@@ -2473,7 +2491,9 @@ class PagesController extends AbstractApiController
                 $sibling = $this->grav['pages']->get($path);
                 if (!$sibling instanceof PageInterface) {
                     throw new ValidationException(
-                        "Cannot renumber '{$entry['name']}' to make room in this folder. Send a position for it too."
+                        $detailed
+                            ? "Cannot renumber '{$entry['name']}' to make room in this folder. Send a position for it too."
+                            : 'Cannot renumber the other pages in this folder to make room. Reload the page list and try again.'
                     );
                 }
                 [, $folder, $width] = PageOrdering::parse($entry['name']);
@@ -2649,7 +2669,7 @@ class PagesController extends AbstractApiController
         // Positions are numbered by the client against the siblings it was
         // shown, which leaves out pages the caller can't read (#209). Keep
         // every folder's numbers unique against ALL its children.
-        $resolved = $this->keepSiblingNumbersUnique($resolved);
+        $resolved = $this->keepSiblingNumbersUnique($resolved, $this->isSuperAdmin($this->getUser($request)));
 
         // Reject any op whose destination parent is itself being moved in
         // this batch. Otherwise Phase 2 would rename the parent mid-batch,
@@ -3901,14 +3921,6 @@ class PagesController extends AbstractApiController
     }
 
     /**
-     * Work out the renames a reorder needs, refusing the request when a target
-     * name is taken by a folder that is not part of it.
-     *
-     * @param array<string, string> $childMap slug => current folder name
-     * @param list<string>          $order    slugs in their new order
-     * @return list<array{old: string, temp: string, final: string}>
-     */
-    /**
      * The full order of a folder's children for a reorder that may list only
      * some of them (getgrav/grav-plugin-admin2#209: a caller's listing leaves
      * out the pages it may not read, so the order it sends does too).
@@ -3961,7 +3973,17 @@ class PagesController extends AbstractApiController
         return $merged;
     }
 
-    private function planReorder(string $parentPath, array $childMap, array $order, ?int $digits, string $parentRoute): array
+    /**
+     * Work out the renames a reorder needs, refusing the request when a target
+     * name is taken by a folder that is not part of it.
+     *
+     * @param array<string, string> $childMap slug => current folder name
+     * @param list<string>          $order    slugs in their new order
+     * @param bool                  $detailed name the folder in the way; false for a caller who may not see every
+     *                                        sibling, whose folder could be one of the hidden ones
+     * @return list<array{old: string, temp: string, final: string}>
+     */
+    private function planReorder(string $parentPath, array $childMap, array $order, ?int $digits, string $parentRoute, bool $detailed = true): array
     {
         $existing = array_flip(array_filter(
             scandir($parentPath) ?: [],
@@ -3998,7 +4020,9 @@ class PagesController extends AbstractApiController
                 $name = basename($rename[$kind]);
                 if (isset($existing[$name]) && !isset($vacated[$name])) {
                     throw new ValidationException(
-                        "Cannot reorder '{$parentRoute}': the folder '{$name}' already exists and is not part of this reorder."
+                        $detailed
+                            ? "Cannot reorder '{$parentRoute}': the folder '{$name}' already exists and is not part of this reorder."
+                            : "Cannot reorder '{$parentRoute}': a folder in the way already exists and is not part of this reorder."
                     );
                 }
             }
