@@ -217,13 +217,16 @@ class ConfigShadows
     }
 
     /**
-     * $file relative to the Grav root, the way an admin would find it. A file
-     * outside the root (a GRAV_ENVIRONMENTS_PATH elsewhere) keeps its full path.
+     * $file relative to the site, the way an admin would find it. The webroot
+     * is tried first so a user/ file reads as `user/config/...` whether or not
+     * the site serves a public subfolder; a file only under the Grav root
+     * (system/config) reads relative to that. A file outside both (a
+     * GRAV_ENVIRONMENTS_PATH elsewhere) keeps its full path.
      */
     private function relativePath(string $file): string
     {
         $real = realpath($file) ?: $file;
-        foreach (['GRAV_ROOT', 'GRAV_WEBROOT'] as $constant) {
+        foreach (['GRAV_WEBROOT', 'GRAV_ROOT'] as $constant) {
             if (!defined($constant)) {
                 continue;
             }

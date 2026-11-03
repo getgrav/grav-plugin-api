@@ -1638,10 +1638,12 @@ class BlueprintController extends AbstractApiController
     /**
      * Resolve a `display` field's `file:` reference to its raw contents.
      *
-     * Accepts a Grav stream (e.g. `plugins://login-oauth2/README.md`) or a path
-     * already inside the Grav root. Anything that resolves outside the root, or
-     * that doesn't exist, returns null so the field simply renders nothing —
-     * matching the classic template's silent behaviour.
+     * Accepts a Grav stream (e.g. `plugins://login-oauth2/README.md`) or a bare
+     * path. A bare path is tried against the webroot first (where `user/`
+     * lives), then the Grav root (where `system/` lives); the two are the same
+     * folder unless the site serves a public subfolder. Anything that resolves
+     * outside its root, or that doesn't exist, returns null so the field simply
+     * renders nothing — matching the classic template's silent behaviour.
      */
     protected function readDisplayFile(string $file): ?string
     {
@@ -1651,11 +1653,16 @@ class BlueprintController extends AbstractApiController
         if (strpos($file, '://') !== false) {
             $path = $locator->findResource($file, true);
         } else {
-            // Bare path — anchor to the Grav root and confirm it stays inside.
-            $root = rtrim(GRAV_ROOT, '/\\');
-            $candidate = realpath($root . '/' . ltrim($file, '/\\'));
-            $realRoot = realpath($root) ?: $root;
-            $path = ($candidate && PathContainment::isWithin($candidate, $realRoot)) ? $candidate : false;
+            // Bare path — anchor to each root in turn and confirm it stays inside.
+            $path = false;
+            foreach (array_unique([rtrim(GRAV_WEBROOT, '/\\'), rtrim(GRAV_ROOT, '/\\')]) as $root) {
+                $candidate = realpath($root . '/' . ltrim($file, '/\\'));
+                $realRoot = realpath($root) ?: $root;
+                if ($candidate && is_file($candidate) && PathContainment::isWithin($candidate, $realRoot)) {
+                    $path = $candidate;
+                    break;
+                }
+            }
         }
 
         if (!$path || !is_file($path) || !is_readable($path)) {

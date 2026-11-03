@@ -280,10 +280,17 @@ class GpmService
                 return 'Package name could not be determined.';
             }
 
+            // getInstallPath() is relative to the locator base (GRAV_WEBROOT,
+            // where user/ lives) unless the stream points outside it, so check
+            // the folder there rather than relying on the working directory
+            // or GRAV_ROOT.
             $installPath = GravGPM::getInstallPath($type, $name);
-            $isUpdate = file_exists($installPath);
+            $installDir = str_starts_with($installPath, '/') || preg_match('#^[A-Za-z]:[\\\\/]#', $installPath)
+                ? $installPath
+                : GRAV_WEBROOT . DS . $installPath;
+            $isUpdate = file_exists($installDir);
 
-            Installer::isValidDestination(GRAV_ROOT . DS . $installPath);
+            Installer::isValidDestination($installDir);
             if (Installer::lastErrorCode() === Installer::IS_LINK) {
                 Folder::delete($tmpSource);
                 Folder::delete($tmpZip);
@@ -329,7 +336,7 @@ class GpmService
             return false;
         }
 
-        if (is_link(GRAV_ROOT . DS . 'index.php')) {
+        if (is_link(GRAV_WEBROOT . DS . 'index.php')) {
             Installer::setError(Installer::IS_LINK);
             static::$lastError = 'Cannot self-upgrade: index.php is a symlink.';
             return false;

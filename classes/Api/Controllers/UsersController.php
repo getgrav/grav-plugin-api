@@ -1690,8 +1690,10 @@ class UsersController extends AbstractApiController
             throw new \RuntimeException('Failed to write avatar file.');
         }
 
-        // Build path relative to Grav root (e.g. user/accounts/avatars/filename.jpg)
-        // to match the format used by the old admin plugin.
+        // Build path relative to the webroot (e.g. user/accounts/avatars/filename.jpg)
+        // to match the format used by the old admin plugin. The locator's base
+        // is GRAV_WEBROOT, so this is also correct when user/ sits in a public
+        // folder apart from the Grav install.
         $relativeBase = $locator->findResource('account://', false);
         $relativePath = $relativeBase . '/avatars/' . $filename;
 
@@ -1733,8 +1735,9 @@ class UsersController extends AbstractApiController
         if (is_array($avatar)) {
             foreach ($avatar as $entry) {
                 if (is_array($entry) && isset($entry['path'])) {
-                    // path is relative to Grav root (e.g. user/accounts/avatars/file.jpg)
-                    $filePath = GRAV_ROOT . '/' . $entry['path'];
+                    // path is relative to the webroot, where user/ lives
+                    // (e.g. user/accounts/avatars/file.jpg)
+                    $filePath = GRAV_WEBROOT . '/' . $entry['path'];
                     if (file_exists($filePath)) {
                         @unlink($filePath);
                     }
