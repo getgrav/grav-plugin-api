@@ -522,6 +522,123 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  /auth/passkey:
+    get:
+      operationId: getPasskeyStatus
+      tags: [Auth]
+      summary: Whether passkey sign-in is offered
+      description: |
+        Tells a login screen whether to offer passkey sign-in: true with Login 3.12 or later on Grav 2 when `plugins.login.passkeys.enabled` is on. Public.
+      security: []
+      responses:
+        "200":
+          description: Passkey availability.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+              example:
+                data:
+                  enabled: true
+    post:
+      operationId: passkeyLogin
+      tags: [Auth]
+      summary: Sign in with a passkey
+      description: |
+        Finish a passkey ceremony started with `POST /auth/passkey/options`. With `for: sign-in` a passkey alone signs in: it is both factors, so the account is never asked for its 2FA code and the token pair comes back at once. With `for: two-step` it takes the place of the 2FA code after a password: send the `challenge_token` from the `requires_2fa` response, and the challenge token is burned on success.
+        Public. JSON only (415 otherwise). Answers that fail count against the Login plugin's `passkey_attempts` limit per IP (and, for `two-step`, the account's 2FA limit), and are refused with 429 once it is used up. 403 when the site does not offer passkeys.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [for, ticket, credential]
+              properties:
+                for:
+                  type: string
+                  enum: [sign-in, two-step]
+                ticket:
+                  type: string
+                  description: The `ticket` from `POST /auth/passkey/options`. Works once.
+                credential:
+                  type: object
+                  description: The browser's PublicKeyCredential in its JSON form (binary fields base64url).
+                challenge_token:
+                  type: string
+                  description: Required for `two-step`. The `challenge_token` from the `requires_2fa` login response.
+      responses:
+        "200":
+          description: Passkey accepted. Token pair returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/AuthTokenPairWithUser"
+        "401":
+          description: The passkey didn't check out, or the challenge token is invalid or expired.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /auth/passkey/options:
+    post:
+      operationId: passkeyLoginOptions
+      tags: [Auth]
+      summary: Start a passkey sign-in
+      description: |
+        Options for `navigator.credentials.get()` and a one-use `ticket` to send back with the answer to `POST /auth/passkey`. With `for: sign-in` the browser offers any passkey it holds for this site; with `for: two-step` (and the `challenge_token` from a `requires_2fa` response) only that account's passkeys. Binary fields are base64url.
+        Public. JSON only (415 otherwise). Each call counts against the Login plugin's `passkey_options` limit per IP. 403 when the site does not offer passkeys.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [for]
+              properties:
+                for:
+                  type: string
+                  enum: [sign-in, two-step]
+                challenge_token:
+                  type: string
+                  description: Required for `two-step`.
+      responses:
+        "200":
+          description: WebAuthn request options and the ticket.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/PasskeyCeremony"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   /auth/2fa/verify:
     post:
       operationId: verifyTwoFactorLogin
@@ -5006,6 +5123,181 @@ paths:
               example:
                 data:
                   twofa_enabled: false
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /users/{username}/passkeys:
+    get:
+      operationId: listUserPasskeys
+      tags: [Users]
+      summary: List a user's passkeys
+      description: |
+        The account's passkeys: names and dates, never the keys. `enabled` says whether the site offers passkeys at all, and `proof` what adding or removing your own takes (`password`, `code` for an account without a password and with 2FA on, or `unavailable` for an account with neither, which can't change its passkeys until it sets one; always null on someone else's account). Your own account needs `api.access`; another user's needs `api.users.read`.
+      parameters:
+        - $ref: "#/components/parameters/username"
+      responses:
+        "200":
+          description: The account's passkeys.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                      proof:
+                        type: string
+                        nullable: true
+                        enum: [password, code, unavailable, null]
+                      passkeys:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Passkey"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      operationId: addUserPasskey
+      tags: [Users]
+      summary: Finish adding a passkey
+      description: |
+        Store the passkey the browser made from `POST /users/{username}/passkeys/options`. Your own account only (403 otherwise), with `api.access`. 422 when the answer doesn't check out, the passkey is already in use, or the account holds the most passkeys it can (20).
+      parameters:
+        - $ref: "#/components/parameters/username"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ticket, credential]
+              properties:
+                ticket:
+                  type: string
+                credential:
+                  type: object
+                  description: The browser's new PublicKeyCredential in its JSON form (binary fields base64url).
+      responses:
+        "201":
+          description: Passkey added.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Passkey"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /users/{username}/passkeys/options:
+    post:
+      operationId: startUserPasskey
+      tags: [Users]
+      summary: Start adding a passkey
+      description: |
+        Options for `navigator.credentials.create()` and a one-use `ticket`. Your own account only (403 otherwise), with `api.access`, and it takes `current_password` (or, for an account without a password and with 2FA on, the current `code`). Wrong passwords and codes count against the Login plugin's limits (429), and so does each call against `passkey_options`. An account with neither a password nor 2FA gets 403. Nobody can add a passkey to another account.
+      parameters:
+        - $ref: "#/components/parameters/username"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                current_password:
+                  type: string
+                code:
+                  type: string
+      responses:
+        "200":
+          description: WebAuthn creation options and the ticket.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/PasskeyCeremony"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /users/{username}/passkeys/{id}:
+    patch:
+      operationId: renameUserPasskey
+      tags: [Users]
+      summary: Rename a passkey
+      description: |
+        Rename one of your own passkeys (up to 60 characters). Your own account only, with `api.access`.
+      parameters:
+        - $ref: "#/components/parameters/username"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+      responses:
+        "200":
+          description: Passkey renamed.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    delete:
+      operationId: removeUserPasskey
+      tags: [Users]
+      summary: Remove a passkey
+      description: |
+        Remove a passkey. Your own takes `current_password` (or the 2FA `code`, as for adding one), in the body or the query. A caller with `api.users.write` (or a super admin), through a token or key whose scope includes it, can remove another user's passkey without proof, for a lost device; only super admins can do so for a super-admin account.
+      parameters:
+        - $ref: "#/components/parameters/username"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Passkey removed.
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -15503,6 +15795,35 @@ components:
               description: Seconds until the next demo reset; null for normal accounts.
       required: [username, super_admin, access]
 
+    Passkey:
+      type: object
+      properties:
+        id:
+          type: string
+          description: The credential id, base64url.
+        name:
+          type: string
+          example: 1Password
+        created:
+          type: integer
+          nullable: true
+          description: Unix time it was added.
+        last_used:
+          type: integer
+          nullable: true
+          description: Unix time it last signed in.
+        synced:
+          type: boolean
+          description: Whether it syncs between devices (1Password, iCloud Keychain, Google).
+    PasskeyCeremony:
+      type: object
+      properties:
+        ticket:
+          type: string
+          description: Send back with the browser's answer. Works once, for five minutes.
+        options:
+          type: object
+          description: WebAuthn options, binary fields base64url.
     AuthTokenPairWithUser:
       description: A JWT token pair plus the profile of the user it was issued to.
       allOf:

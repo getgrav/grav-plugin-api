@@ -1,13 +1,16 @@
 # v1.1.10
-## 11/02/2026
+## 11/03/2026
 
 1. [](#new)
     * The page list has an `editable=true` filter that shows only the pages you can edit, plus the folders that lead to them, for editors who only look after a few pages ([admin2#209](https://github.com/getgrav/grav-plugin-admin2/issues/209))
+    * Passkey sign-in for Admin2, with Login 3.12 or later on Grav 2 (`plugins.login.passkeys.enabled`): `GET /auth/passkey` says whether it is on, `POST /auth/passkey/options` and `POST /auth/passkey` sign in with a passkey alone (it is both factors, so no 2FA challenge) or finish a `requires_2fa` challenge in place of the code. Same token pair as `POST /auth/token`
+    * `/users/{username}/passkeys` lists, adds, renames and removes an account's passkeys. Adding and renaming are for your own account only and take the current password (or 2FA code); removing someone else's, for a lost device, takes `api.users.write`. The user resource now carries a `passkeys` count
 1. [](#improved)
     * Page-level permissions now decide what the page list shows: pages your groups may not read or list are left out of the list, the tree and the page navigator, and the counts match. A folder you can't open still appears, marked `ancestor_only`, when there is a page inside it you can read, so you can still reach that page. Such a folder shows only its title and place in the tree, nothing else about it ([admin2#209](https://github.com/getgrav/grav-plugin-admin2/issues/209))
     * Large page lists load faster for editors on sites with page-level permissions, as each page's rules are no longer read from disk for every row, and saving, creating, moving, copying, deleting or reordering a page no longer makes the next list rebuild them all (about 0.1 s on a 500-page site) ([admin2#209](https://github.com/getgrav/grav-plugin-admin2/issues/209))
     * A single page's `permissions` now has a `media` entry: whether you can change that page's media. It can be true on a page with no rules where `update` is false, so Admin can keep the media panel working while the page's fields are read-only ([admin2#209](https://github.com/getgrav/grav-plugin-admin2/issues/209))
     * With `editable=true`, a folder you can read but not edit that leads to pages you can edit is still marked `ancestor_only`, but now comes back as a full row so it can be opened read-only ([admin2#209](https://github.com/getgrav/grav-plugin-admin2/issues/209))
+    * `passkeys` and `webauthn_id` are never written through `PATCH /users/{username}` or `POST /users`, so a user editor can't plant a passkey on another account
 1. [](#bugfix)
     * A parent page whose collection is ordered by `publish_date` or `unpublish_date` now lists its children in that order in the admin, instead of falling back to folder order ([admin2#208](https://github.com/getgrav/grav-plugin-admin2/issues/208))
     * Dragging pages into a new order no longer gives a page the same number as a sibling you can't see: the server numbers against every page in the folder, and moves a hidden page along only when it has to. Reordering with a partial list keeps the pages you didn't list in their place, and an error from a reorder no longer names a folder you can't see: a page you can't see is treated as not there ([admin2#209](https://github.com/getgrav/grav-plugin-admin2/issues/209))

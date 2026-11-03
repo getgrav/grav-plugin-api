@@ -1317,7 +1317,7 @@ abstract class AbstractApiController
      *
      * @return array<string, mixed>
      */
-    protected function finalizeAuthenticatedUser(UserInterface $user, ServerRequestInterface $request): array
+    protected function finalizeAuthenticatedUser(UserInterface $user, ServerRequestInterface $request, bool $secondFactorDone = false): array
     {
         // Gate API access AFTER the identity is established, so any onUserLogin
         // handlers (LDAP group→access mapping, etc.) have populated the access
@@ -1347,7 +1347,8 @@ abstract class AbstractApiController
 
         $jwt = new JwtAuthenticator($this->grav, $this->config);
 
-        if ($this->userRequiresTwoFactor($user)) {
+        // A passkey sign-in has proven both factors already.
+        if (!$secondFactorDone && $this->userRequiresTwoFactor($user)) {
             // Identity was proven — issue a 2FA challenge. The login only counts
             // as complete once the code verifies in /auth/2fa/verify; callers
             // must NOT reset any rate limiter or fire a success event yet.

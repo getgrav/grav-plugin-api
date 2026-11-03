@@ -716,6 +716,9 @@ class ApiRouter extends ProcessorBase
         // Auth (no auth required for these)
         $r->addRoute('POST', '/auth/token', [AuthController::class, 'token']);
         $r->addRoute('POST', '/auth/2fa/verify', [AuthController::class, 'verify2fa']);
+        $r->addRoute('GET',  '/auth/passkey', [AuthController::class, 'passkeyStatus']);
+        $r->addRoute('POST', '/auth/passkey/options', [AuthController::class, 'passkeyOptions']);
+        $r->addRoute('POST', '/auth/passkey', [AuthController::class, 'passkey']);
         $r->addRoute('POST', '/auth/refresh', [AuthController::class, 'refresh']);
         $r->addRoute('POST', '/auth/revoke', [AuthController::class, 'revoke']);
         $r->addRoute('POST', '/auth/forgot-password', [AuthController::class, 'forgotPassword']);
@@ -846,6 +849,11 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('POST', '/users/{username}/2fa', [UsersController::class, 'generate2fa']);
         $r->addRoute('POST', '/users/{username}/2fa/enable', [UsersController::class, 'enable2fa']);
         $r->addRoute('POST', '/users/{username}/2fa/disable', [UsersController::class, 'disable2fa']);
+        $r->addRoute('GET', '/users/{username}/passkeys', [UsersController::class, 'passkeys']);
+        $r->addRoute('POST', '/users/{username}/passkeys/options', [UsersController::class, 'passkeyOptions']);
+        $r->addRoute('POST', '/users/{username}/passkeys', [UsersController::class, 'addPasskey']);
+        $r->addRoute('PATCH', '/users/{username}/passkeys/{id}', [UsersController::class, 'renamePasskey']);
+        $r->addRoute('DELETE', '/users/{username}/passkeys/{id}', [UsersController::class, 'removePasskey']);
         $r->addRoute('DELETE', '/users/{username}/email-change', [UsersController::class, 'cancelEmailChange']);
         $r->addRoute('POST', '/users/{username}/email-change/resend', [UsersController::class, 'resendEmailChange']);
         $r->addRoute('GET', '/users/{username}/api-keys', [UsersController::class, 'apiKeys']);
