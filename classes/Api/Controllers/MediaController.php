@@ -1324,11 +1324,17 @@ class MediaController extends AbstractApiController
         }
 
         // A page's media lives inside the page, so rules in its frontmatter
-        // apply here too: a page nobody may edit is a page whose attachments
-        // nobody may replace (getgrav/grav-plugin-admin2#150). This only takes
-        // authority away — permission to touch media still comes from
-        // `api.media.*`, never from a page-level grant.
-        if ($pageAction !== null) {
+        // apply here too (getgrav/grav-plugin-admin2#150). Permission to touch
+        // media at all still comes from `api.media.*`, checked by the caller.
+        //
+        // Changing media needs the right to update THIS page: its own `update`
+        // rule, or the account's `api.pages.write` where it has none — the
+        // same verdict as the page's `permissions.update`, so an editor who
+        // may only read a page can't change its attachments either
+        // (getgrav/grav-plugin-admin2#209). Reading media only honors a deny.
+        if ($pageAction === 'update') {
+            $this->assertPageUpdatable($request, $page);
+        } elseif ($pageAction !== null) {
             $this->assertPageNotDenied($request, $page, $pageAction);
         }
 
