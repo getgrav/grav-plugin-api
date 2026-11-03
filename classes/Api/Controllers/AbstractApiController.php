@@ -13,6 +13,7 @@ use Grav\Common\User\Interfaces\UserInterface;
 use Grav\Plugin\Api\Auth\JwtAuthenticator;
 use Grav\Plugin\Api\Demo\DemoManager;
 use Grav\Plugin\Api\Demo\DemoPolicy;
+use Grav\Plugin\Api\Exceptions\ApiException;
 use Grav\Plugin\Api\Exceptions\DemoModeException;
 use Grav\Plugin\Api\Middleware\DemoModeMiddleware;
 use Grav\Plugin\Api\Exceptions\ForbiddenException;
@@ -487,20 +488,58 @@ abstract class AbstractApiController
 
     /**
      * The caller's effective per-page capabilities, for clients that need to
-     * show or hide edit/delete affordances. Keys are PageAcl::ACTIONS.
+     * show or hide edit/delete affordances. Keys are PageAcl::ACTIONS, plus
+     * `media` (whether the caller may change the page's media, see
+     * canChangePageMedia()) unless $withMedia is false.
      *
      * @return array<string, bool>
      */
-    protected function pageCapabilities(ServerRequestInterface $request, PageInterface $page): array
+    protected function pageCapabilities(ServerRequestInterface $request, PageInterface $page, bool $withMedia = true): array
+    {
+        $policy = $this->pageCapabilityPolicy($request);
+        if ($policy['fixed'] !== null) {
+            $capabilities = $policy['fixed'];
+        } else {
+            $capabilities = self::applyPageCapabilityMask(
+                $this->getPageAcl()->capabilities($page, $this->getUser($request), $policy['base']),
+                $policy['deny'],
+            );
+        }
+
+        if ($withMedia) {
+            $capabilities['media'] = $this->canChangePageMedia($request, $page);
+        }
+
+        return $capabilities;
+    }
+
+    /**
+     * Everything about the caller that goes into a page's capabilities except
+     * the page's own rules, worked out once so a listing can apply it to every
+     * row without asking the permission resolver again per page.
+     *
+     *   - fixed: the capabilities of every page, when page rules can't change
+     *     them (super admins, accounts without `api.access`); null otherwise
+     *   - base:  the account-wide fallback PageAcl uses where a page has no rule
+     *   - deny:  actions the credential can never perform, whatever a page
+     *            grants (API-key scope cap, demo grants)
+     *
+     * @return array{fixed: array<string, bool>|null, base: array<string, bool>, deny: list<string>}
+     */
+    protected function pageCapabilityPolicy(ServerRequestInterface $request): array
     {
         $user = $this->getUser($request);
 
         if ($this->isSuperWithinScope($request)) {
-            return $this->demoCapPageActions($request, array_fill_keys(PageAcl::ACTIONS, true));
+            return [
+                'fixed' => $this->demoCapPageActions($request, array_fill_keys(PageAcl::ACTIONS, true)),
+                'base' => [],
+                'deny' => [],
+            ];
         }
 
         if (!$this->hasPermission($user, 'api.access')) {
-            return array_fill_keys(PageAcl::ACTIONS, false);
+            return ['fixed' => array_fill_keys(PageAcl::ACTIONS, false), 'base' => [], 'deny' => []];
         }
 
         $read = $this->hasPermissionWithinScope($request, 'api.pages.read');
@@ -515,22 +554,103 @@ abstract class AbstractApiController
             'list' => $read,
         ];
 
-        $capabilities = $this->getPageAcl()->capabilities($page, $user, $base);
+        $deny = [];
 
         // A page grant never escapes the credential's own limits (see
         // authorizePageAction()), so cap writes the same way here — otherwise
         // the UI offers a Save button the server would reject.
         if (!$this->scopeAllows($request, 'api.pages.write')) {
-            foreach (['create', 'update', 'delete', 'publish'] as $action) {
-                $capabilities[$action] = false;
-            }
+            array_push($deny, 'create', 'update', 'delete', 'publish');
         }
         if (!$this->scopeAllows($request, 'api.pages.read')) {
-            $capabilities['read'] = false;
-            $capabilities['list'] = false;
+            array_push($deny, 'read', 'list');
         }
 
-        return $this->demoCapPageActions($request, $capabilities);
+        $demo = $this->demoCapPageActions($request, array_fill_keys(PageAcl::ACTIONS, true));
+        foreach ($demo as $action => $allowed) {
+            if (!$allowed) {
+                $deny[] = $action;
+            }
+        }
+
+        return ['fixed' => null, 'base' => $base, 'deny' => array_values(array_unique($deny))];
+    }
+
+    /**
+     * @param array<string, bool> $capabilities
+     * @param list<string> $deny
+     * @return array<string, bool>
+     */
+    protected static function applyPageCapabilityMask(array $capabilities, array $deny): array
+    {
+        foreach ($deny as $action) {
+            $capabilities[$action] = false;
+        }
+
+        return $capabilities;
+    }
+
+    /**
+     * Refuse a change to a page's own files (its media, or a file field that
+     * saves into its folder) unless the caller may update that page.
+     *
+     * The account's `api.media.write` decides whether it may touch media at
+     * all and is checked by the caller. This decides whether it may touch THIS
+     * page (getgrav/grav-plugin-admin2#209). A page whose rules deny `update`
+     * to the caller refuses it. A page with rules that grant the caller no
+     * `update` (only `rl`, say) needs the account's `api.pages.write`, the
+     * same verdict as its `permissions.update`. A page without any rules keeps
+     * the account permission alone, so a group that may change media but not
+     * page content keeps working there. Super admins pass, as everywhere.
+     */
+    protected function assertPageUpdatable(ServerRequestInterface $request, PageInterface $page): void
+    {
+        $refusal = $this->pageUpdateRefusal($request, $page);
+        if ($refusal !== null) {
+            throw new ForbiddenException($refusal);
+        }
+    }
+
+    /**
+     * Why the caller may not change this page's own files, or null when they
+     * may. The one rule behind assertPageUpdatable() and canChangePageMedia(),
+     * so the `permissions.media` flag can't drift from what a media write
+     * does.
+     */
+    private function pageUpdateRefusal(ServerRequestInterface $request, PageInterface $page): ?string
+    {
+        $user = $this->getUser($request);
+        if ($this->isSuperAdmin($user)) {
+            return null;
+        }
+
+        $acl = $this->getPageAcl();
+        $verdict = $acl->authorize($page, $user, 'update');
+        if ($verdict === false) {
+            return "Page permissions deny 'update' on this page.";
+        }
+        if ($verdict === null && $acl->hasRules($page) && !$this->hasPermission($user, 'api.pages.write')) {
+            return "Changing this page's media requires permission to update the page.";
+        }
+
+        return null;
+    }
+
+    /**
+     * Whether the caller may change this page's media: the `media` entry of a
+     * page's `permissions`. A super admin always may. Anyone else needs
+     * `api.media.write` and the right to update this page, the same two checks
+     * every media write makes (getgrav/grav-plugin-admin2#209).
+     */
+    protected function canChangePageMedia(ServerRequestInterface $request, PageInterface $page): bool
+    {
+        try {
+            $this->requirePermission($request, 'api.media.write');
+        } catch (ApiException) {
+            return false;
+        }
+
+        return $this->pageUpdateRefusal($request, $page) === null;
     }
 
     /**
@@ -1197,7 +1317,7 @@ abstract class AbstractApiController
      *
      * @return array<string, mixed>
      */
-    protected function finalizeAuthenticatedUser(UserInterface $user, ServerRequestInterface $request): array
+    protected function finalizeAuthenticatedUser(UserInterface $user, ServerRequestInterface $request, bool $secondFactorDone = false): array
     {
         // Gate API access AFTER the identity is established, so any onUserLogin
         // handlers (LDAP group→access mapping, etc.) have populated the access
@@ -1227,7 +1347,8 @@ abstract class AbstractApiController
 
         $jwt = new JwtAuthenticator($this->grav, $this->config);
 
-        if ($this->userRequiresTwoFactor($user)) {
+        // A passkey sign-in has proven both factors already.
+        if (!$secondFactorDone && $this->userRequiresTwoFactor($user)) {
             // Identity was proven — issue a 2FA challenge. The login only counts
             // as complete once the code verifies in /auth/2fa/verify; callers
             // must NOT reset any rate limiter or fire a success event yet.

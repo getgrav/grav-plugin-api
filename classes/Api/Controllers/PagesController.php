@@ -24,6 +24,8 @@ use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Exceptions\ForbiddenException;
 use Grav\Plugin\Api\Auth\JwtAuthenticator;
 use Grav\Plugin\Api\FlexBackend;
+use Grav\Plugin\Api\PageAclIndex;
+use Grav\Plugin\Api\PageListVisibility;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Grav\Plugin\Api\Serializers\MediaSerializer;
 use Grav\Plugin\Api\Serializers\PageSerializer;
@@ -41,6 +43,12 @@ class PagesController extends AbstractApiController
     private const PERMISSION_READ = 'api.pages.read';
     private const PERMISSION_WRITE = 'api.pages.write';
 
+    /** @var array{data: array<string, mixed>, language: string, root: string}|null see snapshotAclIndex() */
+    private ?array $aclSnapshot = null;
+
+    /** The page-rules index stamp this request's last write set, see clearPagesCache(). */
+    private ?string $aclGeneration = null;
+
     /**
      * The order prefix of a page folder, as core strips it before it reads the
      * slug (PAGE_ORDER_PREFIX_REGEX in Grav\Common\Page\Page, repeated here
@@ -48,8 +56,15 @@ class PagesController extends AbstractApiController
      */
     private const ORDER_PREFIX_REGEX = '/^[0-9]+\./u';
 
-    private const ALLOWED_FILTERS = ['published', 'template', 'routable', 'visible', 'parent', 'children_of', 'root'];
+    private const ALLOWED_FILTERS = ['published', 'template', 'routable', 'visible', 'parent', 'children_of', 'root', 'editable'];
     private const ALLOWED_SORT_FIELDS = ['date', 'title', 'slug', 'modified', 'order', 'default'];
+
+    /**
+     * What an `ancestor_only` row keeps: enough for a tree to label it, place
+     * it, number a drop next to it and open it, and nothing else of a page the
+     * caller may not read (getgrav/grav-plugin-admin2#209).
+     */
+    private const ANCESTOR_ONLY_FIELDS = ['route', 'raw_route', 'parent_route', 'slug', 'title', 'menu', 'order', 'has_children'];
 
     private readonly PageSerializer $serializer;
     private readonly ModularTemplates $templates;
@@ -89,6 +104,7 @@ class PagesController extends AbstractApiController
     private function indexViaFlex(ServerRequestInterface $request, FlexDirectory $directory): ResponseInterface
     {
         $filters = $this->getFilters($request, self::ALLOWED_FILTERS);
+        $visibility = $this->listVisibility($request, $filters);
         $sorting = $this->getSorting($request, self::ALLOWED_SORT_FIELDS);
         $pagination = $this->getPagination($request);
         $query = $request->getQueryParams();
@@ -99,7 +115,7 @@ class PagesController extends AbstractApiController
 
         // 'default' sort with children_of: use native page ordering
         if ($sortField === 'default' && isset($filters['children_of'])) {
-            return $this->indexViaDefaultSort($request, $filters['children_of'], $filters, $pagination, $search);
+            return $this->indexViaDefaultSort($request, $filters['children_of'], $filters, $pagination, $search, $visibility);
         }
         if ($sortField === 'default') {
             $sortField = 'order';
@@ -175,11 +191,13 @@ class PagesController extends AbstractApiController
             }
         }
 
+        [$items, $ancestorOnly] = $this->applyVisibility($visibility, $items, $filters);
+
         $total = count($items);
         $locatedAt = $this->applyLocate($items, $pagination, $query['locate'] ?? null);
         $slice = array_slice($items, $pagination['offset'], $pagination['limit']);
 
-        $data = $this->attachPageCapabilities($request, $slice, $this->serializer->serializeCollection($slice, $this->listOptions($request)));
+        $data = $this->attachPageCapabilities($request, $slice, $this->serializer->serializeCollection($slice, $this->listOptions($request)), $visibility, $ancestorOnly);
 
         return ApiResponse::paginated(
             data: $data,
@@ -200,6 +218,7 @@ class PagesController extends AbstractApiController
         $this->enablePages();
 
         $filters = $this->getFilters($request, self::ALLOWED_FILTERS);
+        $visibility = $this->listVisibility($request, $filters);
         $sorting = $this->getSorting($request, self::ALLOWED_SORT_FIELDS);
         $pagination = $this->getPagination($request);
         $search = self::searchTerm($request->getQueryParams());
@@ -208,7 +227,7 @@ class PagesController extends AbstractApiController
         $sortOrder = $sorting['sort'] ? $sorting['order'] : 'desc';
 
         if ($sortField === 'default' && isset($filters['children_of'])) {
-            return $this->indexViaDefaultSort($request, $filters['children_of'], $filters, $pagination, $search);
+            return $this->indexViaDefaultSort($request, $filters['children_of'], $filters, $pagination, $search, $visibility);
         }
         if ($sortField === 'default') {
             $sortField = 'order';
@@ -219,11 +238,13 @@ class PagesController extends AbstractApiController
         $allPages = $this->collectAndFilterPages($this->candidatePages($pages, $filters), $filters, $search);
         $allPages = $this->sortPages($allPages, $sortField, $sortOrder);
 
+        [$allPages, $ancestorOnly] = $this->applyVisibility($visibility, $allPages, $filters);
+
         $total = count($allPages);
         $locatedAt = $this->applyLocate($allPages, $pagination, $request->getQueryParams()['locate'] ?? null);
         $slice = array_slice($allPages, $pagination['offset'], $pagination['limit']);
 
-        $data = $this->attachPageCapabilities($request, $slice, $this->serializer->serializeCollection($slice, $this->listOptions($request)));
+        $data = $this->attachPageCapabilities($request, $slice, $this->serializer->serializeCollection($slice, $this->listOptions($request)), $visibility, $ancestorOnly);
 
         return ApiResponse::paginated(
             data: $data,
@@ -333,9 +354,14 @@ class PagesController extends AbstractApiController
      * A page that its parent's listing leaves out (a folder with no content
      * file) gets `index: -1` and no previous or next sibling.
      *
-     * Pages the caller can't read on their own route are left out before any
-     * of that is worked out: the parent comes back null, prev/next are the
-     * nearest readable siblings, and index/total count only readable ones.
+     * Only the pages the parent's folder listing returns as normal rows count
+     * (getgrav/grav-plugin-admin2#209): pages the caller may read and list,
+     * and with `?editable=true` only the ones they may also update. A row the
+     * listing keeps as `ancestor_only` is skipped, as it can't be opened, so
+     * prev/next are the nearest such siblings, index/total count only them,
+     * and first_child is the first such child. The parent comes back when the
+     * caller may read and list it, and null otherwise; under `editable=true`
+     * a parent they can't update is still returned, flagged `ancestor_only`.
      */
     public function neighbors(ServerRequestInterface $request): ResponseInterface
     {
@@ -348,25 +374,28 @@ class PagesController extends AbstractApiController
             $page = $this->findPageOrFail('/' . $route, $request, self::PERMISSION_READ);
             $this->authorizePageAction($request, $page, 'read', self::PERMISSION_READ);
 
+            $editableOnly = filter_var($request->getQueryParams()['editable'] ?? false, FILTER_VALIDATE_BOOLEAN);
+            $visibility = $this->pageVisibility($request, $editableOnly);
+
             $parent = $page->parent();
             if ($parent !== null && $parent->root()) {
                 $parent = null;
             }
             $parentRoute = $parent !== null ? (string) $parent->rawRoute() : '/';
 
-            // Only pages the caller could open on their own route count: a
-            // read grant on this one page doesn't reveal the pages around it,
-            // and prev/next skip past a hidden sibling instead of stopping (#48).
-            $readable = fn (array $pages): array => array_values(array_filter(
+            // Only pages the caller could open from the listing count: a read
+            // grant on this one page doesn't reveal the pages around it, and
+            // prev/next skip past a hidden sibling instead of stopping (#48).
+            $listed = static fn (array $pages): array => array_values(array_filter(
                 $pages,
-                fn (PageInterface $candidate): bool => $this->canReadPage($request, $candidate),
+                static fn (PageInterface $candidate): bool => $visibility->matches($candidate),
             ));
 
-            if ($parent !== null && !$this->canReadPage($request, $parent)) {
+            if ($parent !== null && !$visibility->isVisible($parent)) {
                 $parent = null;
             }
 
-            $siblings = $readable($this->defaultOrderedChildren(['children_of' => $parentRoute]));
+            $siblings = $listed($this->defaultOrderedChildren(['children_of' => $parentRoute]));
             $index = -1;
             foreach ($siblings as $position => $sibling) {
                 if ($sibling->path() === $page->path()) {
@@ -375,13 +404,13 @@ class PagesController extends AbstractApiController
                 }
             }
 
-            $children = $readable($this->defaultOrderedChildren(['children_of' => (string) $page->rawRoute()]));
+            $children = $listed($this->defaultOrderedChildren(['children_of' => (string) $page->rawRoute()]));
 
             return ApiResponse::create([
-                'parent' => $this->summaryRow($request, $parent),
-                'prev' => $index > 0 ? $this->summaryRow($request, $siblings[$index - 1]) : null,
-                'next' => $index >= 0 ? $this->summaryRow($request, $siblings[$index + 1] ?? null) : null,
-                'first_child' => $this->summaryRow($request, $children[0] ?? null),
+                'parent' => $this->summaryRow($request, $parent, $visibility, $parent !== null && !$visibility->matches($parent)),
+                'prev' => $index > 0 ? $this->summaryRow($request, $siblings[$index - 1], $visibility) : null,
+                'next' => $index >= 0 ? $this->summaryRow($request, $siblings[$index + 1] ?? null, $visibility) : null,
+                'first_child' => $this->summaryRow($request, $children[0] ?? null, $visibility),
                 'index' => $index,
                 'total' => count($siblings),
             ]);
@@ -394,14 +423,24 @@ class PagesController extends AbstractApiController
      * One page serialized exactly like a `GET /pages?fields=summary` row,
      * including the caller's per-page permissions, or null for no page.
      */
-    private function summaryRow(ServerRequestInterface $request, ?PageInterface $page): ?array
-    {
+    private function summaryRow(
+        ServerRequestInterface $request,
+        ?PageInterface $page,
+        ?PageListVisibility $visibility = null,
+        bool $ancestorOnly = false,
+    ): ?array {
         if ($page === null) {
             return null;
         }
 
         $options = ['include_header' => false] + $this->listOptions($request);
-        $rows = $this->attachPageCapabilities($request, [$page], $this->serializer->serializeCollection([$page], $options));
+        $rows = $this->attachPageCapabilities(
+            $request,
+            [$page],
+            $this->serializer->serializeCollection([$page], $options),
+            $visibility,
+            $ancestorOnly ? [PageAclIndex::keyOf($page) => true] : [],
+        );
 
         return $rows[0] ?? null;
     }
@@ -844,6 +883,8 @@ class PagesController extends AbstractApiController
                 'data' => $body,
             ]);
 
+            $this->snapshotAclIndex();
+
             if ($kind === 'folder') {
                 // Folder-only page: create the directory with no .md inside.
                 // Grav treats such folders as routing/grouping containers.
@@ -876,6 +917,7 @@ class PagesController extends AbstractApiController
             // Re-init pages and fetch the newly created page for serialization
             $this->enablePages(true);
             $newPage = $this->grav['pages']->find($route);
+            $this->refreshAclIndex([$pagePath], [$pagePath]);
 
             $resolved = $newPage ?? $page;
             if ($resolved !== null) {
@@ -1268,6 +1310,7 @@ class PagesController extends AbstractApiController
             // returns 422 instead of saving silently.
             $this->validatePageChanges($page, $body);
 
+            $this->snapshotAclIndex();
             $page->save();
 
             // Remove old template file after successful save, unless the save
@@ -1277,6 +1320,7 @@ class PagesController extends AbstractApiController
             }
 
             $this->clearPagesCache();
+            $this->refreshAclIndex([$page->path()]);
 
             $this->fireAdminEvent('onAdminAfterSave', ['object' => $page, 'page' => $page]);
             // `previous_template` is only present when the template actually
@@ -1351,9 +1395,11 @@ class PagesController extends AbstractApiController
             $this->fireEvent('onApiBeforePageDelete', ['page' => $page]);
 
             $pagePath = $page->path();
+            $this->snapshotAclIndex();
             Folder::delete($pagePath);
 
             $this->clearPagesCache();
+            $this->refreshAclIndex([], [$pagePath]);
 
             $this->fireAdminEvent('onAdminAfterDelete', ['object' => $page, 'page' => $page]);
             $deleted = $this->fireEvent('onApiPageDeleted', ['route' => '/' . $route, 'undo' => null]);
@@ -1525,6 +1571,7 @@ class PagesController extends AbstractApiController
             throw new ValidationException("A page already exists at the destination path (folder '{$clash}').");
         }
 
+        $this->snapshotAclIndex();
         Folder::move($oldPath, $newPath);
         $this->clearPagesCache();
 
@@ -1532,6 +1579,7 @@ class PagesController extends AbstractApiController
 
         // Re-init and find the moved page
         $this->enablePages(true);
+        $this->refreshAclIndex([], [$oldPath, $newPath]);
         $newRoute = $newParentRoute === '/' ? '/' . $newSlug : $newParentRoute . '/' . $newSlug;
         $movedPage = $this->grav['pages']->find($newRoute);
 
@@ -1611,6 +1659,7 @@ class PagesController extends AbstractApiController
         $this->assertDescendantsNotDenied($request, $page, 'read');
 
         $sourcePath = $page->path();
+        $this->snapshotAclIndex();
         Folder::copy($sourcePath, $destPath);
         $this->renewCopiedPageId($destPath);
         $this->rewriteCopiedSlug($destPath, $destSlug, $page->extension());
@@ -1618,6 +1667,7 @@ class PagesController extends AbstractApiController
 
         // Re-init and find the copied page
         $this->enablePages(true);
+        $this->refreshAclIndex([], [$destPath]);
         $copiedPage = $this->grav['pages']->find($destRoute);
 
         // A copy produces a new page, so it announces itself exactly like
@@ -2171,18 +2221,31 @@ class PagesController extends AbstractApiController
         // slug two children share (under different order prefixes) cannot be told
         // apart here; keep every folder so it can be refused below instead of
         // letting the last one win.
+        //
+        // The caller's own folder listing decides which slugs it may name: a
+        // child it can't see is unknown to it, whatever is on disk, so the
+        // errors below can't be used to find out which hidden folders exist
+        // (getgrav/grav-plugin-admin2#209).
+        $visibility = $this->pageVisibility($request, false);
         $childMap = [];
         $dirsBySlug = [];
+        $shown = [];
+        $hiddenHolder = [];
         foreach ($children as $child) {
             $dir = basename($child->path());
             $childMap[$child->slug()] = $dir;
             $dirsBySlug[$child->slug()][] = $dir;
+            if ($this->listedChildRow($visibility, $child) !== null) {
+                $shown[$child->slug()] = true;
+            } else {
+                $hiddenHolder[$child->slug()] = true;
+            }
         }
 
         // Validate all slugs exist, are listed once, and name exactly one folder
         $listed = [];
         foreach ($order as $slug) {
-            if (!is_string($slug) || !isset($childMap[$slug])) {
+            if (!is_string($slug) || !isset($childMap[$slug]) || !isset($shown[$slug])) {
                 throw new ValidationException("Child page with slug '" . (is_string($slug) ? $slug : gettype($slug)) . "' not found under '{$parent->route()}'.");
             }
             if (isset($listed[$slug])) {
@@ -2190,8 +2253,10 @@ class PagesController extends AbstractApiController
             }
             $listed[$slug] = true;
             if (count($dirsBySlug[$slug]) > 1) {
+                // Folder names only when every one of them is in the caller's listing.
+                $names = isset($hiddenHolder[$slug]) ? '' : ' (' . implode(', ', $dirsBySlug[$slug]) . ')';
                 throw new ValidationException(
-                    "More than one child of '{$parent->route()}' has the slug '{$slug}' (" . implode(', ', $dirsBySlug[$slug]) . "). Rename or delete one before reordering."
+                    "More than one child of '{$parent->route()}' has the slug '{$slug}'{$names}. Rename or delete one before reordering."
                 );
             }
         }
@@ -2210,7 +2275,15 @@ class PagesController extends AbstractApiController
         // Every target name is checked before the first folder moves, and a
         // failure part-way puts the folders back, so a bad request can no longer
         // strand children under `_temp_` names.
-        $plan = $this->planReorder($parentPath, $childMap, $order, $digits ?: null, $parent->route());
+        $plan = $this->planReorder(
+            $parentPath,
+            $childMap,
+            self::mergeReorder($childMap, $dirsBySlug, $order),
+            $digits ?: null,
+            $parent->route(),
+            $this->isSuperWithinScope($request),
+        );
+        $this->snapshotAclIndex();
         $this->applyRenames($plan);
 
         $this->clearPagesCache();
@@ -2219,16 +2292,20 @@ class PagesController extends AbstractApiController
 
         // Re-init and return updated children
         $this->enablePages(true);
+        $this->refreshAclIndex([], array_merge(...array_map(
+            static fn (array $rename): array => [$rename['old'], $rename['final']],
+            $plan,
+        )));
         $updatedParent = $this->grav['pages']->find('/' . $route);
         $childData = [];
         if ($updatedParent) {
+            // Only the children the caller's own folder listing shows (#209).
+            $visibility = $this->pageVisibility($request, false);
             foreach ($updatedParent->children() as $child) {
-                $childData[] = [
-                    'route' => $child->route(),
-                    'slug' => $child->slug(),
-                    'title' => $child->title(),
-                    'order' => $child->order(),
-                ];
+                $row = $this->listedChildRow($visibility, $child);
+                if ($row !== null) {
+                    $childData[] = $row;
+                }
             }
         }
 
@@ -2362,6 +2439,104 @@ class PagesController extends AbstractApiController
             200,
             $this->invalidationHeaders($tags),
         );
+    }
+
+    /**
+     * Make the numbers a reorganize hands out unique among ALL the children of
+     * each destination folder (getgrav/grav-plugin-admin2#209).
+     *
+     * The admin numbers a drop against the siblings its listing returned, and
+     * a listing leaves out pages the caller may not read, so a position it
+     * picks can be the number a hidden sibling already has. Here the requested
+     * positions and the numbers of the siblings the batch doesn't touch are
+     * merged in number order (a requested position goes first on a tie, as it
+     * is where the caller put the page) and any number that isn't above the
+     * one before it is raised to the next free one. Pages whose number still
+     * fits keep it, gaps included, so a request that clashes with nothing is
+     * carried out exactly as sent. A sibling that has to make room is renamed
+     * with the rest of the batch, as a reorder of the folder always could.
+     *
+     * @param list<array<string, mixed>> $resolved
+     * @param bool $detailed name the sibling that can't be renumbered; false for a caller who may not
+     *                       see every sibling, whose folder could be a hidden one
+     * @return list<array<string, mixed>>
+     */
+    private function keepSiblingNumbersUnique(array $resolved, bool $detailed = true): array
+    {
+        $byParent = [];
+        $inBatch = [];
+        foreach ($resolved as $index => $op) {
+            $inBatch[rtrim((string) $op['oldPath'], '/')] = true;
+            if ($op['position'] !== null && $op['newParentPath'] !== null) {
+                $byParent[rtrim((string) $op['newParentPath'], '/')][] = $index;
+            }
+        }
+
+        foreach ($byParent as $parentPath => $indexes) {
+            $entries = [];
+            foreach ($indexes as $index) {
+                $entries[] = ['number' => (int) $resolved[$index]['position'], 'tie' => 0, 'op' => $index, 'name' => ''];
+            }
+            foreach (scandir($parentPath) ?: [] as $dir) {
+                if ($dir === '.' || $dir === '..' || isset($inBatch[$parentPath . '/' . $dir]) || !is_dir($parentPath . '/' . $dir)) {
+                    continue;
+                }
+                [$number] = PageOrdering::parse($dir);
+                if ($number !== null) {
+                    $entries[] = ['number' => $number, 'tie' => 1, 'op' => null, 'name' => $dir];
+                }
+            }
+
+            usort($entries, static fn (array $a, array $b): int
+                => [$a['number'], $a['tie'], $a['op'] ?? 0, $a['name']] <=> [$b['number'], $b['tie'], $b['op'] ?? 0, $b['name']]);
+
+            $last = 0;
+            foreach ($entries as $entry) {
+                $number = max($entry['number'], $last + 1);
+                $last = $number;
+                if ($number === $entry['number']) {
+                    continue;
+                }
+
+                if ($entry['op'] !== null) {
+                    $op = &$resolved[$entry['op']];
+                    $digits = PageOrdering::digitsFromFolder($op['dirName']) ?? PageOrdering::defaultDigits();
+                    $op['position'] = $number;
+                    $op['dirName'] = str_pad((string) $number, $digits, '0', STR_PAD_LEFT) . '.' . $op['slug'];
+                    $op['actuallyMoves'] = $op['newParentRoute'] !== $op['currentParentRoute']
+                        || $op['dirName'] !== basename((string) $op['oldPath']);
+                    unset($op);
+                    continue;
+                }
+
+                $path = $parentPath . '/' . $entry['name'];
+                $sibling = $this->grav['pages']->get($path);
+                if (!$sibling instanceof PageInterface) {
+                    throw new ValidationException(
+                        $detailed
+                            ? "Cannot renumber '{$entry['name']}' to make room in this folder. Send a position for it too."
+                            : 'Cannot renumber the other pages in this folder to make room. Reload the page list and try again.'
+                    );
+                }
+                [, $folder, $width] = PageOrdering::parse($entry['name']);
+                $parentRoute = self::structuralParentRoute($sibling);
+                $resolved[] = [
+                    'route' => (string) $sibling->rawRoute(),
+                    'page' => $sibling,
+                    'slug' => $folder,
+                    'dirName' => str_pad((string) $number, (int) $width, '0', STR_PAD_LEFT) . '.' . $folder,
+                    'oldPath' => $path,
+                    'currentParentRoute' => $parentRoute,
+                    'newParentRoute' => $parentRoute,
+                    'newParentPath' => $parentPath,
+                    'position' => $number,
+                    'actuallyMoves' => true,
+                    'tempPath' => null,
+                ];
+            }
+        }
+
+        return $resolved;
     }
 
     /**
@@ -2513,6 +2688,11 @@ class PagesController extends AbstractApiController
             ];
         }
 
+        // Positions are numbered by the client against the siblings it was
+        // shown, which leaves out pages the caller can't read (#209). Keep
+        // every folder's numbers unique against ALL its children.
+        $resolved = $this->keepSiblingNumbersUnique($resolved, $this->isSuperWithinScope($request));
+
         // Reject any op whose destination parent is itself being moved in
         // this batch. Otherwise Phase 2 would rename the parent mid-batch,
         // making Phase 3's rename($tempPath, $finalPath) fail because the
@@ -2570,6 +2750,7 @@ class PagesController extends AbstractApiController
         }
 
         $this->fireEvent('onApiBeforePagesReorganize', ['operations' => $resolved]);
+        $this->snapshotAclIndex();
 
         // --- Phase 2: Move to temp names ---
         // Only ops that rename something take part. A no-op sent through a
@@ -2626,6 +2807,10 @@ class PagesController extends AbstractApiController
 
         $this->clearPagesCache();
         $this->enablePages(true);
+        $this->refreshAclIndex([], array_merge(...array_map(
+            static fn (array $op): array => [(string) $op['oldPath'], (string) ($op['finalPath'] ?? $op['oldPath'])],
+            $resolved,
+        )));
 
         $this->fireEvent('onApiPagesReorganized', ['operations' => $resolved]);
 
@@ -2650,6 +2835,8 @@ class PagesController extends AbstractApiController
         }
 
         // --- Phase 4: Build response with all affected pages ---
+        // Only the children the caller's own folder listings show (#209).
+        $visibility = $this->pageVisibility($request, false);
         $affectedData = [];
         foreach (array_keys($affectedParentRoutes) as $parentRoute) {
             // '/' means the pages-root (genuine top-level pages), NOT the home
@@ -2665,13 +2852,10 @@ class PagesController extends AbstractApiController
             }
 
             foreach ($parent->children() as $child) {
-                $affectedData[] = [
-                    'route' => $child->route(),
-                    'slug' => $child->slug(),
-                    'title' => $child->title(),
-                    'order' => $child->order(),
-                    'parent' => $parentRoute,
-                ];
+                $row = $this->listedChildRow($visibility, $child);
+                if ($row !== null) {
+                    $affectedData[] = $row + ['parent' => $parentRoute];
+                }
             }
         }
 
@@ -2755,28 +2939,134 @@ class PagesController extends AbstractApiController
      * page, so a client can hide the edit/delete affordances a page's own
      * frontmatter denies (getgrav/grav-plugin-admin2#150).
      *
-     * Only the paginated slice is annotated, and rows are never dropped — a
-     * page whose rules deny reading still appears in the listing without
-     * actions, exactly as core's Flex page index behaves.
+     * Every row also carries `ancestor_only`: true for a folder-listing row
+     * the caller can't open (or, under `editable=true`, can't edit) that is
+     * listed only because a page below it can be (getgrav/grav-plugin-admin2#209),
+     * false for every other row. An `ancestor_only` row the caller can't read
+     * is cut down to ANCESTOR_ONLY_FIELDS plus `permissions`; one they can read
+     * (a page they can't edit, under `editable=true`) keeps every field.
+     *
+     * Only the paginated slice is annotated. Which pages make it into the
+     * listing at all is decided earlier, by PageListVisibility.
      *
      * @param list<PageInterface> $pages Pages in the same order they were serialized.
      * @param list<array<string, mixed>> $data
+     * @param array<string, true> $ancestorOnly keys (PageAclIndex::keyOf()) of the rows kept only as a way down
      * @return list<array<string, mixed>>
      */
-    private function attachPageCapabilities(ServerRequestInterface $request, array $pages, array $data): array
-    {
+    private function attachPageCapabilities(
+        ServerRequestInterface $request,
+        array $pages,
+        array $data,
+        ?PageListVisibility $visibility = null,
+        array $ancestorOnly = [],
+    ): array {
         $pages = array_values($pages);
+        $recoverable = $this->deleteRecoverable($request);
 
         foreach ($data as $index => $item) {
             $page = $pages[$index] ?? null;
             if ($page instanceof PageInterface) {
-                $item['permissions'] = $this->pageCapabilities($request, $page);
-                $item['delete_recoverable'] = $this->deleteRecoverable($request);
+                $permissions = $visibility !== null
+                    ? $visibility->capabilities($page)
+                    : $this->pageCapabilities($request, $page, false);
+
+                $wayDown = isset($ancestorOnly[PageAclIndex::keyOf($page)]);
+                if ($wayDown && !($permissions['read'] ?? false)) {
+                    // A page the caller can't read: only what the tree needs.
+                    $item = array_intersect_key($item, array_flip(self::ANCESTOR_ONLY_FIELDS));
+                    $item['permissions'] = $permissions;
+                    $item['ancestor_only'] = true;
+                } else {
+                    // Under `editable=true` a page the caller can read but not
+                    // edit is a way down as well, and opens like any other.
+                    $item['permissions'] = $permissions;
+                    $item['delete_recoverable'] = $recoverable;
+                    $item['ancestor_only'] = $wayDown;
+                }
                 $data[$index] = $item;
             }
         }
 
         return $data;
+    }
+
+    /**
+     * A reorder/reorganize response row for a child, or null when the caller's
+     * folder listing would leave it out. A row kept only as a way down is
+     * flagged `ancestor_only`, as in the listing.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function listedChildRow(PageListVisibility $visibility, PageInterface $child): ?array
+    {
+        $ancestorOnly = !$visibility->matches($child);
+        if ($ancestorOnly && !$visibility->leadsToMatch($child)) {
+            return null;
+        }
+
+        return [
+            'route' => $child->route(),
+            'slug' => $child->slug(),
+            'title' => $child->title(),
+            'order' => $child->order(),
+            'ancestor_only' => $ancestorOnly,
+        ];
+    }
+
+    /**
+     * Which pages this caller's listing may return (getgrav/grav-plugin-admin2#209).
+     *
+     * Takes the `editable` filter out of $filters, as it is applied here rather
+     * than by matchesFilters(). Only `editable=true` (or 1/yes/on) does anything.
+     *
+     * @param array<string, mixed> $filters
+     */
+    private function listVisibility(ServerRequestInterface $request, array &$filters): PageListVisibility
+    {
+        $editableOnly = isset($filters['editable']) && filter_var($filters['editable'], FILTER_VALIDATE_BOOLEAN);
+        unset($filters['editable']);
+
+        return $this->pageVisibility($request, $editableOnly);
+    }
+
+    private function pageVisibility(ServerRequestInterface $request, bool $editableOnly): PageListVisibility
+    {
+        $policy = $this->pageCapabilityPolicy($request);
+
+        // Super admins (and accounts page rules can't affect) get the same
+        // capabilities on every page, so there is no index to load.
+        $index = $policy['fixed'] === null
+            ? PageAclIndex::load($this->grav, $this->getFlexDirectory('pages'), $this->getPageAcl())
+            : null;
+
+        return new PageListVisibility(
+            $index,
+            $this->getPageAcl(),
+            $this->getUser($request),
+            $policy['fixed'],
+            $policy['base'],
+            $policy['deny'],
+            $editableOnly,
+            fn (PageInterface $page): array => $this->pageCapabilities($request, $page, false),
+        );
+    }
+
+    /**
+     * Drop what the caller may not see from a listing: a folder listing
+     * (`children_of`, or `root=true`) keeps the way down to pages below that
+     * the caller may see, a flat listing doesn't.
+     *
+     * @param list<PageInterface> $items
+     * @param array<string, mixed> $filters
+     * @return array{0: list<PageInterface>, 1: array<string, true>}
+     */
+    private function applyVisibility(PageListVisibility $visibility, array $items, array $filters): array
+    {
+        $folder = isset($filters['children_of'])
+            || (isset($filters['root']) && filter_var($filters['root'], FILTER_VALIDATE_BOOLEAN));
+
+        return $folder ? $visibility->filterFolder($items) : [$visibility->filterFlat($items), []];
     }
 
     /**
@@ -2966,15 +3256,16 @@ class PagesController extends AbstractApiController
             || $parentRoute === $parent->route();
     }
 
-    private function indexViaDefaultSort(ServerRequestInterface $request, string $parentRoute, array $filters, array $pagination, ?string $search = null): ResponseInterface
+    private function indexViaDefaultSort(ServerRequestInterface $request, string $parentRoute, array $filters, array $pagination, ?string $search, PageListVisibility $visibility): ResponseInterface
     {
         $items = $this->defaultOrderedChildren($filters, $search);
+        [$items, $ancestorOnly] = $visibility->filterFolder($items);
 
         $total = count($items);
         $locatedAt = $this->applyLocate($items, $pagination, $request->getQueryParams()['locate'] ?? null);
         $slice = array_slice($items, $pagination['offset'], $pagination['limit']);
 
-        $data = $this->attachPageCapabilities($request, $slice, $this->serializer->serializeCollection($slice, $this->listOptions($request)));
+        $data = $this->attachPageCapabilities($request, $slice, $this->serializer->serializeCollection($slice, $this->listOptions($request)), $visibility, $ancestorOnly);
 
         return ApiResponse::paginated(
             data: $data,
@@ -3101,6 +3392,8 @@ class PagesController extends AbstractApiController
                 'title' => 'title',
                 'date' => 'date',
                 'modified', 'timestamp' => 'modified',
+                'publish_date' => 'publish_date',
+                'unpublish_date' => 'unpublish_date',
                 'slug', 'basename' => 'slug',
                 default => 'order',
             };
@@ -3385,6 +3678,8 @@ class PagesController extends AbstractApiController
             $result = match ($field) {
                 'date' => ($a->date() ?? 0) <=> ($b->date() ?? 0),
                 'modified' => ($a->modified() ?? 0) <=> ($b->modified() ?? 0),
+                'publish_date' => ($a->publishDate() ?? 0) <=> ($b->publishDate() ?? 0),
+                'unpublish_date' => ($a->unpublishDate() ?? 0) <=> ($b->unpublishDate() ?? 0),
                 'title' => strcasecmp($a->title() ?? '', $b->title() ?? ''),
                 'slug' => strcmp($a->slug() ?? '', $b->slug() ?? ''),
                 'order' => ($a->order() ?? PHP_INT_MAX) <=> ($b->order() ?? PHP_INT_MAX),
@@ -3657,14 +3952,69 @@ class PagesController extends AbstractApiController
     }
 
     /**
+     * The full order of a folder's children for a reorder that may list only
+     * some of them (getgrav/grav-plugin-admin2#209: a caller's listing leaves
+     * out the pages it may not read, so the order it sends does too).
+     *
+     * The children keep the order they have now (numbered folders by number,
+     * then unnumbered ones by name). The listed ones are put in the requested
+     * order in the places listed children held, and every other child stays
+     * where it was, so the result numbers ALL children and no number is
+     * handed out twice. An unlisted child without a number keeps having none,
+     * and one that shares its slug with another child can't be addressed by
+     * slug, so it is left as it is. When every child is listed this is the
+     * requested order unchanged.
+     *
+     * @param array<string, string> $childMap slug => folder name
+     * @param array<string, list<string>> $dirsBySlug slug => every folder with that slug
+     * @param list<string> $order requested slugs
+     * @return list<string> slugs to number 1..n, in order
+     */
+    private static function mergeReorder(array $childMap, array $dirsBySlug, array $order): array
+    {
+        $current = [];
+        foreach ($childMap as $slug => $dir) {
+            if (count($dirsBySlug[$slug] ?? []) !== 1) {
+                continue;
+            }
+            [$number] = PageOrdering::parse($dir);
+            $current[] = ['slug' => (string) $slug, 'number' => $number, 'dir' => $dir];
+        }
+        usort($current, static fn (array $a, array $b): int
+            => [$a['number'] === null, $a['number'] ?? 0, strtolower($a['dir'])] <=> [$b['number'] === null, $b['number'] ?? 0, strtolower($b['dir'])]);
+
+        $listed = array_flip($order);
+        $requested = array_values($order);
+        $next = 0;
+        $merged = [];
+        foreach ($current as $child) {
+            if (isset($listed[$child['slug']])) {
+                $merged[] = $requested[$next++];
+            } elseif ($child['number'] !== null) {
+                $merged[] = $child['slug'];
+            }
+        }
+
+        // Listed slugs a shared-slug folder kept out of $current (refused
+        // earlier, but keep the request whole regardless).
+        for (; $next < count($requested); $next++) {
+            $merged[] = $requested[$next];
+        }
+
+        return $merged;
+    }
+
+    /**
      * Work out the renames a reorder needs, refusing the request when a target
      * name is taken by a folder that is not part of it.
      *
      * @param array<string, string> $childMap slug => current folder name
      * @param list<string>          $order    slugs in their new order
+     * @param bool                  $detailed name the folder in the way; false for a caller who may not see every
+     *                                        sibling, whose folder could be one of the hidden ones
      * @return list<array{old: string, temp: string, final: string}>
      */
-    private function planReorder(string $parentPath, array $childMap, array $order, ?int $digits, string $parentRoute): array
+    private function planReorder(string $parentPath, array $childMap, array $order, ?int $digits, string $parentRoute, bool $detailed = true): array
     {
         $existing = array_flip(array_filter(
             scandir($parentPath) ?: [],
@@ -3701,7 +4051,9 @@ class PagesController extends AbstractApiController
                 $name = basename($rename[$kind]);
                 if (isset($existing[$name]) && !isset($vacated[$name])) {
                     throw new ValidationException(
-                        "Cannot reorder '{$parentRoute}': the folder '{$name}' already exists and is not part of this reorder."
+                        $detailed
+                            ? "Cannot reorder '{$parentRoute}': the folder '{$name}' already exists and is not part of this reorder."
+                            : "Cannot reorder '{$parentRoute}': a folder in the way already exists and is not part of this reorder."
                     );
                 }
             }
@@ -3750,10 +4102,63 @@ class PagesController extends AbstractApiController
     }
 
     /**
+     * Take the page-rules index as it is before this request writes pages, so
+     * refreshAclIndex() can bring it up to date afterwards instead of the next
+     * listing reading every page's frontmatter again (#209).
+     */
+    private function snapshotAclIndex(): void
+    {
+        $this->aclSnapshot = PageAclIndex::snapshot($this->grav, $this->getFlexDirectory('pages'));
+    }
+
+    /**
+     * Update the page-rules index for the pages this request wrote, once the
+     * pages cache has been cleared (see PageAclIndex::refresh()). Never needed
+     * for correctness: whatever it can't do, the next listing builds instead.
+     *
+     * Pages are named by their folder (absolute path), which is all a page the
+     * API loaded through the Pages service has in common with the Flex object
+     * the index is built from.
+     *
+     * @param list<string|null> $saved folders of pages whose own file this request saved
+     * @param list<string|null> $changed folders this request created, deleted, moved, copied or renamed,
+     *                                   old and new places alike, with everything below them
+     */
+    private function refreshAclIndex(array $saved = [], array $changed = []): void
+    {
+        $snapshot = $this->aclSnapshot;
+        $this->aclSnapshot = null;
+        if ($snapshot === null) {
+            return;
+        }
+
+        $root = rtrim((string) $this->grav['locator']->findResource('page://', true), '/');
+        $keys = static function (array $folders) use ($root): array {
+            $keys = [];
+            foreach ($folders as $folder) {
+                $folder = rtrim((string) $folder, '/');
+                if ($root !== '' && str_starts_with($folder, $root . '/')) {
+                    $keys[] = substr($folder, strlen($root));
+                }
+            }
+
+            return $keys;
+        };
+
+        PageAclIndex::refresh($this->grav, $this->getFlexDirectory('pages'), $snapshot, $this->aclGeneration, $keys($saved), $keys($changed));
+    }
+
+    /**
      * Clear the pages cache after a mutation.
      */
     private function clearPagesCache(): void
     {
+        // The page-rules index behind filtered listings (#209) follows the
+        // same writes, including two within the same second. A write that
+        // calls refreshAclIndex() afterwards hands the index over to the new
+        // state instead of leaving it to be rebuilt.
+        $this->aclGeneration = PageAclIndex::invalidate($this->grav);
+
         // Grav 2.2+ can rebuild just the pages index on the next request.
         // A standard clear also drops compiled config, languages and Twig,
         // so every save (autosave included) left the next request fully cold.

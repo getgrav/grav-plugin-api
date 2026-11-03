@@ -31,6 +31,8 @@ class UserSerializer implements SerializerInterface
             'avatar_url' => self::resolveAvatarUrl($resource),
             'twofa_enabled' => (bool) $resource->get('twofa_enabled', false),
             'twofa_secret' => $resource->get('twofa_secret') ? true : false,
+            // How many passkeys the account holds (the list: GET /users/{u}/passkeys).
+            'passkeys' => count(array_filter((array) $resource->get('passkeys', []), 'is_array')),
             'created' => $this->formatTimestamp($resource->get('created')),
             'modified' => $this->formatTimestamp($resource->get('modified')),
         ];

@@ -1233,6 +1233,17 @@ final class BlueprintUploadTestPages
             public function relativePagePath(): string { return 'user/pages/' . $this->folder; }
         };
     }
+
+    /**
+     * No page objects by folder in this double, so an upload into a page
+     * folder is judged on the account's `api.pages.write` alone.
+     */
+    public function enablePages(): void {}
+
+    public function get(string $path): ?object
+    {
+        return null;
+    }
 }
 
 final class BlueprintUploadTestFile implements UploadedFileInterface

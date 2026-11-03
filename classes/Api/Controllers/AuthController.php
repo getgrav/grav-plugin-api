@@ -59,42 +59,12 @@ class AuthController extends AbstractApiController
             /** @var Login $login */
             $login = $this->grav['login'];
 
-            // The Login plugin's onUserLogin handler writes the authenticated
-            // user into the Grav session and regenerates the session id (its
-            // session-fixation guard). API requests run under the *front-end*
-            // session cookie — the `/api` route is never under the admin path,
-            // so it never gets the `-admin` session split — so without care an
-            // Admin2 password login overwrites and rotates the session of
-            // whoever is logged into the public site in the same browser. That
-            // boots front-end visitors every time the SPA (re)authenticates,
-            // regardless of their own session timeout. The API is stateless
-            // (JWT), so fire the full event chain for its side effects (LDAP
-            // group mapping, etc.) but leave the shared session exactly as we
-            // found it. getgrav/grav-plugin-admin2#79, #55.
-            $session = $this->grav['session'];
-            $sessionStarted = $session->isStarted();
-            $previousUser = $sessionStarted ? ($session->user ?? null) : null;
-
-            // onUserLogin only calls regenerateId() when this flag is true;
-            // toggling it off for the duration suppresses the id rotation.
-            $sessionInitialize = $this->config->get('system.session.initialize', true);
-            $this->config->set('system.session.initialize', false);
-
-            try {
-                $event = $login->login(
-                    ['username' => $username, 'password' => $password],
-                    ['admin' => true, 'twofa' => false],
-                    ['authorize' => [], 'return_event' => true]
-                );
-            } finally {
-                $this->config->set('system.session.initialize', $sessionInitialize);
-                // Restore the front-end visitor's user (or guest), discarding
-                // the admin user onUserLogin just planted, so the public
-                // session is untouched.
-                if ($sessionStarted) {
-                    $session->user = $previousUser;
-                }
-            }
+            $event = $this->runLoginChain(
+                $login,
+                ['username' => $username, 'password' => $password],
+                ['admin' => true, 'twofa' => false],
+                ['authorize' => [], 'return_event' => true]
+            );
 
             $user = $event->getUser();
 
@@ -215,6 +185,237 @@ class AuthController extends AbstractApiController
         ]);
 
         return $this->issueTokenPair($jwt, $user);
+    }
+
+    // ─── Passkeys ────────────────────────────────────────────────────────────
+
+    /**
+     * GET /auth/passkey
+     *
+     * Whether this site offers passkey sign-in (Login 3.12+ on Grav 2 with
+     * `plugins.login.passkeys.enabled`), so the login screen knows to show
+     * the button. Public.
+     */
+    public function passkeyStatus(ServerRequestInterface $request): ResponseInterface
+    {
+        return ApiResponse::create(['enabled' => $this->passkeys() !== null]);
+    }
+
+    /**
+     * POST /auth/passkey/options
+     *
+     * Body: { for: "sign-in" } → options for a passkey alone, or
+     *       { for: "two-step", challenge_token } → options limited to the
+     *       account's passkeys, in place of the 2FA code.
+     * Returns { options, ticket } for navigator.credentials.get().
+     */
+    public function passkeyOptions(ServerRequestInterface $request): ResponseInterface
+    {
+        $passkeys = $this->requirePasskeys();
+        $body = $this->passkeyBody($request);
+        $this->limitPasskeys('passkey_options', true);
+
+        switch ($body['for'] ?? '') {
+            case 'sign-in':
+                return ApiResponse::create($passkeys->assertionOptions(null, 'sign-in'));
+
+            case 'two-step':
+                $this->requireFields($body, ['challenge_token']);
+                $user = (new JwtAuthenticator($this->grav, $this->config))
+                    ->validateChallengeToken((string) $body['challenge_token'], self::CHALLENGE_2FA);
+                if ($user === null) {
+                    throw new UnauthorizedException('Invalid or expired challenge token.');
+                }
+                return ApiResponse::create($passkeys->assertionOptions($user, 'second-step'));
+        }
+
+        throw new ValidationException('Unknown passkey step.', [['field' => 'for', 'message' => 'Use sign-in or two-step.']]);
+    }
+
+    /**
+     * POST /auth/passkey
+     *
+     * Body: { for, ticket, credential[, challenge_token] }. Returns what
+     * /auth/token returns: a token pair. A passkey is both factors, so a
+     * passkey alone never gets a 2FA challenge, and as the second step it
+     * finishes the challenge the password started.
+     */
+    public function passkey(ServerRequestInterface $request): ResponseInterface
+    {
+        $passkeys = $this->requirePasskeys();
+        $body = $this->passkeyBody($request);
+        $this->requireFields($body, ['ticket', 'credential']);
+        $this->limitPasskeys('passkey_attempts', false);
+
+        $ticket = (string) $body['ticket'];
+        $credential = is_array($body['credential']) ? $body['credential'] : [];
+
+        switch ($body['for'] ?? '') {
+            case 'sign-in':
+                $user = $passkeys->verifyAssertion($ticket, $credential, 'sign-in');
+                if ($user === null) {
+                    $this->passkeyFailed($request, null);
+                }
+
+                /** @var Login $login */
+                $login = $this->grav['login'];
+                $event = $this->runLoginChain(
+                    $login,
+                    ['username' => (string) $user->username],
+                    ['admin' => true, 'twofa' => false, 'passkey' => true, 'rate_limit' => false, 'remember_me' => false],
+                    ['authorize' => [], 'return_event' => true, 'user' => $user]
+                );
+                $user = $event->getUser();
+                if (!$user || !$user->authenticated) {
+                    $this->passkeyFailed($request, null);
+                }
+
+                $result = $this->finalizeAuthenticatedUser($user, $request, true);
+                $this->fireEvent('onApiUserLogin', [
+                    'user' => $user,
+                    'method' => 'passkey',
+                    'passkey' => $passkeys->usedName(),
+                    'ip' => $this->getRequestIp($request),
+                    'request' => $request,
+                ]);
+
+                return ApiResponse::create($result);
+
+            case 'two-step':
+                $this->requireFields($body, ['challenge_token']);
+                $jwt = new JwtAuthenticator($this->grav, $this->config);
+                $user = $jwt->validateChallengeToken((string) $body['challenge_token'], self::CHALLENGE_2FA);
+                if ($user === null) {
+                    throw new UnauthorizedException('Invalid or expired challenge token.');
+                }
+                if ($user->get('state', 'enabled') === 'disabled') {
+                    throw new ForbiddenException('This user account is disabled.');
+                }
+
+                $username = (string) $user->username;
+                $limiter = $this->grav['login']->getRateLimiter('twofa_attempts');
+                if ($limiter->hasReachedLimit($username)) {
+                    throw new TooManyRequestsException('Too many wrong codes. Try again later.', max(1, (int) $limiter->getRetryAfter($username)));
+                }
+
+                if ($passkeys->verifyAssertion($ticket, $credential, 'second-step', $user) === null) {
+                    // Counts against the same cap as wrong 2FA codes.
+                    $limiter->registerRateLimitedAction($username);
+                    $this->passkeyFailed($request, $username, 'That passkey isn\'t one of this account\'s.');
+                }
+
+                if (!$jwt->consumeToken((string) $body['challenge_token'])) {
+                    throw new UnauthorizedException('Invalid or expired challenge token.');
+                }
+                $limiter->resetRateLimit($username);
+
+                $this->fireEvent('onApiUserLogin', [
+                    'user' => $user,
+                    'method' => '2fa-passkey',
+                    'passkey' => $passkeys->usedName(),
+                    'ip' => $this->getRequestIp($request),
+                    'request' => $request,
+                ]);
+
+                return $this->issueTokenPair($jwt, $user);
+        }
+
+        throw new ValidationException('Unknown passkey step.', [['field' => 'for', 'message' => 'Use sign-in or two-step.']]);
+    }
+
+    /** The Login plugin's passkeys, when this site offers them. */
+    private function passkeys(): ?\Grav\Plugin\Login\Passkeys\Passkeys
+    {
+        $login = $this->grav['login'] ?? null;
+
+        return is_object($login) && method_exists($login, 'passkeys') ? $login->passkeys() : null;
+    }
+
+    private function requirePasskeys(): \Grav\Plugin\Login\Passkeys\Passkeys
+    {
+        return $this->passkeys() ?? throw new ForbiddenException('Passkeys are not available on this site.');
+    }
+
+    /**
+     * The body of a passkey call, which must be JSON. A cross-site page can
+     * send a plain form POST here without a CORS preflight; refusing it keeps
+     * such a page from spending this IP's passkey allowance on bogus answers.
+     */
+    private function passkeyBody(ServerRequestInterface $request): array
+    {
+        if (!str_starts_with(strtolower($request->getHeaderLine('Content-Type')), 'application/json')) {
+            throw new \Grav\Plugin\Api\Exceptions\ApiException(415, 'Unsupported Media Type', 'Passkey requests must be sent as application/json.');
+        }
+
+        return $this->getRequestBody($request);
+    }
+
+    /**
+     * Per-IP limits from the Login plugin: `passkey_options` counts every
+     * ceremony started, `passkey_attempts` only answers that failed.
+     */
+    private function limitPasskeys(string $context, bool $count): void
+    {
+        $login = $this->grav['login'];
+        $limiter = $login->getRateLimiter($context);
+        $ip = $login->getIpKey();
+        if ($limiter->hasReachedLimit($ip, 'ip')) {
+            throw new TooManyRequestsException('Too many passkey attempts. Try again in a few minutes.', max(60, (int) $limiter->getInterval() * 60));
+        }
+        if ($count) {
+            $limiter->registerRateLimitedAction($ip, 'ip');
+        }
+    }
+
+    private function passkeyFailed(ServerRequestInterface $request, ?string $username, ?string $message = null): never
+    {
+        $login = $this->grav['login'];
+        $login->getRateLimiter('passkey_attempts')->registerRateLimitedAction($login->getIpKey(), 'ip');
+        $this->fireEvent('onApiUserLoginFailure', [
+            'username' => $username ?? '',
+            'reason' => 'passkey',
+            'ip' => $this->getRequestIp($request),
+        ]);
+
+        throw new UnauthorizedException($message ?? 'That passkey didn\'t sign you in.');
+    }
+
+    /**
+     * Fire the Login plugin's whole sign-in chain (LDAP group mapping and the
+     * rest) while leaving the shared Grav session exactly as it was.
+     *
+     * The Login plugin's onUserLogin handler writes the authenticated user into
+     * the Grav session and regenerates the session id (its session-fixation
+     * guard). API requests run under the *front-end* session cookie: the `/api`
+     * route is never under the admin path, so it never gets the `-admin`
+     * session split. Without care an Admin2 sign-in would overwrite and rotate
+     * the session of whoever is logged into the public site in the same
+     * browser, booting front-end visitors every time the SPA (re)authenticates,
+     * regardless of their own session timeout. The API is stateless (JWT), so
+     * the chain runs for its side effects only. getgrav/grav-plugin-admin2#79, #55.
+     */
+    private function runLoginChain(Login $login, array $credentials, array $options, array $extra): \Grav\Plugin\Login\Events\UserLoginEvent
+    {
+        $session = $this->grav['session'];
+        $sessionStarted = $session->isStarted();
+        $previousUser = $sessionStarted ? ($session->user ?? null) : null;
+
+        // onUserLogin only calls regenerateId() when this flag is true;
+        // toggling it off for the duration suppresses the id rotation.
+        $sessionInitialize = $this->config->get('system.session.initialize', true);
+        $this->config->set('system.session.initialize', false);
+
+        try {
+            return $login->login($credentials, $options, $extra);
+        } finally {
+            $this->config->set('system.session.initialize', $sessionInitialize);
+            // Restore the front-end visitor's user (or guest), discarding the
+            // admin user onUserLogin just planted, so the public session is
+            // untouched.
+            if ($sessionStarted) {
+                $session->user = $previousUser;
+            }
+        }
     }
 
     public function refresh(ServerRequestInterface $request): ResponseInterface

@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace Grav\Plugin\Api\Controllers;
 
 use Grav\Common\Filesystem\Folder;
+use Grav\Common\Page\Interfaces\PageInterface;
 use Grav\Plugin\Api\Exceptions\ForbiddenException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Grav\Plugin\Api\Services\BlueprintLoader;
 use Grav\Plugin\Api\Services\BlueprintPathResolver;
+use Grav\Plugin\Api\Services\PathContainment;
 use Grav\Plugin\Api\Services\UploadFieldSettings;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -108,6 +110,7 @@ class BlueprintUploadController extends AbstractApiController
             $this->mayWriteUsersScope($request)
         );
         $isAccountsDir = $this->guardTargetDir($request, $targetDir) === 'accounts';
+        $this->guardPageFolder($request, $targetDir);
 
         $files = $this->flattenUploadedFiles($request->getUploadedFiles());
         if ($files === []) {
@@ -226,6 +229,7 @@ class BlueprintUploadController extends AbstractApiController
             )
             : [];
         $this->assertSafeExtension($filename, false, $lifted);
+        $this->guardPageFolder($request, $targetDir);
 
         // Idempotent: a file that's already gone is indistinguishable from a
         // file we just deleted, so don't pollute the client with a 404 that
@@ -611,6 +615,62 @@ class BlueprintUploadController extends AbstractApiController
         }
 
         return $classification;
+    }
+
+    /**
+     * A file field that saves into a page's folder (`self@:` on a page
+     * blueprint, a `page://` destination, or a delete of such a file) changes
+     * that page's media, so it follows the same page rules as
+     * `POST /pages/{route}/media` (getgrav/grav-plugin-admin2#209).
+     *
+     * The page is the nearest folder at or above the target that is a page;
+     * a file field can save into a subfolder of one. Super admins pass.
+     */
+    private function guardPageFolder(ServerRequestInterface $request, string $absoluteDir): void
+    {
+        try {
+            $pagesRoot = $this->grav['locator']->findResource('page://', true);
+        } catch (\Throwable) {
+            return;
+        }
+        if (!is_string($pagesRoot) || $pagesRoot === '') {
+            return;
+        }
+
+        $dir = rtrim(str_replace('\\', '/', $absoluteDir), '/');
+        $roots = array_unique(array_filter([
+            rtrim(str_replace('\\', '/', $pagesRoot), '/'),
+            ($real = realpath($pagesRoot)) !== false ? rtrim(str_replace('\\', '/', $real), '/') : null,
+        ]));
+
+        $root = null;
+        foreach ($roots as $candidate) {
+            if (PathContainment::isWithin($dir, $candidate, true, '/')) {
+                $root = $candidate;
+                break;
+            }
+        }
+        if ($root === null) {
+            return;
+        }
+
+        $pages = $this->grav['pages'];
+        if (method_exists($pages, 'enablePages')) {
+            $pages->enablePages();
+        }
+
+        // Pages are indexed by the path under the locator's root, so a target
+        // reached through the realpath is looked up under that root instead.
+        $base = rtrim(str_replace('\\', '/', $pagesRoot), '/');
+        $probe = $base . substr($dir, strlen($root));
+        while (strlen($probe) > strlen($base)) {
+            $page = $pages->get($probe);
+            if ($page instanceof PageInterface && !$page->root()) {
+                $this->assertPageUpdatable($request, $page);
+                return;
+            }
+            $probe = dirname($probe);
+        }
     }
 
     /**

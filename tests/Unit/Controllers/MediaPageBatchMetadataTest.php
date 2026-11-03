@@ -197,9 +197,11 @@ class MediaPageBatchMetadataTest extends TestCase
     #[Test]
     public function batch_still_writes_for_an_editor_on_a_page_with_no_rule(): void
     {
+        // An editor: may write pages and media. Media write alone no longer
+        // reaches a page the caller may not update (getgrav/grav-plugin-admin2#209).
         $this->controller = $this->pageController(
             self::FIELDS,
-            ['api' => ['access' => true, 'media' => ['read' => true, 'write' => true]]],
+            ['api' => ['access' => true, 'pages' => ['write' => true], 'media' => ['read' => true, 'write' => true]]],
         );
 
         $payload = json_decode((string) $this->batch(['b.jpg'], ['rating' => 5])->getBody(), true)['data'];
