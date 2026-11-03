@@ -1127,8 +1127,22 @@ paths:
 
         The listing uses a lightweight serialization that excludes content,
         media, and children for performance. Every row carries a `permissions`
-        object with the caller's effective per-page capabilities; rows are never
-        dropped for a page whose own rules deny reading.
+        object with the caller's effective per-page capabilities (the same
+        object, under the same key, as `GET /pages/{route}`) and an
+        `ancestor_only` flag.
+
+        Pages the caller may not `read` or may not `list` under the pages' own
+        `header.permissions` rules are left out (getgrav/grav-plugin-admin2#209),
+        and `meta.pagination.total`, the pages and `locate` count only the rest.
+        A folder listing (`children_of`, or `root=true`) also keeps a child the
+        caller can't read when a page somewhere below it can be read and listed,
+        so a tree can still be opened down to that page: such a row has
+        `ancestor_only: true`, its real `permissions` (`read: false`, …) and
+        only `route`, `raw_route`, `parent_route`, `slug`, `title`, `menu`,
+        `order` and `has_children`; opening it on its own route is a 403.
+        Every other row has `ancestor_only: false`. A flat listing never keeps such rows. Super
+        admins, and sites where no page has a `permissions` block, see every
+        page as before.
 
         Requires `api.pages.read`.
       parameters:
@@ -1200,6 +1214,21 @@ paths:
             pages root, resolved from the real hierarchy, so children of the
             home page are not counted as top-level. `root=false` returns
             only pages that are not top-level.
+          schema:
+            type: boolean
+          example: true
+        - name: editable
+          in: query
+          description: |
+            `true` keeps only the pages the caller may update (their
+            `permissions.update`), as well as read and list. In a folder listing
+            a child that isn't editable is kept, with `ancestor_only: true`,
+            when a page below it is editable, so the tree still leads to every
+            editable page; the row's `permissions` still say whether the caller
+            may read it. Any other value is ignored (it is not a
+            "read-only pages" filter). A convenience for the admin's page list,
+            not a security boundary: every endpoint still checks the page's
+            own rules.
           schema:
             type: boolean
           example: true
@@ -2042,8 +2071,19 @@ paths:
         filesystem failure part-way is rolled back on a best-effort basis and
         also returns 422.
 
-        The response lists every child of each affected parent (old and new),
-        not only the pages named in the request.
+        Positions never leave two children of a folder with the same number.
+        A client numbers a drop against the siblings its listing showed, which
+        leaves out pages the caller may not read (getgrav/grav-plugin-admin2#209),
+        so the server merges the requested positions with the numbers of every
+        child the request doesn't touch: a requested position goes first on a
+        tie, and any later number that would repeat or go backwards is raised
+        to the next free one. Pages whose number still fits keep it, gaps
+        included, so a request that clashes with nothing is carried out as
+        sent; a sibling that has to make room is renamed with the batch.
+
+        The response lists the children of each affected parent (old and new),
+        not only the pages named in the request, limited to the rows the
+        caller's own folder listing returns (with `ancestor_only`).
 
         Requires `api.pages.write`. A page whose own rules deny `update`, or
         a destination parent that denies `create`, fails the whole request
@@ -2150,11 +2190,18 @@ paths:
       summary: Reorder children of a page
       description: |
         Set the ordering of child pages under the specified parent route.
-        The slugs in `order` get numeric folder prefixes 1, 2, 3… in the
-        order given (keeping the widest prefix width already used among the
-        siblings). Every slug must be an immediate child of the page (422
-        otherwise). Children not listed keep their current folder name and
-        prefix.
+        The slugs in `order` are put in the order given, and every child is
+        numbered 1, 2, 3… (keeping the widest prefix width already used among
+        the siblings). Every slug must be an immediate child of the page (422
+        otherwise).
+
+        `order` may list only some of the children, as a caller whose listing
+        leaves out pages it may not read will (getgrav/grav-plugin-admin2#209).
+        Children not listed keep their place in the folder and the listed ones
+        are reordered around them, so no two children end up with the same
+        number. A child not listed that has no number keeps having none.
+        Listing every child gives exactly the order sent. The response lists
+        only the children the caller's own folder listing returns.
 
         Requires `api.pages.write`, subject to the parent page's own
         `update` rule.
@@ -2306,8 +2353,11 @@ paths:
         settings) are rejected, checked against every dot-separated part of
         the name, and SVG content is sanitized on arrival.
 
-        Requires `api.media.write`; a page whose own rules deny `update`
-        returns 403.
+        Requires `api.media.write` and the right to update the page: the
+        page's own `update` rule when it has one, `api.pages.write` otherwise
+        (the page's `permissions.update`). Without it the request is a 403,
+        for example for an editor who may read the page but not edit it
+        (getgrav/grav-plugin-admin2#209).
       parameters:
         - $ref: "#/components/parameters/pageRoute"
       requestBody:
@@ -2388,8 +2438,11 @@ paths:
         stored only as a retina variant can still be deleted by its base
         name.
 
-        Requires `api.media.write`; a page whose own rules deny `update`
-        returns 403.
+        Requires `api.media.write` and the right to update the page: the
+        page's own `update` rule when it has one, `api.pages.write` otherwise
+        (the page's `permissions.update`). Without it the request is a 403,
+        for example for an editor who may read the page but not edit it
+        (getgrav/grav-plugin-admin2#209).
       parameters:
         - $ref: "#/components/parameters/pageRoute"
         - name: filename
@@ -2454,8 +2507,11 @@ paths:
         Values are stripped of HTML tags and control characters on save, since
         they render into `<img>` attributes on the site.
 
-        Requires `api.media.write`; a page whose own rules deny `update`
-        returns 403.
+        Requires `api.media.write` and the right to update the page: the
+        page's own `update` rule when it has one, `api.pages.write` otherwise
+        (the page's `permissions.update`). Without it the request is a 403,
+        for example for an editor who may read the page but not edit it
+        (getgrav/grav-plugin-admin2#209).
       parameters:
         - $ref: "#/components/parameters/pageRoute"
         - $ref: "#/components/parameters/mediaFilename"
@@ -2485,8 +2541,11 @@ paths:
         Reserved/technical keys are preserved; the sidecar is deleted only if
         nothing else remains in it.
 
-        Requires `api.media.write`; a page whose own rules deny `update`
-        returns 403.
+        Requires `api.media.write` and the right to update the page: the
+        page's own `update` rule when it has one, `api.pages.write` otherwise
+        (the page's `permissions.update`). Without it the request is a 403,
+        for example for an editor who may read the page but not edit it
+        (getgrav/grav-plugin-admin2#209).
       parameters:
         - $ref: "#/components/parameters/pageRoute"
         - $ref: "#/components/parameters/mediaFilename"
@@ -2515,8 +2574,11 @@ paths:
         (no path separators). The number of files is capped by
         `plugins.api.batch.max_items` (default 50).
 
-        Requires `api.media.write`; a page whose own rules deny `update`
-        returns 403.
+        Requires `api.media.write` and the right to update the page: the
+        page's own `update` rule when it has one, `api.pages.write` otherwise
+        (the page's `permissions.update`). Without it the request is a 403,
+        for example for an editor who may read the page but not edit it
+        (getgrav/grav-plugin-admin2#209).
       parameters:
         - $ref: "#/components/parameters/pageRoute"
       requestBody:
@@ -2673,10 +2735,16 @@ paths:
         A page that its parent's listing leaves out (a folder with no content
         file) gets `index: -1` and null `prev` and `next`.
 
-        Pages the caller can't read on their own route are left out first:
-        `parent` is null when the parent is unreadable, `prev`, `next` and
-        `first_child` are the nearest readable pages, and `index` and `total`
-        count only readable siblings.
+        Only the pages the parent's folder listing returns as normal rows
+        count (getgrav/grav-plugin-admin2#209): pages the caller may read and
+        list, and with `editable=true` only those they may also update. Rows the
+        listing keeps only as `ancestor_only` can't be opened, so they are
+        skipped too: `prev`, `next` and `first_child` are the nearest such
+        pages, and `index` and `total` count only them (`index` is -1 when the
+        page itself isn't one, for example a read-only page under
+        `editable=true`). `parent` is null when the caller may not read and
+        list it; under `editable=true` a readable parent they can't update is
+        returned with `ancestor_only: true`.
 
         Requires `api.pages.read` (or a page-level read grant), and the page's
         own rules must allow reading it. An unknown route is a 404.
@@ -2689,6 +2757,13 @@ paths:
           schema:
             type: boolean
             default: false
+        - name: editable
+          in: query
+          description: |
+            `true` steps only through pages the caller may update, matching
+            `GET /pages?editable=true`.
+          schema:
+            type: boolean
       responses:
         "200":
           description: The page's neighbours.
@@ -9906,7 +9981,7 @@ paths:
         Every multipart file part is saved (nested file arrays are flattened). Each file is capped at 64 MB, and the field's own `filesize` can only tighten that. Extensions listed in `security.uploads_dangerous_extensions` are refused in any dot-separated part of the name (so `shell.php.jpg` fails), as are config-type extensions (`yaml`, `yml`, `json`, `twig`, `env`, `neon`, `lock`), page content (`md`, `markdown`) and stylesheets (`css`, `scss`, `sass`, `less`). Uploads into `user/accounts/` are restricted to image extensions, and uploads resolving into `user/config/` or `user/env/*/config/` are refused with 403. SVG files are sanitized after saving.
         A developer can allow page content or stylesheets for one field by listing them in that field's blueprint, for example `allow_extensions: [css]`. The server reads this from the blueprint that owns `scope` (a plugin or theme config blueprint, the page template's blueprint, or the account blueprint), never from the request: the request only names the field in `field`, and the upload's `destination` must be that field's own `destination`. `allow_extensions` can only lift `md`, `markdown`, `css`, `scss`, `sass` and `less`; dangerous and config-type extensions, the accounts image-only rule and the config directory block always apply.
         `self@:` against a `users/<username>` scope for another account needs `api.users.write` or super-admin.
-        Where the file lands also decides who may write it, judged on the logical path and on the realpath (themes and plugins are often symlinked in): anywhere in `user/themes/` or `user/plugins/` (a theme logo or favicon, a plugin asset) also needs `api.config.write`; a Twig template folder (a theme's or plugin's `templates/`, at any depth, or another registered template path) and anything outside `user/` (`cache://`, `log://`, `system://`, the root `assets/`) need super-admin. Refusals are 403, and an API key's scopes cap both permissions.
+        Where the file lands also decides who may write it, judged on the logical path and on the realpath (themes and plugins are often symlinked in): anywhere in `user/themes/` or `user/plugins/` (a theme logo or favicon, a plugin asset) also needs `api.config.write`; a Twig template folder (a theme's or plugin's `templates/`, at any depth, or another registered template path) and anything outside `user/` (`cache://`, `log://`, `system://`, the root `assets/`) need super-admin. A file that lands in a page's folder under `user/pages/` (`self@:` on a page blueprint, a `page://` destination) changes that page's media, so it also needs the right to update the page: the page's own `update` rule when it has one, `api.pages.write` otherwise; the pages root itself needs `api.pages.write` (getgrav/grav-plugin-admin2#209). Refusals are 403, and an API key's scopes cap both permissions.
         File names ending in a space or a dot, or containing control or invisible formatting characters, are refused with 422.
       requestBody:
         required: true
@@ -9976,7 +10051,7 @@ paths:
       summary: Delete a file saved by a blueprint file field
       description: |
         Remove a file previously saved through `POST /blueprint-upload`, plus its `.meta.yaml` sidecar when present. Requires `api.media.write`.
-        `path` is the logical path the upload returned, relative to the user root (`user/` prefix optional). Absolute input, `..` and null bytes are rejected. Targets in `user/config/` or `user/env/*/config/` are refused with 403. The same folder rules as the upload apply: deleting in `user/themes/` or `user/plugins/` also needs `api.config.write`, and in a Twig template folder super-admin (403 otherwise). Under `user/accounts/` only image files may be deleted, and without `api.users.write` only the caller's own avatar (403 otherwise). The same extension denylist as the upload applies, so page content (`.md`) and stylesheets can't be deleted here unless `field` and `scope` name a blueprint field that allows them with `allow_extensions` and the file sits in the folder that field's `destination` resolves to.
+        `path` is the logical path the upload returned, relative to the user root (`user/` prefix optional). Absolute input, `..` and null bytes are rejected. Targets in `user/config/` or `user/env/*/config/` are refused with 403. The same folder rules as the upload apply: deleting in `user/themes/` or `user/plugins/` also needs `api.config.write`, in a Twig template folder super-admin, and in a page's folder the right to update that page (403 otherwise). Under `user/accounts/` only image files may be deleted, and without `api.users.write` only the caller's own avatar (403 otherwise). The same extension denylist as the upload applies, so page content (`.md`) and stylesheets can't be deleted here unless `field` and `scope` name a blueprint field that allows them with `allow_extensions` and the file sits in the folder that field's `destination` resolves to.
         The call is idempotent: a file that no longer exists returns 204.
       requestBody:
         required: true
@@ -13693,9 +13768,11 @@ components:
         permissions:
           type: object
           description: |
-            What the caller may do to this page: the account's `api.pages.*`
+            The caller's capabilities on this page: the account's `api.pages.*`
             permissions with the page's own `header.permissions` rules
-            applied on top.
+            applied on top. The same object, under the same `permissions` key,
+            as on `GET /pages/{route}`. Present on every list row, including
+            pages the caller may only read and `ancestor_only` rows.
           properties:
             create:
               type: boolean
@@ -13709,6 +13786,18 @@ components:
               type: boolean
             list:
               type: boolean
+        ancestor_only:
+          type: boolean
+          description: |
+            True for a folder-listing row kept only as the way down to a page
+            below it: the caller may not read or list this page (or, with
+            `editable=true`, may not update it), but may read and list (or
+            update) a page somewhere below. Clients should let the row be
+            expanded but not opened. Such a row carries only `route`,
+            `raw_route`, `parent_route`, `slug`, `title`, `menu`, `order`,
+            `has_children`, `permissions` (the real ones) and `ancestor_only`.
+            False on every other row, and always false in a flat listing.
+          example: false
       required:
         - route
         - slug

@@ -1,8 +1,15 @@
 # v1.1.10
 ## 11/02/2026
 
+1. [](#new)
+    * The page list has an `editable=true` filter that shows only the pages you can edit, plus the folders that lead to them, for editors who only look after a few pages ([admin2#209](https://github.com/getgrav/grav-plugin-admin2/issues/209))
+1. [](#improved)
+    * Page-level permissions now decide what the page list shows: pages your groups may not read or list are left out of the list, the tree and the page navigator, and the counts match. A folder you can't open still appears, marked `ancestor_only`, when there is a page inside it you can read, so you can still reach that page. Such a folder shows only its title and place in the tree, nothing else about it ([admin2#209](https://github.com/getgrav/grav-plugin-admin2/issues/209))
+    * Large page lists load faster for editors on sites with page-level permissions, as each page's rules are no longer read from disk for every row ([admin2#209](https://github.com/getgrav/grav-plugin-admin2/issues/209))
 1. [](#bugfix)
     * A parent page whose collection is ordered by `publish_date` or `unpublish_date` now lists its children in that order in the admin, instead of falling back to folder order ([admin2#208](https://github.com/getgrav/grav-plugin-admin2/issues/208))
+    * Dragging pages into a new order no longer gives a page the same number as a sibling you can't see: the server numbers against every page in the folder, and moves a hidden page along only when it has to. Reordering with a partial list keeps the pages you didn't list in their place ([admin2#209](https://github.com/getgrav/grav-plugin-admin2/issues/209))
+    * Uploading, deleting or editing the media of a page now needs permission to edit that page. Before, `api.media.write` alone let an editor change the images of any page, including pages they could only read. This also applies to file fields that save into a page's folder ([admin2#209](https://github.com/getgrav/grav-plugin-admin2/issues/209))
 
 # v1.1.9
 ## 11/01/2026
