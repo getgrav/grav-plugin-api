@@ -2588,12 +2588,14 @@ class MediaController extends AbstractApiController
             return null;
         }
 
-        // USER_DIR is listed separately from the install roots because a `user/`
+        // USER_DIR is listed separately from the webroot because a `user/`
         // folder symlinked outside the install is a supported layout; its files
         // are still served from `/<user-path>/…`, so the prefix is put back.
+        // GRAV_ROOT is deliberately not a root: when the webroot is a public
+        // subfolder, anything under GRAV_ROOT but outside it (cache, logs,
+        // vendor) is not served at all, so it must take the fallback route.
         $roots = [
             [GRAV_WEBROOT, ''],
-            [GRAV_ROOT, ''],
             [USER_DIR, trim(GRAV_USER_PATH, '/') . '/'],
         ];
 

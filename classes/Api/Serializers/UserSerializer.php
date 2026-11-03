@@ -67,8 +67,9 @@ class UserSerializer implements SerializerInterface
         if (is_array($avatar) && !empty($avatar)) {
             $first = reset($avatar);
             if (is_array($first) && isset($first['path'])) {
-                // path is relative to Grav root (e.g. user/accounts/avatars/file.jpg)
-                $filePath = GRAV_ROOT . '/' . $first['path'];
+                // path is relative to the webroot, where user/ lives
+                // (e.g. user/accounts/avatars/file.jpg)
+                $filePath = GRAV_WEBROOT . '/' . $first['path'];
 
                 if (is_file($filePath)) {
                     return self::thumbnailUrl($filePath);

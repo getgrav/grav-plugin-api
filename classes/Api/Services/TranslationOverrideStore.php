@@ -394,7 +394,7 @@ final class TranslationOverrideStore
         $locator = $this->grav['locator'];
         $dir = $locator->findResource('user://languages', true, true);
 
-        return is_string($dir) ? $dir : GRAV_ROOT . '/user/languages';
+        return is_string($dir) ? $dir : USER_DIR . 'languages';
     }
 
     /**

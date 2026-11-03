@@ -158,7 +158,7 @@ trait TranslatesAdminLabels
 
         $index = [];
         $dir = $this->grav['locator']->findResource('plugins://admin2/languages')
-            ?: (defined('GRAV_ROOT') ? GRAV_ROOT . '/user/plugins/admin2/languages' : null);
+            ?: (defined('USER_DIR') ? USER_DIR . 'plugins/admin2/languages' : null);
 
         if (is_string($dir) && is_dir($dir)) {
             foreach (glob($dir . '/*.yaml') ?: [] as $file) {

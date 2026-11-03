@@ -130,7 +130,7 @@ class ReportsController extends AbstractApiController
                 $dirs[] = $themeBlueprints;
             }
         }
-        $userPath = GRAV_ROOT . '/' . GRAV_USER_PATH;
+        $userPath = GRAV_WEBROOT . '/' . GRAV_USER_PATH;
         foreach (array_merge(glob($userPath . '/*/config', GLOB_ONLYDIR) ?: [], glob($userPath . '/env/*/config', GLOB_ONLYDIR) ?: []) as $dir) {
             $dirs[] = $dir;
         }

@@ -1,3 +1,9 @@
+# v1.1.11
+## 11/03/2026
+
+1. [](#bugfix)
+    * Works when Grav serves a public subfolder (`GRAV_WEBROOT`) apart from the private install folder: deleting a user's avatar removes the file again, a blueprint `display` field with a `user/...` file path shows the file, uploading a package through direct install checks the right plugin or theme folder, Configuration and the Plugins list name an environment's config file as `user/env/...` instead of `public/user/env/...`, and the Reports cache sees changes to environment config. Single-folder sites work as before
+
 # v1.1.10
 ## 11/03/2026
 
