@@ -2281,7 +2281,7 @@ class PagesController extends AbstractApiController
             self::mergeReorder($childMap, $dirsBySlug, $order),
             $digits ?: null,
             $parent->route(),
-            $this->isSuperAdmin($this->getUser($request)),
+            $this->isSuperWithinScope($request),
         );
         $this->snapshotAclIndex();
         $this->applyRenames($plan);
@@ -2691,7 +2691,7 @@ class PagesController extends AbstractApiController
         // Positions are numbered by the client against the siblings it was
         // shown, which leaves out pages the caller can't read (#209). Keep
         // every folder's numbers unique against ALL its children.
-        $resolved = $this->keepSiblingNumbersUnique($resolved, $this->isSuperAdmin($this->getUser($request)));
+        $resolved = $this->keepSiblingNumbersUnique($resolved, $this->isSuperWithinScope($request));
 
         // Reject any op whose destination parent is itself being moved in
         // this batch. Otherwise Phase 2 would rename the parent mid-batch,
