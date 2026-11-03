@@ -1068,6 +1068,7 @@ paths:
                 properties:
                   data:
                     type: object
+                    required: [providers, password_login]
                     properties:
                       providers:
                         type: array

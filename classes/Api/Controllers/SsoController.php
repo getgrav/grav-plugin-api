@@ -62,7 +62,7 @@ class SsoController extends AbstractApiController
     {
         $event = $this->fireEvent('onApiLoginProviders', [
             'providers'      => [],
-            'password_login' => (bool) $this->config->get('plugins.api.login.password_login', true),
+            'password_login' => self::toBool($this->config->get('plugins.api.login.password_login', true)),
         ]);
 
         $providers = [];
@@ -81,8 +81,20 @@ class SsoController extends AbstractApiController
         // Without a provider the password form is the only way in, so it stays.
         return ApiResponse::create([
             'providers'      => $providers,
-            'password_login' => (bool) ($event['password_login'] ?? true) || $providers === [],
+            'password_login' => self::toBool($event['password_login'] ?? null) || $providers === [],
         ]);
+    }
+
+    /**
+     * Read a yes/no value from config or a plugin, which may be a string such
+     * as 'false' or 'off'. Anything not clearly false (null, a typo, an array)
+     * comes back true, so a bad value keeps the password form.
+     */
+    private static function toBool(mixed $value): bool
+    {
+        // filter_var() reads null as false, so it is handled first.
+        return $value === null
+            || (filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? true);
     }
 
     /**

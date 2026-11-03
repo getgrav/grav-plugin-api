@@ -19,6 +19,10 @@ login:
   # onApiLoginProviders can turn it off for the request, e.g. Login OAuth2 with
   # "Enforce OAuth2". Reported as on anyway while no provider is offered, so the
   # login screen always has a way in.
+  #
+  # If single sign-on stops working, set `password_login` back to true in
+  # user/config/plugins/api.yaml and run `bin/grav clear`. If a plugin turns it
+  # off, undo that in the plugin's own settings.
   password_login: true
 
   # Challenge shown in front of the unauthenticated auth endpoints. Off by
