@@ -13599,6 +13599,18 @@ components:
               description: Falls back to `update` when the page states no publish rule.
             list:
               type: boolean
+            media:
+              type: boolean
+              description: |
+                May change this page's media (upload, delete, edit metadata):
+                a super admin, or an account with `api.media.write` that may
+                also update this page (the page's own `update` rule, or
+                `api.pages.write` where it has rules that grant no `update`).
+                A page with no rules needs only `api.media.write`, so this can
+                be true where `update` is false. Only on single-page responses
+                (`GET /pages/{route}` and writes), not on listing rows. A
+                client built for an older API, which omits it, falls back to
+                `update`.
           example:
             create: false
             read: true
@@ -13606,6 +13618,7 @@ components:
             delete: true
             publish: true
             list: true
+            media: true
       required:
         - route
         - slug

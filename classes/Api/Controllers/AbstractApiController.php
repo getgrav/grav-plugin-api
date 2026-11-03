@@ -13,6 +13,7 @@ use Grav\Common\User\Interfaces\UserInterface;
 use Grav\Plugin\Api\Auth\JwtAuthenticator;
 use Grav\Plugin\Api\Demo\DemoManager;
 use Grav\Plugin\Api\Demo\DemoPolicy;
+use Grav\Plugin\Api\Exceptions\ApiException;
 use Grav\Plugin\Api\Exceptions\DemoModeException;
 use Grav\Plugin\Api\Middleware\DemoModeMiddleware;
 use Grav\Plugin\Api\Exceptions\ForbiddenException;
@@ -487,21 +488,29 @@ abstract class AbstractApiController
 
     /**
      * The caller's effective per-page capabilities, for clients that need to
-     * show or hide edit/delete affordances. Keys are PageAcl::ACTIONS.
+     * show or hide edit/delete affordances. Keys are PageAcl::ACTIONS, plus
+     * `media` (whether the caller may change the page's media, see
+     * canChangePageMedia()) unless $withMedia is false.
      *
      * @return array<string, bool>
      */
-    protected function pageCapabilities(ServerRequestInterface $request, PageInterface $page): array
+    protected function pageCapabilities(ServerRequestInterface $request, PageInterface $page, bool $withMedia = true): array
     {
         $policy = $this->pageCapabilityPolicy($request);
         if ($policy['fixed'] !== null) {
-            return $policy['fixed'];
+            $capabilities = $policy['fixed'];
+        } else {
+            $capabilities = self::applyPageCapabilityMask(
+                $this->getPageAcl()->capabilities($page, $this->getUser($request), $policy['base']),
+                $policy['deny'],
+            );
         }
 
-        return self::applyPageCapabilityMask(
-            $this->getPageAcl()->capabilities($page, $this->getUser($request), $policy['base']),
-            $policy['deny'],
-        );
+        if ($withMedia) {
+            $capabilities['media'] = $this->canChangePageMedia($request, $page);
+        }
+
+        return $capabilities;
     }
 
     /**
@@ -596,21 +605,52 @@ abstract class AbstractApiController
      */
     protected function assertPageUpdatable(ServerRequestInterface $request, PageInterface $page): void
     {
+        $refusal = $this->pageUpdateRefusal($request, $page);
+        if ($refusal !== null) {
+            throw new ForbiddenException($refusal);
+        }
+    }
+
+    /**
+     * Why the caller may not change this page's own files, or null when they
+     * may. The one rule behind assertPageUpdatable() and canChangePageMedia(),
+     * so the `permissions.media` flag can't drift from what a media write
+     * does.
+     */
+    private function pageUpdateRefusal(ServerRequestInterface $request, PageInterface $page): ?string
+    {
         $user = $this->getUser($request);
         if ($this->isSuperAdmin($user)) {
-            return;
+            return null;
         }
 
         $acl = $this->getPageAcl();
         $verdict = $acl->authorize($page, $user, 'update');
         if ($verdict === false) {
-            throw new ForbiddenException("Page permissions deny 'update' on this page.");
+            return "Page permissions deny 'update' on this page.";
         }
         if ($verdict === null && $acl->hasRules($page) && !$this->hasPermission($user, 'api.pages.write')) {
-            throw new ForbiddenException(
-                "Changing this page's media requires permission to update the page."
-            );
+            return "Changing this page's media requires permission to update the page.";
         }
+
+        return null;
+    }
+
+    /**
+     * Whether the caller may change this page's media: the `media` entry of a
+     * page's `permissions`. A super admin always may. Anyone else needs
+     * `api.media.write` and the right to update this page, the same two checks
+     * every media write makes (getgrav/grav-plugin-admin2#209).
+     */
+    protected function canChangePageMedia(ServerRequestInterface $request, PageInterface $page): bool
+    {
+        try {
+            $this->requirePermission($request, 'api.media.write');
+        } catch (ApiException) {
+            return false;
+        }
+
+        return $this->pageUpdateRefusal($request, $page) === null;
     }
 
     /**

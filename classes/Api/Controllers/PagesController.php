@@ -2921,7 +2921,7 @@ class PagesController extends AbstractApiController
             if ($page instanceof PageInterface) {
                 $permissions = $visibility !== null
                     ? $visibility->capabilities($page)
-                    : $this->pageCapabilities($request, $page);
+                    : $this->pageCapabilities($request, $page, false);
 
                 if (isset($ancestorOnly[PageAclIndex::keyOf($page)])) {
                     // A page the caller can't read: only what the tree needs.
@@ -2997,7 +2997,7 @@ class PagesController extends AbstractApiController
             $policy['base'],
             $policy['deny'],
             $editableOnly,
-            fn (PageInterface $page): array => $this->pageCapabilities($request, $page),
+            fn (PageInterface $page): array => $this->pageCapabilities($request, $page, false),
         );
     }
 

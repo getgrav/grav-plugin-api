@@ -112,6 +112,65 @@ class MediaControllerPageUpdateAclTest extends TestCase
         }
     }
 
+    /**
+     * The `permissions.media` flag of a page response is the same verdict the
+     * media writes give, so a client can disable the panel up front.
+     *
+     * @param array<string, mixed> $access
+     * @param array<string, mixed>|null $rules
+     */
+    #[Test]
+    #[DataProvider('cases')]
+    public function the_media_flag_matches_what_a_media_write_does(array $access, ?array $rules, bool $allowed): void
+    {
+        $controller = $this->controller($access, $rules);
+        $page = $this->find($controller, 'read');
+
+        $capabilities = (new \ReflectionMethod(MediaController::class, 'pageCapabilities'))
+            ->invoke($controller, $this->request(), $page);
+
+        self::assertSame($allowed, $capabilities['media']);
+    }
+
+    #[Test]
+    public function the_media_flag_needs_api_media_write(): void
+    {
+        $readOnly = ['api' => ['access' => true, 'pages' => ['read' => true, 'write' => true], 'media' => ['read' => true]]];
+        $controller = $this->controller($readOnly, null);
+        $page = $this->find($controller, 'read');
+
+        $capabilities = (new \ReflectionMethod(MediaController::class, 'pageCapabilities'))
+            ->invoke($controller, $this->request(), $page);
+
+        self::assertTrue($capabilities['update']);
+        self::assertFalse($capabilities['media']);
+    }
+
+    #[Test]
+    public function a_media_only_account_can_change_media_where_it_cannot_update(): void
+    {
+        $controller = $this->controller(self::MEDIA_ONLY, null);
+        $page = $this->find($controller, 'read');
+
+        $capabilities = (new \ReflectionMethod(MediaController::class, 'pageCapabilities'))
+            ->invoke($controller, $this->request(), $page);
+
+        self::assertFalse($capabilities['update']);
+        self::assertTrue($capabilities['media']);
+    }
+
+    #[Test]
+    public function listing_rows_leave_the_media_flag_out(): void
+    {
+        $controller = $this->controller(self::EDITOR, null);
+        $page = $this->find($controller, 'read');
+
+        $capabilities = (new \ReflectionMethod(MediaController::class, 'pageCapabilities'))
+            ->invoke($controller, $this->request(), $page, false);
+
+        self::assertArrayNotHasKey('media', $capabilities);
+    }
+
     #[Test]
     public function reading_media_still_only_honours_a_deny(): void
     {
