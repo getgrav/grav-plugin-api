@@ -54,8 +54,8 @@ class PopularityStore
     public function recordHit(
         string $route,
         ?int $now = null,
-        int $dailyHistory = 30,
-        int $monthlyHistory = 12,
+        int $dailyHistory = 365,
+        int $monthlyHistory = 24,
     ): void {
         $now ??= time();
         $today = date('Y-m-d', $now);

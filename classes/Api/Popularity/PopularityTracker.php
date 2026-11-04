@@ -149,8 +149,8 @@ class PopularityTracker
             $this->store->recordHit(
                 $route,
                 null,
-                (int) $this->config->get('plugins.api.popularity.history.daily', 30),
-                (int) $this->config->get('plugins.api.popularity.history.monthly', 12),
+                (int) $this->config->get('plugins.api.popularity.history.daily', 365),
+                (int) $this->config->get('plugins.api.popularity.history.monthly', 24),
             );
         } catch (\Throwable) {
             // Tracking must never break the page response — swallow.

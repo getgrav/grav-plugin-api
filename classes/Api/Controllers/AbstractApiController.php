@@ -415,8 +415,18 @@ abstract class AbstractApiController
 
         // Super short-circuits inside requirePermission(), but only AFTER the
         // scope cap and demo lock — so route supers through it rather than
-        // returning early here.
+        // returning early here. Overriding a page's own deny is super
+        // authority too, so a scoped key on a super account only gets that
+        // when its scopes carry admin.super (isSuperWithinScope()).
+        // @scope-cap-exempt: routes into requirePermission(), which caps, and the
+        // page-deny override below is gated on isSuperWithinScope().
         if (!$page instanceof PageInterface || $this->isSuperAdmin($user)) {
+            if ($page instanceof PageInterface && !$this->isSuperWithinScope($request)
+                && $this->getPageAcl()->authorize($page, $user, $action) === false) {
+                throw new ForbiddenException(
+                    "Page permissions deny '{$action}' on this page."
+                );
+            }
             $this->requirePermission($request, $permission);
             return;
         }
@@ -469,7 +479,7 @@ abstract class AbstractApiController
         string ...$actions,
     ): void {
         $user = $this->getUser($request);
-        if (!$page instanceof PageInterface || $this->isSuperAdmin($user)) {
+        if (!$page instanceof PageInterface || $this->isSuperWithinScope($request)) {
             return;
         }
 
@@ -620,7 +630,7 @@ abstract class AbstractApiController
     private function pageUpdateRefusal(ServerRequestInterface $request, PageInterface $page): ?string
     {
         $user = $this->getUser($request);
-        if ($this->isSuperAdmin($user)) {
+        if ($this->isSuperWithinScope($request)) {
             return null;
         }
 
@@ -629,7 +639,15 @@ abstract class AbstractApiController
         if ($verdict === false) {
             return "Page permissions deny 'update' on this page.";
         }
-        if ($verdict === null && $acl->hasRules($page) && !$this->hasPermission($user, 'api.pages.write')) {
+        // The same answer requirePermission($request, 'api.pages.write') gives:
+        // the key's scopes first, then super or the account permission. Read
+        // off the account alone, a key scoped to api.media.write borrowed the
+        // account's api.pages.write here.
+        // @scope-cap-exempt: the cap is the scopeAllows() conjunct on this same
+        // expression, so the super branch cannot be reached uncapped.
+        $mayWritePages = $this->scopeAllows($request, 'api.pages.write')
+            && ($this->isSuperAdmin($user) || $this->hasPermission($user, 'api.pages.write'));
+        if ($verdict === null && $acl->hasRules($page) && !$mayWritePages) {
             return "Changing this page's media requires permission to update the page.";
         }
 
@@ -1258,6 +1276,8 @@ abstract class AbstractApiController
      */
     protected function buildUserProfile(UserInterface $user): array
     {
+        // @scope-cap-exempt: describes the account for the client to display;
+        // it authorizes nothing, and every write re-checks through the cap.
         $isSuperAdmin = $this->isSuperAdmin($user);
         $resolvedAccess = $this->getPermissionResolver()->resolvedMap($user, $isSuperAdmin);
 
@@ -1323,6 +1343,8 @@ abstract class AbstractApiController
         // handlers (LDAP group→access mapping, etc.) have populated the access
         // matrix. Accepts super-admins, holders of admin.login, and API-only
         // users granted api.access.
+        // @scope-cap-exempt: a sign-in, before any credential exists, so there
+        // is no API-key scope to apply.
         if (
             !$this->isSuperAdmin($user)
             && !$user->authorize('admin.login')

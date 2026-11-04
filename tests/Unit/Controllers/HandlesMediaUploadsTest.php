@@ -9,6 +9,8 @@ use Grav\Plugin\Api\Controllers\MediaController;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Services\UploadFieldSettings;
 use Grav\Plugin\Api\Tests\Unit\TestHelper;
+use Nyholm\Psr7\Stream;
+use Nyholm\Psr7\UploadedFile;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
@@ -66,6 +68,40 @@ class HandlesMediaUploadsTest extends TestCase
         self::assertSame('avatar.png', $name);
         self::assertFileExists($this->tempDir . '/avatar.png');
         self::assertSame('binary-png-data', file_get_contents($this->tempDir . '/avatar.png'));
+    }
+
+    public static function umasks(): array
+    {
+        return [
+            'umask 0022' => [0022, 0644],
+            'umask 0002 (shared group, getgrav/grav#4295)' => [0002, 0664],
+        ];
+    }
+
+    /**
+     * A published upload gets the mode any new file gets under the umask, as
+     * core, Form and classic admin uploads do (getgrav/grav-plugin-api#74).
+     * The upload is staged in a tempnam() file, which is always 0600. Only
+     * move_uploaded_file()'s same-filesystem rename widens it; a cross-device
+     * copy (upload_tmp_dir and sys_get_temp_dir() on different mounts) or a
+     * stream-backed upload writes into the 0600 file, and rename() keeps that
+     * mode, so the web server gets 403 where it runs as another user.
+     */
+    #[Test]
+    #[DataProvider('umasks')]
+    public function a_published_upload_gets_the_umask_mode_not_tempnams_0600(int $umask, int $expected): void
+    {
+        $file = new UploadedFile(Stream::create('binary-png-data'), 15, UPLOAD_ERR_OK, 'logo.png', 'image/png');
+
+        $previous = umask($umask);
+        try {
+            $name = $this->invoke('processUploadedFile', $file, $this->tempDir);
+        } finally {
+            umask($previous);
+        }
+
+        clearstatcache();
+        self::assertSame(sprintf('%04o', $expected), sprintf('%04o', fileperms($this->tempDir . '/' . $name) & 0777));
     }
 
     #[Test]

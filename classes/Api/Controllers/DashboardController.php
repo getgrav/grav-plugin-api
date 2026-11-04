@@ -13,6 +13,7 @@ use Grav\Common\HTTP\Response;
 use Grav\Common\User\DataUser\User as DataUser;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\FlexBackend;
+use Grav\Plugin\Api\Popularity\PopularityRange;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Grav\Plugin\Api\Services\ExposureProbe;
 use Psr\Http\Message\ResponseInterface;
@@ -546,6 +547,9 @@ class DashboardController extends AbstractApiController
     /**
      * GET /dashboard/popularity - Page view statistics.
      *
+     * Optional `range` query parameter picks the chart's time frame: 7d, 14d
+     * (default), 30d, 90d or 12m. See PopularityRange.
+     *
      * Reads from PopularityStore (single-file flat JSON, ISO date keys).
      * On first read after an upgrade from admin-classic, the store imports
      * the legacy four-JSON-file layout transparently.
@@ -572,15 +576,13 @@ class DashboardController extends AbstractApiController
 
         $monthViews = (int) ($monthly[$thisMonthKey] ?? 0);
 
-        // 14-day chart, oldest first
-        $chartData = [];
-        for ($i = 13; $i >= 0; $i--) {
-            $day = date('Y-m-d', strtotime("-{$i} days"));
-            $chartData[] = [
-                'date' => date('M j', strtotime("-{$i} days")),
-                'views' => (int) ($daily[$day] ?? 0),
-            ];
-        }
+        // Chart for the requested time frame (?range=7d|14d|30d|90d|12m),
+        // 14 days when none is given.
+        $range = PopularityRange::build(
+            $daily,
+            $monthly,
+            PopularityRange::normalize($request->getQueryParams()['range'] ?? null),
+        );
 
         $topPages = [];
         foreach ($store->getTopPages(10) as $route => $views) {
@@ -593,7 +595,8 @@ class DashboardController extends AbstractApiController
                 'week' => $weekViews,
                 'month' => $monthViews,
             ],
-            'chart' => $chartData,
+            'range' => $range['range'],
+            'chart' => $range['chart'],
             'top_pages' => $topPages,
         ]);
     }

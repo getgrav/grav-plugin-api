@@ -21,10 +21,12 @@ class BlueprintLoader
 {
     /**
      * Container types that don't add their own name to their children's names.
-     * Mirrors BlueprintController::serializeFields(), which is what gives
-     * admin-next the field names it sends back.
+     * BlueprintController::serializeFields() uses the same list, which is what
+     * gives admin-next the field names it sends back. `conditional` is a
+     * wrapper too, as in the form plugin: its fields keep their own names
+     * (grav-plugin-api#75).
      */
-    private const LAYOUT_TYPES = ['tabs', 'tab', 'section', 'fieldset', 'columns', 'column', 'page-exists', 'elements', 'element'];
+    public const LAYOUT_TYPES = ['tabs', 'tab', 'section', 'fieldset', 'columns', 'column', 'conditional', 'page-exists', 'elements', 'element'];
 
     public function __construct(
         private readonly Grav $grav,
