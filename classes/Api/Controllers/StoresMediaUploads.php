@@ -35,6 +35,12 @@ trait StoresMediaUploads
             if (!rename($temporary, $targetPath)) {
                 throw new ValidationException('Unable to store the uploaded file.');
             }
+
+            // tempnam() is always 0600 and rename() keeps it, so give the
+            // published file the mode any new file gets under the umask, as
+            // core and Form uploads do; otherwise a web server running as
+            // another user gets 403.
+            @chmod($targetPath, 0666 & ~umask());
         } finally {
             if (is_file($temporary)) {
                 unlink($temporary);
