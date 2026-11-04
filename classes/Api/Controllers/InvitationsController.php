@@ -104,6 +104,8 @@ class InvitationsController extends AbstractApiController
         $access = is_array($body['access'] ?? null) ? $body['access'] : [];
         if (!$this->isSuperWithinScope($request)) {
             $access = $this->stripSuperFlags($access);
+            // Nor any other permission the inviter doesn't hold themselves.
+            $this->assertCanGrantAccess($request, $access);
         }
 
         // `groups` is super-admin-only, exactly like `access` above and like
