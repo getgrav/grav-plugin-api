@@ -215,9 +215,12 @@ popularity:
   # Extra User-Agent fragments to exclude, matched anywhere in the header and
   # ignoring case, e.g. 'uptimerobot' or 'my-scanner'.
   exclude_agents: []
+  # How much history to keep: days of daily counts and months of monthly
+  # totals. The dashboard chart offers up to 90 days and 12 months, and
+  # compares each against the period before it, so it needs twice that.
   history:
-    daily: 30
-    monthly: 12
+    daily: 365
+    monthly: 24
   ignore:
     - '/test*'
     - '/modular'

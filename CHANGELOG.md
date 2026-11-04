@@ -3,6 +3,9 @@
 
 1. [](#new)
     * New **Show Password Form** setting (`login.show_password_form`) to hide the username and password form on the admin login screen, to offer only other login options such as single sign-on buttons. It only hides the form; password logins still work
+    * `GET /dashboard/popularity` takes a `range` of `7d`, `14d` (the default), `30d`, `90d` or `12m`, and returns a `range` block with the time frame's total and the total of the period of the same length before it (`null` when the history doesn't reach back that far). `12m` plots monthly totals. Chart points also carry an ISO `key`
+1. [](#improved)
+    * Page view history is kept for 365 days and 24 months by default (was 30 days and 12 months), so the dashboard can chart 90 days and 12 months and compare each with the period before. Change it with `popularity.history.daily` and `popularity.history.monthly`
 1. [](#bugfix)
     * Uploaded files (page media and blueprint file fields such as a theme logo) get the normal file permissions again instead of owner-only `0600`, which gave a 403 on hosts where the web server serves files as a different user than PHP ([#74](https://github.com/getgrav/grav-plugin-api/issues/74))
     * `GET /admin/languages` needs only `api.access` instead of `api.system.read`, so every Admin2 user can pick from all the admin languages in their settings, not just English ([#73](https://github.com/getgrav/grav-plugin-api/issues/73))
