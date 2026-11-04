@@ -1605,8 +1605,7 @@ class BlueprintController extends AbstractApiController
                     $serialized['fields'] = $this->serializeFields($field['fields'], '', $elementBase);
                 } else {
                     // For layout containers, don't add prefix (fields bind to their own names)
-                    $layoutTypes = ['tabs', 'tab', 'section', 'fieldset', 'columns', 'column', 'page-exists', 'elements', 'element'];
-                    $childPrefix = in_array($type, $layoutTypes, true) ? $prefix : $fieldPath;
+                    $childPrefix = in_array($type, BlueprintLoader::LAYOUT_TYPES, true) ? $prefix : $fieldPath;
 
                     // Always pass this field's resolved name as the parent so any
                     // leading-dot children bind under it, even when the container is

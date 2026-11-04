@@ -7,6 +7,7 @@
 1. [](#improved)
     * Page view history is kept for 365 days and 24 months by default (was 30 days and 12 months), so the dashboard can chart 90 days and 12 months and compare each with the period before. Change it with `popularity.history.daily` and `popularity.history.monthly`
 1. [](#bugfix)
+    * Fields inside a `type: conditional` field keep their own names, as in the form plugin, instead of being prefixed with the conditional's name, so Admin2 shows their saved values and saves them to the right key. A file field inside a conditional uploads again too ([#75](https://github.com/getgrav/grav-plugin-api/issues/75))
     * Uploaded files (page media and blueprint file fields such as a theme logo) get the normal file permissions again instead of owner-only `0600`, which gave a 403 on hosts where the web server serves files as a different user than PHP ([#74](https://github.com/getgrav/grav-plugin-api/issues/74))
     * `GET /admin/languages` needs only `api.access` instead of `api.system.read`, so every Admin2 user can pick from all the admin languages in their settings, not just English ([#73](https://github.com/getgrav/grav-plugin-api/issues/73))
     * [security] A scoped API key is held to its own scopes when a page's permission rules apply: without `admin.super` in its scopes it can no longer override a page that denies an action, and changing a page's media checks the key's scopes rather than the account's
