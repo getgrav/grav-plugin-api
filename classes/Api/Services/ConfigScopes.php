@@ -39,6 +39,22 @@ final class ConfigScopes
     public const CORE = ['system', 'site', 'media', 'security', 'scheduler', 'backups'];
 
     /**
+     * Plugins whose settings decide what access accounts get or name a program
+     * the server runs, so only an API super user may change them:
+     *
+     * - `api`: the API's own auth toggles, CORS and rate limits (GHSA-4pqv-2qj5-38fp)
+     * - `admin2`: the admin itself
+     * - `login` and its `login-*` providers: the groups and access that new,
+     *   OAuth and LDAP accounts get, and the host password reset links use
+     * - `email` and its `email-*` providers: the sendmail command runs in a shell
+     * - `git-sync`: the git binary path runs in a shell
+     */
+    private const SUPER_WRITE_PLUGINS = ['api', 'admin2', 'login', 'email', 'git-sync'];
+
+    /** Plugin name prefixes that belong to one of the families above. */
+    private const SUPER_WRITE_PLUGIN_FAMILIES = ['login-', 'email-'];
+
+    /**
      * True when $scope is a site- or extension-authored top-level config: the
      * cookbook custom-yaml recipe (`user://blueprints/config/<scope>.yaml`), an
      * environment override, or a third-party plugin/theme that ships
@@ -79,6 +95,29 @@ final class ConfigScopes
         // blueprints/config/<scope>.yaml. findResource() is existence-checked
         // and returns false when nothing provides it.
         return $locator->findResource('blueprints://config/' . $scope . '.yaml', true) !== false;
+    }
+
+    /**
+     * True when $scope is a `plugins/<name>` scope that only an API super user
+     * may write. See SUPER_WRITE_PLUGINS.
+     */
+    public static function isSuperWritePlugin(string $scope): bool
+    {
+        if (!str_starts_with($scope, 'plugins/')) {
+            return false;
+        }
+
+        $name = substr($scope, 8);
+        if (in_array($name, self::SUPER_WRITE_PLUGINS, true)) {
+            return true;
+        }
+        foreach (self::SUPER_WRITE_PLUGIN_FAMILIES as $prefix) {
+            if (str_starts_with($name, $prefix)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

@@ -63,6 +63,10 @@ class DemoPolicyTest extends TestCase
         yield 'the admin\'s settings stay locked' => ['PATCH', '/config/plugins/admin2', DemoPolicy::DENY];
         yield 'sign-in settings stay locked' => ['PATCH', '/config/plugins/login', DemoPolicy::DENY];
         yield 'mail settings stay locked' => ['PATCH', '/config/plugins/email', DemoPolicy::DENY];
+        yield 'OAuth sign-in settings stay locked' => ['PATCH', '/config/plugins/login-oauth2', DemoPolicy::DENY];
+        yield 'LDAP sign-in settings stay locked' => ['PATCH', '/config/plugins/login-ldap', DemoPolicy::DENY];
+        yield 'mail provider settings stay locked' => ['PATCH', '/config/plugins/email-mailgun', DemoPolicy::DENY];
+        yield 'Git Sync settings stay locked' => ['PATCH', '/config/plugins/git-sync', DemoPolicy::DENY];
         yield 'account settings stay locked' => ['PATCH', '/config/accounts', DemoPolicy::DENY];
 
         yield 'users' => ['PATCH', '/users/demo', DemoPolicy::DENY];
