@@ -10,6 +10,7 @@ use Grav\Common\Data\Validation;
 use Grav\Common\Grav;
 use Grav\Common\Page\Interfaces\PageInterface;
 use Grav\Common\User\Interfaces\UserInterface;
+use Grav\Common\Utils;
 use Grav\Plugin\Api\Auth\JwtAuthenticator;
 use Grav\Plugin\Api\Demo\DemoManager;
 use Grav\Plugin\Api\Demo\DemoPolicy;
@@ -144,6 +145,111 @@ abstract class AbstractApiController
     {
         return $this->isSuperAdmin($this->getUser($request))
             && $this->scopeAllows($request, 'admin.super');
+    }
+
+    /**
+     * A non-super caller may only grant permissions it holds itself.
+     *
+     * Holding api.users.write lets an account manage other accounts and their
+     * `access` maps. Without this check the only limit was "not super", so a
+     * user manager could hand anyone (themselves included) api.gpm.write or
+     * api.config.write, which are super in all but name. Now every permission
+     * the new map grants has to resolve true for the caller, through their own
+     * map or their groups, and pass the API-key scope cap.
+     *
+     * Entries the target already has with the same value are skipped: Admin2
+     * sends the whole access map back on every save, so a manager can still
+     * edit an account that holds more than they do, and can take permissions
+     * away. Denials (false, 'no', null) never need checking. Super callers
+     * (within scope) skip the check entirely.
+     *
+     * @param array<mixed> $access  the access map being written
+     * @param mixed        $current the target's access map before the write
+     */
+    protected function assertCanGrantAccess(ServerRequestInterface $request, array $access, mixed $current = null): void
+    {
+        if ($this->isSuperWithinScope($request)) {
+            return;
+        }
+
+        $caller = $this->getUser($request);
+        $existing = is_array($current) ? Utils::arrayFlattenDotNotation($current) : [];
+
+        foreach (Utils::arrayFlattenDotNotation($access) as $permission => $value) {
+            $permission = (string) $permission;
+            if (!$this->accessValueGrants($value)) {
+                continue;
+            }
+            if ($this->alreadyGranted($existing, $permission, $value)) {
+                continue;
+            }
+            if (!$this->callerHoldsPermission($request, $caller, $permission)) {
+                throw new ForbiddenException(
+                    "You cannot grant '{$permission}': your own account does not hold that permission."
+                );
+            }
+        }
+    }
+
+    /**
+     * Whether the caller may grant $permission to an account: a super caller
+     * (within scope) may grant anything, anyone else only what they hold.
+     * The permissions blueprint uses this to mark which toggles Admin2 enables.
+     */
+    protected function canGrantPermission(ServerRequestInterface $request, string $permission): bool
+    {
+        return $this->isSuperWithinScope($request)
+            || $this->callerHoldsPermission($request, $this->getUser($request), $permission);
+    }
+
+    private function callerHoldsPermission(ServerRequestInterface $request, UserInterface $caller, string $permission): bool
+    {
+        return $this->hasPermission($caller, $permission) && $this->scopeAllows($request, $permission);
+    }
+
+    /**
+     * Whether an access-map value grants something. Anything that isn't an
+     * explicit denial counts, including Grav's compact action strings
+     * ('crud', '-c+r'), since those grant child actions.
+     */
+    private function accessValueGrants(mixed $value): bool
+    {
+        if ($value === null || $value === '' || is_array($value)) {
+            return false;
+        }
+
+        // Same denial values as Utils::isNegative().
+        return !in_array($value, [false, 0, '0', 'no', 'off', 'false'], true);
+    }
+
+    /**
+     * Whether the account's own access map already grants $permission with
+     * $value. Walks up to parent keys, because Admin2 expands a blanket grant
+     * (`api.pages: true`) into its children when one of them is edited.
+     *
+     * @param array<string, mixed> $existing flattened access map
+     */
+    private function alreadyGranted(array $existing, string $permission, mixed $value): bool
+    {
+        if (array_key_exists($permission, $existing)) {
+            return $existing[$permission] === $value
+                || (Utils::isPositive($existing[$permission]) && Utils::isPositive($value));
+        }
+
+        // A parent's blanket grant covers plain boolean children only, not a
+        // compact action string, which may grant more than the parent did.
+        if (!Utils::isPositive($value)) {
+            return false;
+        }
+        $key = $permission;
+        while (($pos = strrpos($key, '.')) !== false) {
+            $key = substr($key, 0, $pos);
+            if (array_key_exists($key, $existing)) {
+                return Utils::isPositive($existing[$key]);
+            }
+        }
+
+        return false;
     }
 
     /**

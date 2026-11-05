@@ -577,6 +577,11 @@ class BlueprintController extends AbstractApiController
 
     /**
      * GET /blueprints/users/permissions - Get all registered permission actions.
+     *
+     * Each action carries `grantable`: whether the caller may grant it to an
+     * account. A super admin may grant everything; anyone else only what their
+     * own account holds (see assertCanGrantAccess()). Admin2 disables the Allow
+     * toggle where it is false.
      */
     public function permissionsBlueprint(ServerRequestInterface $request): ResponseInterface
     {
@@ -586,9 +591,12 @@ class BlueprintController extends AbstractApiController
         /** @var \Grav\Framework\Acl\Permissions $permissions */
         $permissions = $this->grav['permissions'];
 
+        $isSuper = $this->isSuperWithinScope($request);
+        $grantable = fn (string $name): bool => $isSuper || $this->canGrantPermission($request, $name);
+
         $sections = [];
         foreach ($permissions as $name => $action) {
-            $sections[] = $this->serializePermissionAction($action, $name);
+            $sections[] = $this->serializePermissionAction($action, $name, $grantable);
         }
 
         return ApiResponse::create($sections);
@@ -596,8 +604,10 @@ class BlueprintController extends AbstractApiController
 
     /**
      * Recursively serialize a permission action and its children.
+     *
+     * @param callable(string): bool $grantable
      */
-    private function serializePermissionAction(object $action, string $name): array
+    private function serializePermissionAction(object $action, string $name, callable $grantable): array
     {
         $rawLabel = $action->label ?? $name;
         $label = $this->translateLabel($rawLabel);
@@ -605,6 +615,7 @@ class BlueprintController extends AbstractApiController
         $data = [
             'name' => $name,
             'label' => $label,
+            'grantable' => $grantable($name),
         ];
 
         // Check for child actions
@@ -612,7 +623,7 @@ class BlueprintController extends AbstractApiController
         if ($action instanceof \IteratorAggregate || $action instanceof \Traversable) {
             foreach ($action as $child) {
                 // Use $child->name which has the full dotted path (e.g. "admin.login")
-                $children[] = $this->serializePermissionAction($child, $child->name ?? $name);
+                $children[] = $this->serializePermissionAction($child, $child->name ?? $name, $grantable);
             }
         }
 

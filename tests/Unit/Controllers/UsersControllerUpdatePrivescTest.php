@@ -190,8 +190,9 @@ class UsersControllerUpdatePrivescTest extends TestCase
         // Nested access map so PermissionResolver sees api.users.write as
         // granted (the test mock's get() doesn't traverse dot notation, so
         // the flat-key shortcut wouldn't work for the resolver).
+        // The admin holds users.read too: a manager may only grant what it holds.
         $admin = TestHelper::createMockUser('admin', [
-            'access' => ['api' => ['access' => true, 'users' => ['write' => true]]],
+            'access' => ['api' => ['access' => true, 'users' => ['read' => true, 'write' => true]]],
         ]);
         $target = TestHelper::createMockUser('user1', [
             'access' => ['api' => ['access' => true]],
@@ -231,14 +232,15 @@ class UsersControllerUpdatePrivescTest extends TestCase
     public function user_with_users_write_can_self_edit_access_field(): void
     {
         // A user-manager editing their own profile is allowed to touch `access`
-        // because they already hold api.users.write.
+        // because they already hold api.users.write. Dropping a permission they
+        // hold (users.read here) is always allowed.
         $manager = TestHelper::createMockUser('manager', [
-            'access' => ['api' => ['access' => true, 'users' => ['write' => true]]],
+            'access' => ['api' => ['access' => true, 'users' => ['write' => true, 'read' => true]]],
         ]);
 
         $controller = $this->buildController($manager);
 
-        $newAccess = ['api' => ['access' => true, 'users' => ['write' => true, 'read' => true]]];
+        $newAccess = ['api' => ['access' => true, 'users' => ['write' => true, 'read' => false]]];
         $controller->update($this->makeRequest($manager, 'manager', ['access' => $newAccess]));
 
         $this->assertSame($newAccess, $manager->get('access'));

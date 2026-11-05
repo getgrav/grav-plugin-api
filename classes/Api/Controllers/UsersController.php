@@ -1011,6 +1011,10 @@ class UsersController extends AbstractApiController
             if (!$this->isSuperWithinScope($request) && $this->accessGrantsSuper($body['access'])) {
                 throw new ForbiddenException('Granting super-admin access requires super-admin privileges.');
             }
+            // Nor any other permission the creator doesn't hold themselves.
+            if (is_array($body['access'])) {
+                $this->assertCanGrantAccess($request, $body['access']);
+            }
             $user->set('access', $body['access']);
         }
 
@@ -1136,6 +1140,13 @@ class UsersController extends AbstractApiController
             // the caller does not hold. See GHSA-p97c-g455-q447.
             if (isset($body['access']) && $this->accessGrantsSuper($body['access'])) {
                 throw new ForbiddenException('Granting super-admin access requires super-admin privileges.');
+            }
+
+            // Nor grant anything else the manager doesn't hold. Entries the
+            // account already has are left alone, so editing an account that
+            // holds more than the manager still works.
+            if (isset($body['access']) && is_array($body['access'])) {
+                $this->assertCanGrantAccess($request, $body['access'], $user->get('access'));
             }
         }
 
