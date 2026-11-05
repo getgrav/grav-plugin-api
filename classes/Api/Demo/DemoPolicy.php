@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Grav\Plugin\Api\Demo;
 
+use Grav\Plugin\Api\Services\ConfigScopes;
+
 /**
  * What a demo account may change, as plain decisions over strings.
  *
@@ -281,7 +283,8 @@ final class DemoPolicy
     public static function configGroup(string $scope): ?string
     {
         $scope = trim($scope, '/');
-        if ($scope === '' || in_array($scope, self::LOCKED_CONFIG_SCOPES, true)) {
+        if ($scope === '' || in_array($scope, self::LOCKED_CONFIG_SCOPES, true)
+            || ConfigScopes::isSuperWritePlugin($scope)) {
             return null;
         }
         if ($scope === 'site') {

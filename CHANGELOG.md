@@ -1,3 +1,9 @@
+# v1.1.13
+## 11/05/2026
+
+1. [](#improved)
+    * [security] Changing the settings of the Login, Email, Git Sync and Admin2 plugins, and of Login and Email provider plugins, now needs an API super user, like the API plugin's own settings. A configuration editor without super-admin can still change other plugins' settings. Demo mode keeps these plugins read-only too. Thanks @rng70
+
 # v1.1.12
 ## 11/04/2026
 
