@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Grav\Plugin\Api\Controllers;
 
 use Grav\Plugin\Api\Response\ApiResponse;
+use Grav\Plugin\Api\Services\AdminModules;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use RocketTheme\Toolbox\Event\Event;
@@ -77,6 +78,10 @@ class FloatingWidgetController extends AbstractApiController
                 } else {
                     $widget['routes'] = $routes;
                 }
+            }
+            // Versions the widget's module URL (/admin-next/modules/...).
+            if (is_string($widget['plugin'] ?? null) && !isset($widget['v'])) {
+                $widget['v'] = AdminModules::versionFor($this->grav, 'widget', $widget['plugin']);
             }
             $filtered[] = $widget;
         }

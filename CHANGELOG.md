@@ -1,3 +1,9 @@
+# v1.1.14
+## 11/05/2026
+
+1. [](#new)
+    * New public `GET /admin-next/modules/...` routes serve a plugin's (or, for fields, a theme's) Admin Next web components as same-origin ES modules with their element tag line in front, and `/custom-fields`, `/floating-widgets`, `/context-panels`, `/dashboard/widgets`, `/reports` and plugin page definitions carry each module's `v` so its URL can be cached for a year, which lets Admin2 run under a strict Content-Security-Policy [admin2#212](https://github.com/getgrav/grav-plugin-admin2/issues/212)
+
 # v1.1.13
 ## 11/05/2026
 

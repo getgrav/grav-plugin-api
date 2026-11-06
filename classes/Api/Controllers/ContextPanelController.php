@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Grav\Plugin\Api\Controllers;
 
 use Grav\Plugin\Api\Response\ApiResponse;
+use Grav\Plugin\Api\Services\AdminModules;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use RocketTheme\Toolbox\Event\Event;
@@ -63,6 +64,10 @@ class ContextPanelController extends AbstractApiController
             }
             // Strip the authorize field — it's a server-side annotation, not client data
             unset($panel['authorize']);
+            // Versions the panel's module URL (/admin-next/modules/...).
+            if (is_string($panel['plugin'] ?? null) && !isset($panel['v'])) {
+                $panel['v'] = AdminModules::versionFor($this->grav, 'panel', $panel['plugin']);
+            }
             $filtered[] = $panel;
         }
         // Sort by priority descending (higher first), like /settings/panels;

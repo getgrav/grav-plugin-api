@@ -1079,6 +1079,8 @@ Plugins can integrate with the admin-next UI by registering sidebar navigation i
 | `GET` | `/gpm/plugins/{slug}/page` | Get a plugin's page definition for admin-next |
 | `GET` | `/gpm/plugins/{slug}/page-script` | Serve a plugin's page web component JS |
 | `GET` | `/gpm/plugins/{slug}/report-script/{reportId}` | Serve a plugin's report web component JS |
+| `GET` | `/admin-next/modules/plugins/{slug}/{page\|widget\|panel}` | Public: a plugin's page, widget or panel web component as a same-origin ES module, with `window.__GRAV_*_TAG = "{tag}";` in front (`?tag=` the element tag, `&v=` its version for year-long caching) |
+| `GET` | `/admin-next/modules/{plugins\|themes}/{slug}/{modal\|report\|field}/{name}` | Public: the same for a modal, report or field module (themes: fields only) |
 | `GET` | `/blueprints/plugins/{plugin}/pages/{pageId}` | Get a custom page blueprint for a plugin |
 
 **Register a sidebar item** via `onApiSidebarItems`:

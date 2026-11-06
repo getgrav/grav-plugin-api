@@ -140,6 +140,12 @@ class DashboardLayoutResolver
                 continue;
             }
             $widget['source'] = 'plugin';
+            // A widget drawn by the plugin's widget module gets `v`, the
+            // version of its module URL (/admin-next/modules/plugins/{slug}/widget).
+            if (!isset($widget['v']) && is_string($widget['scriptUrl'] ?? null)
+                && preg_match('#^/gpm/plugins/([^/]+)/widget-script$#', $widget['scriptUrl'], $m)) {
+                $widget['v'] = AdminModules::versionFor($this->grav, 'widget', $m[1]);
+            }
             $items[] = $this->normalizeWidgetSizes($widget);
         }
         return $items;
