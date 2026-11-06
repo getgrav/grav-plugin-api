@@ -94,7 +94,7 @@ class MediaController extends AbstractApiController
     {
         $this->requirePermission($request, 'api.media.write');
 
-        $page = $this->findPageOrFail($request, 'update');
+        $page = $this->findPageOrFail($request, 'media');
         $pagePath = $page->path();
 
         if (!$pagePath || !is_dir($pagePath)) {
@@ -155,7 +155,7 @@ class MediaController extends AbstractApiController
     {
         $this->requirePermission($request, 'api.media.write');
 
-        $page = $this->findPageOrFail($request, 'update');
+        $page = $this->findPageOrFail($request, 'media');
         $filename = $this->getSafeFilename($request);
         $pagePath = $page->path();
 
@@ -225,7 +225,7 @@ class MediaController extends AbstractApiController
     {
         $this->requirePermission($request, 'api.media.write');
 
-        $page = $this->findPageOrFail($request, 'update');
+        $page = $this->findPageOrFail($request, 'media');
         $filename = $this->getSafeFilename($request);
         $filePath = $this->requirePageMediaFile($page->path(), $filename);
 
@@ -253,7 +253,7 @@ class MediaController extends AbstractApiController
     {
         $this->requirePermission($request, 'api.media.write');
 
-        $page = $this->findPageOrFail($request, 'update');
+        $page = $this->findPageOrFail($request, 'media');
         $filename = $this->getSafeFilename($request);
         $filePath = $this->requirePageMediaFile($page->path(), $filename);
 
@@ -286,7 +286,7 @@ class MediaController extends AbstractApiController
     {
         $this->requirePermission($request, 'api.media.write');
 
-        $page = $this->findPageOrFail($request, 'update');
+        $page = $this->findPageOrFail($request, 'media');
         $pagePath = $page->path();
         if (!$pagePath || !is_dir($pagePath)) {
             throw new NotFoundException('Page directory does not exist on disk.');
@@ -1331,12 +1331,16 @@ class MediaController extends AbstractApiController
         // apply here too (getgrav/grav-plugin-admin2#150). Permission to touch
         // media at all still comes from `api.media.*`, checked by the caller.
         //
-        // Changing media needs the right to update THIS page: its own `update`
-        // rule, or the account's `api.pages.write` where it has none — the
-        // same verdict as the page's `permissions.update`, so an editor who
-        // may only read a page can't change its attachments either
-        // (getgrav/grav-plugin-admin2#209). Reading media only honors a deny.
-        if ($pageAction === 'update') {
+        // Changing media needs the right to change THIS page's media: its own
+        // `media` rule, or that block's `update` rule where it says nothing
+        // about media, or the account's `api.pages.write` where it has no rule
+        // at all — so an editor who may only read a page can't change its
+        // attachments either (getgrav/grav-plugin-admin2#209), while a
+        // media-only role can (getgrav/grav-plugin-api#77). Reading media only
+        // honors a deny.
+        if ($pageAction === 'media') {
+            $this->assertPageMediaChangeable($request, $page);
+        } elseif ($pageAction === 'update') {
             $this->assertPageUpdatable($request, $page);
         } elseif ($pageAction !== null) {
             $this->assertPageNotDenied($request, $page, $pageAction);

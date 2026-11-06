@@ -263,4 +263,79 @@ class PageAclTest extends TestCase
             @rmdir($dir);
         }
     }
+
+    #[Test]
+    public function media_grant_works_without_update(): void
+    {
+        $page = $this->page([
+            'permissions' => ['groups' => ['editors' => ['read' => true, 'media' => true]]],
+        ]);
+
+        $acl = new PageAcl();
+        $user = $this->user('jane', ['editors']);
+
+        $this->assertTrue($acl->authorizeMedia($page, $user));
+        // The page itself is still read-only for this group.
+        $this->assertNull($acl->authorize($page, $user, 'update'));
+    }
+
+    #[Test]
+    public function media_can_be_withheld_from_a_group_that_may_update(): void
+    {
+        $page = $this->page([
+            'permissions' => ['groups' => ['editors' => ['update' => true, 'media' => false]]],
+        ]);
+
+        $this->assertFalse((new PageAcl())->authorizeMedia($page, $this->user('jane', ['editors'])));
+    }
+
+    #[Test]
+    public function media_falls_back_to_the_same_groups_update_rule(): void
+    {
+        $page = $this->page([
+            'permissions' => ['groups' => ['editors' => 'ru']],
+        ]);
+
+        $this->assertTrue((new PageAcl())->authorizeMedia($page, $this->user('jane', ['editors'])));
+    }
+
+    #[Test]
+    public function media_shorthand_letter_is_understood(): void
+    {
+        $granted = $this->page([
+            'permissions' => ['groups' => ['editors' => 'rlm']],
+        ]);
+        $withheld = $this->page([
+            'permissions' => ['groups' => ['editors' => 'rlu-m']],
+        ]);
+
+        $acl = new PageAcl();
+        $user = $this->user('jane', ['editors']);
+
+        $this->assertTrue($acl->authorizeMedia($granted, $user));
+        $this->assertFalse($acl->authorizeMedia($withheld, $user));
+    }
+
+    #[Test]
+    public function a_childs_update_deny_beats_a_parents_media_grant(): void
+    {
+        $parent = $this->page([
+            'permissions' => ['groups' => ['editors' => ['media' => true]]],
+        ]);
+        $child = $this->page([
+            'permissions' => ['groups' => ['editors' => '-u']],
+        ], $parent);
+
+        $this->assertFalse((new PageAcl())->authorizeMedia($child, $this->user('jane', ['editors'])));
+    }
+
+    #[Test]
+    public function a_page_with_no_media_or_update_rule_has_no_opinion_on_media(): void
+    {
+        $page = $this->page([
+            'permissions' => ['groups' => ['editors' => 'rl']],
+        ]);
+
+        $this->assertNull((new PageAcl())->authorizeMedia($page, $this->user('jane', ['editors'])));
+    }
 }

@@ -2479,9 +2479,11 @@ paths:
         the name, and SVG content is sanitized on arrival.
 
         Requires `api.media.write`. On a page with page-level rules it also
-        needs the right to update that page (its `permissions.update`): a 403
-        for an editor who may read the page but not edit it. Pages without
-        rules need `api.media.write` alone (getgrav/grav-plugin-admin2#209).
+        follows the page's own `media` rule, or that block's `update` rule
+        where it says nothing about media: a 403 for an editor who may read
+        the page but not change its media. Pages without rules need
+        `api.media.write` alone (getgrav/grav-plugin-admin2#209,
+        getgrav/grav-plugin-api#77).
       parameters:
         - $ref: "#/components/parameters/pageRoute"
       requestBody:
@@ -2563,9 +2565,11 @@ paths:
         name.
 
         Requires `api.media.write`. On a page with page-level rules it also
-        needs the right to update that page (its `permissions.update`): a 403
-        for an editor who may read the page but not edit it. Pages without
-        rules need `api.media.write` alone (getgrav/grav-plugin-admin2#209).
+        follows the page's own `media` rule, or that block's `update` rule
+        where it says nothing about media: a 403 for an editor who may read
+        the page but not change its media. Pages without rules need
+        `api.media.write` alone (getgrav/grav-plugin-admin2#209,
+        getgrav/grav-plugin-api#77).
       parameters:
         - $ref: "#/components/parameters/pageRoute"
         - name: filename
@@ -2631,9 +2635,11 @@ paths:
         they render into `<img>` attributes on the site.
 
         Requires `api.media.write`. On a page with page-level rules it also
-        needs the right to update that page (its `permissions.update`): a 403
-        for an editor who may read the page but not edit it. Pages without
-        rules need `api.media.write` alone (getgrav/grav-plugin-admin2#209).
+        follows the page's own `media` rule, or that block's `update` rule
+        where it says nothing about media: a 403 for an editor who may read
+        the page but not change its media. Pages without rules need
+        `api.media.write` alone (getgrav/grav-plugin-admin2#209,
+        getgrav/grav-plugin-api#77).
       parameters:
         - $ref: "#/components/parameters/pageRoute"
         - $ref: "#/components/parameters/mediaFilename"
@@ -2664,9 +2670,11 @@ paths:
         nothing else remains in it.
 
         Requires `api.media.write`. On a page with page-level rules it also
-        needs the right to update that page (its `permissions.update`): a 403
-        for an editor who may read the page but not edit it. Pages without
-        rules need `api.media.write` alone (getgrav/grav-plugin-admin2#209).
+        follows the page's own `media` rule, or that block's `update` rule
+        where it says nothing about media: a 403 for an editor who may read
+        the page but not change its media. Pages without rules need
+        `api.media.write` alone (getgrav/grav-plugin-admin2#209,
+        getgrav/grav-plugin-api#77).
       parameters:
         - $ref: "#/components/parameters/pageRoute"
         - $ref: "#/components/parameters/mediaFilename"
@@ -2696,9 +2704,11 @@ paths:
         `plugins.api.batch.max_items` (default 50).
 
         Requires `api.media.write`. On a page with page-level rules it also
-        needs the right to update that page (its `permissions.update`): a 403
-        for an editor who may read the page but not edit it. Pages without
-        rules need `api.media.write` alone (getgrav/grav-plugin-admin2#209).
+        follows the page's own `media` rule, or that block's `update` rule
+        where it says nothing about media: a 403 for an editor who may read
+        the page but not change its media. Pages without rules need
+        `api.media.write` alone (getgrav/grav-plugin-admin2#209,
+        getgrav/grav-plugin-api#77).
       parameters:
         - $ref: "#/components/parameters/pageRoute"
       requestBody:
@@ -10281,7 +10291,7 @@ paths:
         Every multipart file part is saved (nested file arrays are flattened). Each file is capped at 64 MB, and the field's own `filesize` can only tighten that. Extensions listed in `security.uploads_dangerous_extensions` are refused in any dot-separated part of the name (so `shell.php.jpg` fails), as are config-type extensions (`yaml`, `yml`, `json`, `twig`, `env`, `neon`, `lock`), page content (`md`, `markdown`) and stylesheets (`css`, `scss`, `sass`, `less`). Uploads into `user/accounts/` are restricted to image extensions, and uploads resolving into `user/config/` or `user/env/*/config/` are refused with 403. SVG files are sanitized after saving.
         A developer can allow page content or stylesheets for one field by listing them in that field's blueprint, for example `allow_extensions: [css]`. The server reads this from the blueprint that owns `scope` (a plugin or theme config blueprint, the page template's blueprint, or the account blueprint), never from the request: the request only names the field in `field`, and the upload's `destination` must be that field's own `destination`. `allow_extensions` can only lift `md`, `markdown`, `css`, `scss`, `sass` and `less`; dangerous and config-type extensions, the accounts image-only rule and the config directory block always apply.
         `self@:` against a `users/<username>` scope for another account needs `api.users.write` or super-admin.
-        Where the file lands also decides who may write it, judged on the logical path and on the realpath (themes and plugins are often symlinked in): anywhere in `user/themes/` or `user/plugins/` (a theme logo or favicon, a plugin asset) also needs `api.config.write`; a Twig template folder (a theme's or plugin's `templates/`, at any depth, or another registered template path) and anything outside `user/` (`cache://`, `log://`, `system://`, the root `assets/`) need super-admin. A file that lands in a page's folder under `user/pages/` (`self@:` on a page blueprint, a `page://` destination) changes that page's media, so on a page with page-level rules it also needs the right to update that page, as page media does (getgrav/grav-plugin-admin2#209). Refusals are 403, and an API key's scopes cap both permissions.
+        Where the file lands also decides who may write it, judged on the logical path and on the realpath (themes and plugins are often symlinked in): anywhere in `user/themes/` or `user/plugins/` (a theme logo or favicon, a plugin asset) also needs `api.config.write`; a Twig template folder (a theme's or plugin's `templates/`, at any depth, or another registered template path) and anything outside `user/` (`cache://`, `log://`, `system://`, the root `assets/`) need super-admin. A file that lands in a page's folder under `user/pages/` (`self@:` on a page blueprint, a `page://` destination) changes that page's media, so on a page with page-level rules it follows the page's `media` rule (or its `update` rule where the block says nothing about media), as page media does (getgrav/grav-plugin-admin2#209, getgrav/grav-plugin-api#77). Refusals are 403, and an API key's scopes cap both permissions.
         File names ending in a space or a dot, or containing control or invisible formatting characters, are refused with 422.
       requestBody:
         required: true
@@ -10351,7 +10361,7 @@ paths:
       summary: Delete a file saved by a blueprint file field
       description: |
         Remove a file previously saved through `POST /blueprint-upload`, plus its `.meta.yaml` sidecar when present. Requires `api.media.write`.
-        `path` is the logical path the upload returned, relative to the user root (`user/` prefix optional). Absolute input, `..` and null bytes are rejected. Targets in `user/config/` or `user/env/*/config/` are refused with 403. The same folder rules as the upload apply: deleting in `user/themes/` or `user/plugins/` also needs `api.config.write`, in a Twig template folder super-admin, and in a page's folder the right to update that page (403 otherwise). Under `user/accounts/` only image files may be deleted, and without `api.users.write` only the caller's own avatar (403 otherwise). The same extension denylist as the upload applies, so page content (`.md`) and stylesheets can't be deleted here unless `field` and `scope` name a blueprint field that allows them with `allow_extensions` and the file sits in the folder that field's `destination` resolves to.
+        `path` is the logical path the upload returned, relative to the user root (`user/` prefix optional). Absolute input, `..` and null bytes are rejected. Targets in `user/config/` or `user/env/*/config/` are refused with 403. The same folder rules as the upload apply: deleting in `user/themes/` or `user/plugins/` also needs `api.config.write`, in a Twig template folder super-admin, and in a page's folder the page's `media` rule, or its `update` rule where the block says nothing about media (403 otherwise). Under `user/accounts/` only image files may be deleted, and without `api.users.write` only the caller's own avatar (403 otherwise). The same extension denylist as the upload applies, so page content (`.md`) and stylesheets can't be deleted here unless `field` and `scope` name a blueprint field that allows them with `allow_extensions` and the file sits in the folder that field's `destination` resolves to.
         The call is idempotent: a file that no longer exists returns 204.
       requestBody:
         required: true
@@ -14130,11 +14140,12 @@ components:
               type: boolean
               description: |
                 May change this page's media (upload, delete, edit metadata):
-                a super admin, or an account with `api.media.write` that may
-                also update this page (the page's own `update` rule, or
-                `api.pages.write` where it has rules that grant no `update`).
-                A page with no rules needs only `api.media.write`, so this can
-                be true where `update` is false. Only on single-page responses
+                a super admin, or an account with `api.media.write` that the
+                page's rules also allow — its own `media` rule, or that
+                block's `update` rule where it says nothing about media, or
+                `api.pages.write` where it has rules that grant neither. A page
+                with no rules needs only `api.media.write`, so this can be true
+                where `update` is false. Only on single-page responses
                 (`GET /pages/{route}` and writes), not on listing rows. A
                 client built for an older API, which omits it, falls back to
                 `update`.

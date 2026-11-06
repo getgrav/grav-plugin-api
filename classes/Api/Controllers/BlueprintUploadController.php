@@ -621,7 +621,9 @@ class BlueprintUploadController extends AbstractApiController
      * A file field that saves into a page's folder (`self@:` on a page
      * blueprint, a `page://` destination, or a delete of such a file) changes
      * that page's media, so it follows the same page rules as
-     * `POST /pages/{route}/media` (getgrav/grav-plugin-admin2#209).
+     * `POST /pages/{route}/media` (getgrav/grav-plugin-admin2#209): the page's
+     * `media` rule, or its `update` rule where the block says nothing about
+     * media (getgrav/grav-plugin-api#77).
      *
      * The page is the nearest folder at or above the target that is a page;
      * a file field can save into a subfolder of one. Super admins pass.
@@ -666,7 +668,7 @@ class BlueprintUploadController extends AbstractApiController
         while (strlen($probe) > strlen($base)) {
             $page = $pages->get($probe);
             if ($page instanceof PageInterface && !$page->root()) {
-                $this->assertPageUpdatable($request, $page);
+                $this->assertPageMediaChangeable($request, $page);
                 return;
             }
             $probe = dirname($probe);
