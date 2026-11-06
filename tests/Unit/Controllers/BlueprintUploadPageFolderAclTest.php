@@ -49,7 +49,7 @@ class BlueprintUploadPageFolderAclTest extends TestCase
     /**
      * @param array<string, mixed> $access
      */
-    private function guard(array $access, string $dir): void
+    private function guard(array $access, string $dir, bool $pageContent = false): void
     {
         $outils = $this->page($this->dir . '/pages/02.outils', ['groups' => ['editors' => 'ru']]);
         $communication = $this->page($this->dir . '/pages/04.communication', ['groups' => ['editors' => 'rl']]);
@@ -86,6 +86,7 @@ class BlueprintUploadPageFolderAclTest extends TestCase
             $controller,
             TestHelper::createMockRequest(attributes: ['api_user' => $this->user]),
             $dir,
+            $pageContent,
         );
     }
 
@@ -140,6 +141,13 @@ class BlueprintUploadPageFolderAclTest extends TestCase
     {
         $this->guard(self::MEDIA_ONLY, $this->dir . '/pages/06.mediaonly');
         $this->addToAssertionCount(1);
+    }
+
+    #[Test]
+    public function a_media_grant_does_not_cover_the_pages_own_markdown(): void
+    {
+        $this->expectException(ForbiddenException::class);
+        $this->guard(self::MEDIA_ONLY, $this->dir . '/pages/06.mediaonly', true);
     }
 
     #[Test]

@@ -107,6 +107,16 @@ class MediaController extends AbstractApiController
             throw new ValidationException('No files were uploaded.');
         }
 
+        // A page's Markdown or frontmatter.yaml is the page, not its media, so
+        // a media write may not replace it (checked before anything is stored).
+        foreach ($uploadedFiles as $file) {
+            if (self::isPageContentFile((string) $file->getClientFilename())) {
+                throw new ValidationException(
+                    "'" . basename((string) $file->getClientFilename()) . "' is part of the page, not its media."
+                );
+            }
+        }
+
         // Honor per-field upload settings (random_name, accept, ...) when the
         // file field forwards them; absent, this is an inert no-op.
         $settings = $this->parseUploadFieldSettings($request);
@@ -161,6 +171,12 @@ class MediaController extends AbstractApiController
 
         if (!$pagePath) {
             throw new NotFoundException('Page directory does not exist on disk.');
+        }
+
+        // The page's own Markdown and frontmatter.yaml aren't media, and the
+        // media listing never shows them: deleting the page is DELETE /pages.
+        if (self::isPageContentFile($filename)) {
+            throw new NotFoundException("Media file '{$filename}' not found on this page.");
         }
 
         // Collect every physical file backing this medium: the base file, its

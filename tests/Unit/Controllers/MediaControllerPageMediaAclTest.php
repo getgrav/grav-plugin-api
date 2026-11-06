@@ -11,6 +11,7 @@ use Grav\Common\Page\Pages;
 use Grav\Framework\Acl\Permissions;
 use Grav\Plugin\Api\Controllers\MediaController;
 use Grav\Plugin\Api\Exceptions\ForbiddenException;
+use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Tests\Unit\TestHelper;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -90,8 +91,8 @@ class MediaControllerPageMediaAclTest extends TestCase
         yield 'media write alone, page grants only read' => [self::MEDIA_ONLY, ['groups' => ['editors' => 'rl']], false];
         yield 'media write alone, page grants media without update' => [self::MEDIA_ONLY, ['groups' => ['editors' => ['read' => true, 'media' => true]]], true];
         yield 'media write alone, page grants media by letter' => [self::MEDIA_ONLY, ['groups' => ['editors' => 'rlm']], true];
-        yield 'media write alone, page withholds media but allows update' => [self::EDITOR, ['groups' => ['editors' => ['update' => true, 'media' => false]]], false];
-        yield 'media write alone, page denies media by letter' => [self::EDITOR, ['groups' => ['editors' => 'ru-m']], false];
+        yield 'editor, page withholds media but allows update' => [self::EDITOR, ['groups' => ['editors' => ['update' => true, 'media' => false]]], false];
+        yield 'editor, page denies media by letter' => [self::EDITOR, ['groups' => ['editors' => 'ru-m']], false];
         yield 'editor, page without rules' => [self::EDITOR, null, true];
         yield 'editor, page denies update' => [self::EDITOR, ['groups' => ['editors' => '-u']], false];
         yield 'editor, page denies update to everyone' => [self::EDITOR, ['groups' => ['defaults' => '-u']], false];
@@ -174,6 +175,36 @@ class MediaControllerPageMediaAclTest extends TestCase
             ->invoke($controller, $this->request(), $page, false);
 
         self::assertArrayNotHasKey('media', $capabilities);
+    }
+
+    #[Test]
+    public function a_media_grant_cannot_delete_the_pages_own_files(): void
+    {
+        $dir = sys_get_temp_dir() . '/grav_api_media_acl/01.photos';
+        @mkdir($dir, 0777, true);
+        file_put_contents($dir . '/default.md', "---\ntitle: Photos\n---\n");
+        file_put_contents($dir . '/frontmatter.yaml', "title: Photos\n");
+
+        try {
+            $controller = $this->controller(self::MEDIA_ONLY, ['groups' => ['editors' => ['read' => true, 'media' => true]]]);
+            foreach (['default.md', 'DEFAULT.MD', 'frontmatter.yaml'] as $filename) {
+                $request = TestHelper::createMockRequest(
+                    method: 'DELETE',
+                    attributes: ['api_user' => $this->user, 'route_params' => ['route' => 'photos', 'filename' => $filename]],
+                );
+                try {
+                    $controller->deletePageMedia($request);
+                    self::fail("Deleting {$filename} through the media route should have been refused.");
+                } catch (NotFoundException) {
+                }
+            }
+
+            self::assertFileExists($dir . '/default.md');
+            self::assertFileExists($dir . '/frontmatter.yaml');
+        } finally {
+            @unlink($dir . '/default.md');
+            @unlink($dir . '/frontmatter.yaml');
+        }
     }
 
     #[Test]

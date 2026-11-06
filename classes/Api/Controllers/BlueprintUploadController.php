@@ -110,9 +110,12 @@ class BlueprintUploadController extends AbstractApiController
             $this->mayWriteUsersScope($request)
         );
         $isAccountsDir = $this->guardTargetDir($request, $targetDir) === 'accounts';
-        $this->guardPageFolder($request, $targetDir);
-
         $files = $this->flattenUploadedFiles($request->getUploadedFiles());
+        $this->guardPageFolder($request, $targetDir, array_filter(
+            $files,
+            fn (UploadedFileInterface $file): bool => self::isPageContentFile((string) $file->getClientFilename()),
+        ) !== []);
+
         if ($files === []) {
             throw new ValidationException('No file was uploaded.');
         }
@@ -229,7 +232,7 @@ class BlueprintUploadController extends AbstractApiController
             )
             : [];
         $this->assertSafeExtension($filename, false, $lifted);
-        $this->guardPageFolder($request, $targetDir);
+        $this->guardPageFolder($request, $targetDir, self::isPageContentFile($filename));
 
         // Idempotent: a file that's already gone is indistinguishable from a
         // file we just deleted, so don't pollute the client with a 404 that
@@ -625,10 +628,14 @@ class BlueprintUploadController extends AbstractApiController
      * `media` rule, or its `update` rule where the block says nothing about
      * media (getgrav/grav-plugin-api#77).
      *
+     * A file that is part of the page itself (its Markdown, `frontmatter.yaml`)
+     * needs the page's `update` rule instead, so a media grant can't rewrite
+     * the page or its `permissions` block.
+     *
      * The page is the nearest folder at or above the target that is a page;
      * a file field can save into a subfolder of one. Super admins pass.
      */
-    private function guardPageFolder(ServerRequestInterface $request, string $absoluteDir): void
+    private function guardPageFolder(ServerRequestInterface $request, string $absoluteDir, bool $pageContent = false): void
     {
         try {
             $pagesRoot = $this->grav['locator']->findResource('page://', true);
@@ -668,7 +675,9 @@ class BlueprintUploadController extends AbstractApiController
         while (strlen($probe) > strlen($base)) {
             $page = $pages->get($probe);
             if ($page instanceof PageInterface && !$page->root()) {
-                $this->assertPageMediaChangeable($request, $page);
+                $pageContent
+                    ? $this->assertPageUpdatable($request, $page)
+                    : $this->assertPageMediaChangeable($request, $page);
                 return;
             }
             $probe = dirname($probe);

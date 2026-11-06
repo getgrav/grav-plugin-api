@@ -1,3 +1,11 @@
+# v1.1.15
+## 11/06/2026
+
+1. [](#new)
+    * A page's group permissions can grant media management on its own with the new `media` rule (letter `m`), so someone can upload and caption a page's images without being able to edit the page. Where a rule says nothing about media, the page's update rule still decides. Thanks @phmg701 [#77](https://github.com/getgrav/grav-plugin-api/issues/77) [#78](https://github.com/getgrav/grav-plugin-api/pull/78)
+1. [](#bugfix)
+    * Page media uploads and deletes no longer touch the page's own Markdown file or `frontmatter.yaml`; changing those needs the right to edit the page
+
 # v1.1.14
 ## 11/05/2026
 

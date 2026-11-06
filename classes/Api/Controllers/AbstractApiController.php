@@ -746,6 +746,20 @@ abstract class AbstractApiController
     }
 
     /**
+     * Whether $filename is one of the files that make up a page rather than
+     * its media: its Markdown, `frontmatter.yaml` or `media.json`, the names
+     * Grav's own Media leaves out of a page's media. Writing or deleting one
+     * changes the page (its frontmatter, its `permissions` block), so it never
+     * counts as a media change.
+     */
+    protected static function isPageContentFile(string $filename): bool
+    {
+        $name = strtolower(basename($filename));
+
+        return str_ends_with($name, '.md') || in_array($name, ['frontmatter.yaml', 'media.json'], true);
+    }
+
+    /**
      * Why the caller may not change this page's own files, or null when they
      * may. The one rule behind assertPageUpdatable(),
      * assertPageMediaChangeable() and canChangePageMedia(), so the
