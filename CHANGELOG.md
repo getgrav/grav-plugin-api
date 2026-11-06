@@ -1,3 +1,9 @@
+# v1.1.14
+## 11/06/2026
+
+1. [](#bugfix)
+    * Adding your own media metadata field no longer takes alt, title, caption, description or tags out of the editor. The built-in fields stay unless a field with the same key sets the new **Hide from editor** option (`remove: true`) [#76](https://github.com/getgrav/grav-plugin-api/issues/76)
+
 # v1.1.13
 ## 11/05/2026
 

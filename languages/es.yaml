@@ -145,6 +145,8 @@ PLUGIN_API:
   NUMBER_MAX_HELP: "Solo para campos de número: el valor más grande aceptado. Déjalo vacío para no tener máximo."
   REQUIRED: "Obligatorio"
   REQUIRED_HELP: "Al guardar no se puede dejar vacío. Borrar todos los metadatos de un archivo también lo borra."
+  HIDE_FIELD: "Ocultar del editor"
+  HIDE_FIELD_HELP: "Quita este campo del editor de metadatos. Úsalo para un campo integrado (alt, title, caption, description, tags), que vuelve si borras su fila. Los valores ya guardados en los sidecars se conservan."
   PAGE_STATISTICS: "Estadísticas de páginas"
   TRACK_PAGE_VIEWS: "Registrar visitas de páginas"
   TRACK_PAGE_VIEWS_HELP: "Registra visitas del frontend en el panel de estadísticas de páginas"

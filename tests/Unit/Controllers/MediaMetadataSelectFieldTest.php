@@ -103,7 +103,8 @@ class MediaMetadataSelectFieldTest extends TestCase
             ]);
 
             $keys = array_column($this->call($controller, 'getMetadataFieldDefs'), 'key');
-            $this->assertSame(['alt'], $keys);
+            $this->assertNotContains('ai_status', $keys);
+            $this->assertSame(['alt', 'title', 'caption', 'description', 'tags'], $keys);
         }
     }
 
