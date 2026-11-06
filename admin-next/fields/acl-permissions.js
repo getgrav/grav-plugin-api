@@ -13,6 +13,12 @@
  * allows them. Letters absent from the string are unset. Non-CRUD letters in
  * an existing value (e.g. publish `p`) are preserved on round-trip.
  *
+ * A value can also be a map of action names, e.g. `{ update: true,
+ * delete: false }`. Such a row is saved back as a map: the C/R/U/D buttons
+ * edit `create`/`read`/`update`/`delete`, and every other key in it (publish,
+ * list, media, ...) is kept as it was. Writing it as letters instead would
+ * turn the action names into letters, so `update-delete` grants publish.
+ *
  * The group dropdown is a type-ahead popover (searchable list), modelled on
  * admin-next's page-parent picker. Options are baked into `field.options`
  * server-side as [{ value, label }].
@@ -22,6 +28,7 @@ const TAG = window.__GRAV_FIELD_TAG;
 
 const CRUD = ['c', 'r', 'u', 'd'];
 const CRUD_LABEL = { c: 'C', r: 'R', u: 'U', d: 'D' };
+const CRUD_ACTION = { c: 'create', r: 'read', u: 'update', d: 'delete' };
 
 class AclPermissionsField extends HTMLElement {
     constructor() {
@@ -29,7 +36,7 @@ class AclPermissionsField extends HTMLElement {
         this.attachShadow({ mode: 'open' });
         this._field = null;
         this._value = null;
-        this._rows = null;       // [{ key, states: {letter:'allow'|'deny'} }]
+        this._rows = null;       // [{ key, states: {letter:'allow'|'deny'}, extra?: {action: value} }]
         this._lastEmitted = null;
         this._openRow = -1;
         this._filter = '';
@@ -64,7 +71,7 @@ class AclPermissionsField extends HTMLElement {
         const rows = [];
         if (v && typeof v === 'object' && !Array.isArray(v)) {
             for (const [key, raw] of Object.entries(v)) {
-                rows.push({ key, states: parseAcl(raw) });
+                rows.push({ key, ...parseAcl(raw) });
             }
         }
         // Show a single blank starter row only when nothing is set yet, so the
@@ -87,7 +94,7 @@ class AclPermissionsField extends HTMLElement {
     _commit() {
         const out = {};
         for (const row of this._rows) {
-            if (row.key) out[row.key] = serializeAcl(row.states);
+            if (row.key) out[row.key] = row.extra ? serializeAclMap(row.states, row.extra) : serializeAcl(row.states);
         }
         this._value = out;
         this._lastEmitted = JSON.stringify(out);
@@ -261,14 +268,19 @@ class AclPermissionsField extends HTMLElement {
 
 // ─── Compact ACL string <-> states map ──────────────────────────────────
 
+// A row's value as button states. A map value also returns `extra`: its
+// entries that aren't a recognised C/R/U/D verdict, kept for saving it back.
 function parseAcl(raw) {
     const states = {};
     if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-        for (const [letter, val] of Object.entries(raw)) {
-            if (val === true || val === 1 || val === '1') states[letter] = 'allow';
-            else if (val === false || val === 0 || val === '0') states[letter] = 'deny';
+        const extra = {};
+        for (const [action, val] of Object.entries(raw)) {
+            const letter = CRUD.find((l) => CRUD_ACTION[l] === action);
+            const verdict = letter ? aclBool(val) : null;
+            if (verdict === null) extra[action] = val;
+            else states[letter] = verdict ? 'allow' : 'deny';
         }
-        return states;
+        return { states, extra };
     }
     let sign = '+';
     for (const ch of String(raw ?? '')) {
@@ -276,7 +288,31 @@ function parseAcl(raw) {
         if (/\s/.test(ch)) continue;
         states[ch] = sign === '-' ? 'deny' : 'allow';
     }
-    return states;
+    return { states };
+}
+
+// The verdict PageAcl reads from a map value: a bool, 0/1, or a boolean-like
+// string (PHP's FILTER_VALIDATE_BOOLEAN); anything else is no verdict.
+function aclBool(val) {
+    if (typeof val === 'boolean') return val;
+    if (val === 1 || val === 0) return val === 1;
+    if (typeof val === 'string') {
+        const v = val.trim().toLowerCase();
+        if (['1', 'true', 'on', 'yes'].includes(v)) return true;
+        if (['0', 'false', 'off', 'no', ''].includes(v)) return false;
+    }
+    return null;
+}
+
+// A map row saved back as a map: its other keys untouched, the C/R/U/D
+// actions set from the buttons (and left out when unset).
+function serializeAclMap(states, extra) {
+    const out = { ...extra };
+    for (const letter of CRUD) {
+        const action = CRUD_ACTION[letter];
+        if (states[letter]) out[action] = states[letter] === 'allow';
+    }
+    return out;
 }
 
 function serializeAcl(states) {

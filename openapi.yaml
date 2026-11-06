@@ -8150,6 +8150,11 @@ paths:
                           nullable: true
                           description: Optional web component tag name for custom rendering.
                           example: null
+                        v:
+                          type: string
+                          nullable: true
+                          description: Set on a plugin report with a `component`. Version of `admin-next/reports/{component}.js` (its mtime and size in hex, as in its ETag), `null` when the file is missing. Pass it as `v` to `/admin-next/modules/plugins/{provider}/report/{component}` to get a URL that can be cached for a year.
+                          example: 6a0f3c21-4f2e
                         status:
                           type: string
                           enum: [success, warning, error]
@@ -11827,6 +11832,179 @@ paths:
   # ---------------------------------------------------------------------------
   # admin-next
   # ---------------------------------------------------------------------------
+  /admin-next/modules/plugins/{slug}/{type}:
+    get:
+      operationId: getAdminModule
+      tags: [UI Extensions]
+      summary: Get a plugin page, widget or panel module
+      security: []
+      description: |
+        Serves a plugin's (or, for fields, a theme's) Admin Next web component as a same-origin ES module, for `import()`. The file under `admin-next/` gets one line in front that tells it its element tag, the same line Admin Next used to add in the browser before importing the code from a `blob:` URL, so a strict Content-Security-Policy no longer has to allow `blob:` scripts.
+
+        | `type` | File | Line put in front |
+        | --- | --- | --- |
+        | `page` | `admin-next/pages/{slug}.js` | `window.__GRAV_PAGE_TAG = "{tag}";` |
+        | `widget` | `admin-next/widgets/{slug}.js` (floating and dashboard widgets) | `window.__GRAV_WIDGET_TAG = "{tag}";` |
+        | `panel` | `admin-next/panels/{slug}.js` | `window.__GRAV_PANEL_TAG = "{tag}";` |
+        | `modal` | `admin-next/modals/{name}.js` | `window.__GRAV_MODAL_TAG = "{tag}";` |
+        | `report` | `admin-next/reports/{name}.js` | `window.__GRAV_REPORT_TAG = "{tag}";` |
+        | `field` | `admin-next/fields/{name}.js` | `window.__GRAV_FIELD_TAG = "{tag}";` |
+
+        Public: the same files are served by the webserver from `user/plugins/{slug}/admin-next/`, so no token is needed. Page, widget, panel, modal and report modules need the plugin to be enabled, as on the `/gpm/plugins/{slug}/*-script` routes; field modules are served for a disabled plugin too, so its settings form can use them.
+
+        With a `v` that matches the file (the `v` from `/custom-fields`, `/floating-widgets`, `/context-panels`, `/dashboard/widgets`, `/reports` or `/gpm/plugins/{slug}/page`), `Cache-Control` is `public, max-age=31536000, immutable`. Without one, or with an old one, it is `no-cache` and the `ETag` answers a conditional GET with 304.
+      parameters:
+        - $ref: "#/components/parameters/ExtensionScriptPluginSlug"
+        - name: type
+          in: path
+          required: true
+          description: Module type.
+          schema:
+            type: string
+            enum: [page, widget, panel]
+        - $ref: "#/components/parameters/AdminModuleTag"
+        - $ref: "#/components/parameters/AdminModuleVersion"
+        - $ref: "#/components/parameters/ExtensionScriptIfNoneMatch"
+      responses:
+        "200":
+          $ref: "#/components/responses/AdminModuleJs"
+        "304":
+          $ref: "#/components/responses/ExtensionScriptNotModified"
+        "404":
+          description: The package is not installed, the plugin is not enabled (except for fields), or it ships no such module.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: The slug, name or `tag` is not valid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /admin-next/modules/plugins/{slug}/{type}/{name}:
+    get:
+      operationId: getAdminModuleNamed
+      tags: [UI Extensions]
+      summary: Get a plugin modal, report or field module
+      security: []
+      description: |
+        Serves a plugin's (or, for fields, a theme's) Admin Next web component as a same-origin ES module, for `import()`. The file under `admin-next/` gets one line in front that tells it its element tag, the same line Admin Next used to add in the browser before importing the code from a `blob:` URL, so a strict Content-Security-Policy no longer has to allow `blob:` scripts.
+
+        | `type` | File | Line put in front |
+        | --- | --- | --- |
+        | `page` | `admin-next/pages/{slug}.js` | `window.__GRAV_PAGE_TAG = "{tag}";` |
+        | `widget` | `admin-next/widgets/{slug}.js` (floating and dashboard widgets) | `window.__GRAV_WIDGET_TAG = "{tag}";` |
+        | `panel` | `admin-next/panels/{slug}.js` | `window.__GRAV_PANEL_TAG = "{tag}";` |
+        | `modal` | `admin-next/modals/{name}.js` | `window.__GRAV_MODAL_TAG = "{tag}";` |
+        | `report` | `admin-next/reports/{name}.js` | `window.__GRAV_REPORT_TAG = "{tag}";` |
+        | `field` | `admin-next/fields/{name}.js` | `window.__GRAV_FIELD_TAG = "{tag}";` |
+
+        Public: the same files are served by the webserver from `user/plugins/{slug}/admin-next/`, so no token is needed. Page, widget, panel, modal and report modules need the plugin to be enabled, as on the `/gpm/plugins/{slug}/*-script` routes; field modules are served for a disabled plugin too, so its settings form can use them.
+
+        With a `v` that matches the file (the `v` from `/custom-fields`, `/floating-widgets`, `/context-panels`, `/dashboard/widgets`, `/reports` or `/gpm/plugins/{slug}/page`), `Cache-Control` is `public, max-age=31536000, immutable`. Without one, or with an old one, it is `no-cache` and the `ETag` answers a conditional GET with 304.
+      parameters:
+        - $ref: "#/components/parameters/ExtensionScriptPluginSlug"
+        - name: type
+          in: path
+          required: true
+          description: Module type.
+          schema:
+            type: string
+            enum: [modal, report, field]
+        - name: name
+          in: path
+          required: true
+          description: File name under `admin-next/modals/`, `admin-next/reports/` or `admin-next/fields/`, without `.js`. Letters, digits, `_`, `.` and `-`; no `..`.
+          schema:
+            type: string
+          example: youtube-insert
+        - $ref: "#/components/parameters/AdminModuleTag"
+        - $ref: "#/components/parameters/AdminModuleVersion"
+        - $ref: "#/components/parameters/ExtensionScriptIfNoneMatch"
+      responses:
+        "200":
+          $ref: "#/components/responses/AdminModuleJs"
+        "304":
+          $ref: "#/components/responses/ExtensionScriptNotModified"
+        "404":
+          description: The package is not installed, the plugin is not enabled (except for fields), or it ships no such module.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: The slug, name or `tag` is not valid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /admin-next/modules/themes/{slug}/{type}/{name}:
+    get:
+      operationId: getThemeAdminModule
+      tags: [UI Extensions]
+      summary: Get a theme field module
+      security: []
+      description: |
+        Serves a plugin's (or, for fields, a theme's) Admin Next web component as a same-origin ES module, for `import()`. The file under `admin-next/` gets one line in front that tells it its element tag, the same line Admin Next used to add in the browser before importing the code from a `blob:` URL, so a strict Content-Security-Policy no longer has to allow `blob:` scripts.
+
+        | `type` | File | Line put in front |
+        | --- | --- | --- |
+        | `page` | `admin-next/pages/{slug}.js` | `window.__GRAV_PAGE_TAG = "{tag}";` |
+        | `widget` | `admin-next/widgets/{slug}.js` (floating and dashboard widgets) | `window.__GRAV_WIDGET_TAG = "{tag}";` |
+        | `panel` | `admin-next/panels/{slug}.js` | `window.__GRAV_PANEL_TAG = "{tag}";` |
+        | `modal` | `admin-next/modals/{name}.js` | `window.__GRAV_MODAL_TAG = "{tag}";` |
+        | `report` | `admin-next/reports/{name}.js` | `window.__GRAV_REPORT_TAG = "{tag}";` |
+        | `field` | `admin-next/fields/{name}.js` | `window.__GRAV_FIELD_TAG = "{tag}";` |
+
+        Public: the same files are served by the webserver from `user/plugins/{slug}/admin-next/`, so no token is needed. Page, widget, panel, modal and report modules need the plugin to be enabled, as on the `/gpm/plugins/{slug}/*-script` routes; field modules are served for a disabled plugin too, so its settings form can use them.
+
+        With a `v` that matches the file (the `v` from `/custom-fields`, `/floating-widgets`, `/context-panels`, `/dashboard/widgets`, `/reports` or `/gpm/plugins/{slug}/page`), `Cache-Control` is `public, max-age=31536000, immutable`. Without one, or with an old one, it is `no-cache` and the `ETag` answers a conditional GET with 304.
+      parameters:
+        - $ref: "#/components/parameters/ExtensionScriptThemeSlug"
+        - name: type
+          in: path
+          required: true
+          description: Always `field` for a theme.
+          schema:
+            type: string
+            enum: [field]
+        - name: name
+          in: path
+          required: true
+          description: File name under `admin-next/modals/`, `admin-next/reports/` or `admin-next/fields/`, without `.js`. Letters, digits, `_`, `.` and `-`; no `..`.
+          schema:
+            type: string
+          example: youtube-insert
+        - $ref: "#/components/parameters/AdminModuleTag"
+        - $ref: "#/components/parameters/AdminModuleVersion"
+        - $ref: "#/components/parameters/ExtensionScriptIfNoneMatch"
+      responses:
+        "200":
+          $ref: "#/components/responses/AdminModuleJs"
+        "304":
+          $ref: "#/components/responses/ExtensionScriptNotModified"
+        "404":
+          description: The package is not installed, the plugin is not enabled (except for fields), or it ships no such module.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: The slug, name or `tag` is not valid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   /admin-next/boot:
     get:
       operationId: getAdminNextBoot
@@ -12185,7 +12363,7 @@ paths:
       description: |
         Returns a map of custom blueprint field type to the package that provides its Admin Next web component, so Admin Next can fill its field registry at startup. Enabled plugins and all installed themes are scanned for `admin-next/fields/*.js`. When two packages ship the same type, the later one wins (themes are scanned after plugins).
 
-        Use `kind` and `slug` to build the script URL: `/gpm/{kind}/{slug}/field/{type}` or the bundle at `/gpm/{kind}/{slug}/fields`. When nothing is registered the map is serialized as an empty array (`[]`).
+        Use `kind` and `slug` to build the script URL: `/gpm/{kind}/{slug}/field/{type}` or the bundle at `/gpm/{kind}/{slug}/fields`, or the public module `/admin-next/modules/{kind}/{slug}/field/{type}?tag=...&v=...` with the entry's `v`. When nothing is registered the map is serialized as an empty array (`[]`).
 
         Requires `api.access`, the same as the field scripts it points to: Admin Next loads it at startup for every account, including editors who cannot manage packages.
       responses:
@@ -12205,9 +12383,11 @@ paths:
                   seo-magic-preview:
                     slug: seo-magic
                     kind: plugins
+                    v: 6a0f3c21-4f2e
                   color-swatch:
                     slug: quark
                     kind: themes
+                    v: 69f8a0b2-1c40
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -12877,6 +13057,24 @@ components:
         type: string
       example: seo-magic-preview
 
+    AdminModuleTag:
+      name: tag
+      in: query
+      required: true
+      description: Element tag the module defines, written into the line put in front of it. Must be a custom element name in ASCII lowercase (`^[a-z][a-z0-9._]*-[a-z0-9._-]*$`, at most 128 characters).
+      schema:
+        type: string
+      example: grav-crosspost--page
+
+    AdminModuleVersion:
+      name: v
+      in: query
+      required: false
+      description: The module's version from its registry entry. When it matches the file, the response can be cached for a year.
+      schema:
+        type: string
+      example: 6a0f3c21-4f2e
+
     ExtensionScriptIfNoneMatch:
       name: If-None-Match
       in: header
@@ -13045,6 +13243,30 @@ components:
           schema:
             type: string
             description: Raw JavaScript source defining the custom element.
+
+    AdminModuleJs:
+      description: The module source with its element tag line in front.
+      headers:
+        ETag:
+          description: Stat-based validator `"{mtime-hex}-{size-hex}"`, the same value as `v`.
+          schema:
+            type: string
+        Cache-Control:
+          description: "`public, max-age=31536000, immutable` when `v` matches the file, otherwise `no-cache`."
+          schema:
+            type: string
+        X-Content-Type-Options:
+          description: Always `nosniff`.
+          schema:
+            type: string
+      content:
+        text/javascript:
+          schema:
+            type: string
+          example: |
+            window.__GRAV_PAGE_TAG = "grav-crosspost--page";
+            class CrosspostPage extends HTMLElement { /* ... */ }
+            customElements.define(window.__GRAV_PAGE_TAG, CrosspostPage);
 
     ExtensionScriptFieldBundle:
       description: Map of field type to JavaScript source (not wrapped in the `data` envelope).
@@ -13627,6 +13849,11 @@ components:
           type: boolean
           description: Whether the plugin ships `admin-next/pages/{slug}.js`. Always set by the server.
           example: false
+        v:
+          type: string
+          nullable: true
+          description: "Version of `admin-next/pages/{slug}.js` (its mtime and size in hex, as in its ETag) when `has_custom_component` is true, otherwise `null`. Pass it as `v` to `/admin-next/modules/plugins/{slug}/page` to get a URL that can be cached for a year."
+          example: 6a0f3c21-4f2e
         settings_route:
           type: string
           description: Hash route inside the page where this plugin's settings are drawn (e.g. `#settings`). Only kept when it starts with `#`.
@@ -16927,6 +17154,15 @@ components:
         order:
           type: integer
           description: Effective sort position (ascending).
+        scriptUrl:
+          type: string
+          description: Plugin widgets only. API path of the widget's script, usually `/gpm/plugins/{slug}/widget-script`.
+          example: /gpm/plugins/views/widget-script
+        v:
+          type: string
+          nullable: true
+          description: "Plugin widgets whose `scriptUrl` is `/gpm/plugins/{slug}/widget-script` only. Version of the module, its file's mtime and size in hex (`{mtime-hex}-{size-hex}`, as in its ETag). Pass it as `v` to `/admin-next/modules/...` to get a URL that can be cached for a year. `null` when the file is missing."
+          example: 6a0f3c21-4f2e
       additionalProperties: true
 
     DashboardWidgetLayoutEntry:
@@ -17025,6 +17261,11 @@ components:
           type: string
           enum: [plugins, themes]
           description: Package kind, used in the script URL `/gpm/{kind}/{slug}/field/{type}`.
+        v:
+          type: string
+          nullable: true
+          description: "Version of the module, its file's mtime and size in hex (`{mtime-hex}-{size-hex}`, as in its ETag). Pass it as `v` to `/admin-next/modules/...` to get a URL that can be cached for a year. `null` when the file is missing."
+          example: 6a0f3c21-4f2e
 
     EditorToolbarButton:
       type: object
@@ -17077,6 +17318,11 @@ components:
           type: string
           description: Owning plugin slug; its script is served by `/gpm/plugins/{plugin}/widget-script`.
           example: ai-pro
+        v:
+          type: string
+          nullable: true
+          description: "Version of the module, its file's mtime and size in hex (`{mtime-hex}-{size-hex}`, as in its ETag). Pass it as `v` to `/admin-next/modules/...` to get a URL that can be cached for a year. `null` when the file is missing. Added by the server unless the plugin set it."
+          example: 6a0f3c21-4f2e
         label:
           type: string
         icon:
@@ -17107,6 +17353,11 @@ components:
           type: string
           description: Owning plugin slug; its script is served by `/gpm/plugins/{plugin}/panel-script`.
           example: revisions-pro
+        v:
+          type: string
+          nullable: true
+          description: "Version of the module, its file's mtime and size in hex (`{mtime-hex}-{size-hex}`, as in its ETag). Pass it as `v` to `/admin-next/modules/...` to get a URL that can be cached for a year. `null` when the file is missing. Added by the server unless the plugin set it."
+          example: 6a0f3c21-4f2e
         label:
           type: string
         icon:

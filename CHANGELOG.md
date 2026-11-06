@@ -1,3 +1,12 @@
+# v1.1.14
+## 11/05/2026
+
+1. [](#new)
+    * Admin Next web components from plugins and themes are now also served as public same-origin modules, so Admin2 can run under a strict Content-Security-Policy [admin2#212](https://github.com/getgrav/grav-plugin-admin2/issues/212)
+1. [](#bugfix)
+    * Adding your own media metadata field no longer takes alt, title, caption, description or tags out of the editor. The built-in fields stay unless a field with the same key sets the new **Hide from editor** option (`remove: true`) [#76](https://github.com/getgrav/grav-plugin-api/issues/76)
+    * Editing a page's group permissions in Admin2 no longer rewrites rules written as a map, such as `{ update: true, delete: false }`, into letters that grant different actions. Those rules are saved back as a map, keeping keys the C/R/U/D buttons don't show
+
 # v1.1.13
 ## 11/05/2026
 

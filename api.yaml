@@ -180,6 +180,13 @@ media_metadata:
   # the key out altogether still leaves the stored value alone, and clearing all
   # metadata ignores `required`.
   #
+  # The five fields below are built in. Listing your own fields adds to them:
+  # the editor shows your list in its order, then any built-in field you left
+  # out. An entry with a built-in key replaces that field (its label, type or
+  # position), and `remove: true` takes it out of the editor, e.g.
+  # `- { key: tags, remove: true }`. Removing a field never deletes values
+  # already stored in sidecars.
+  #
   # Any keys NOT listed here — EXIF data, width/height, the `upload` block core
   # writes, image-action keys like `resize`/`quality` — are left untouched when
   # metadata is saved. Reserved technical keys can never be assigned to a field.

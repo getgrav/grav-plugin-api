@@ -145,6 +145,8 @@ PLUGIN_API:
   NUMBER_MAX_HELP: "Only used by Number fields: the largest accepted value. Leave empty for no maximum."
   REQUIRED: "Required"
   REQUIRED_HELP: "A save can't leave this field empty. Clearing all of a file's metadata still clears it."
+  HIDE_FIELD: "Hide from editor"
+  HIDE_FIELD_HELP: "Takes this field out of the metadata editor. Use it for a built-in field (alt, title, caption, description, tags), which comes back if you delete its row. Values already stored in sidecars are kept."
   PAGE_STATISTICS: "Page Statistics"
   TRACK_PAGE_VIEWS: "Track Page Views"
   TRACK_PAGE_VIEWS_HELP: "Record frontend page views for the Page Statistics dashboard"

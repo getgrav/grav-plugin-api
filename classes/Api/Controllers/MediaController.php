@@ -43,7 +43,11 @@ class MediaController extends AbstractApiController
         'width', 'height', 'mime', 'size', 'filesize', 'modified', 'upload', 'type',
     ];
 
-    /** Fallback field set when no `media_metadata.fields` is configured. */
+    /**
+     * The built-in fields. They stay in the editor whatever
+     * `media_metadata.fields` lists, unless an entry with the same key sets
+     * `remove: true`; an entry with the same key replaces the built-in one.
+     */
     private const DEFAULT_META_FIELDS = [
         ['key' => 'alt', 'label' => 'Alt Text', 'type' => 'text'],
         ['key' => 'title', 'label' => 'Title', 'type' => 'text'],
@@ -1506,15 +1510,16 @@ class MediaController extends AbstractApiController
      * Entries with an unsafe/reserved key are dropped, an unknown type becomes
      * `text`, a `select` also carries `options` (stored value => display
      * label) and is dropped when it has no usable options, a `number` may carry
-     * `min`/`max` bounds, and a `required` field carries `required => true`. An
-     * empty or absent config falls back to the built-in defaults.
+     * `min`/`max` bounds, and a `required` field carries `required => true`.
+     * The built-in fields are always included unless removed (see
+     * {@see withDefaultMetaFields()}).
      *
      * @return list<array{key: string, label: string, type: string, options?: array<string, string>, min?: int|float, max?: int|float, required?: true}>
      */
     private function getMetadataFieldDefs(): array
     {
         $configured = $this->config->get('plugins.api.media_metadata.fields');
-        $source = is_array($configured) && $configured !== [] ? $configured : self::DEFAULT_META_FIELDS;
+        $source = $this->withDefaultMetaFields(is_array($configured) ? $configured : []);
 
         $defs = [];
         $seen = [];
@@ -1562,7 +1567,46 @@ class MediaController extends AbstractApiController
             $defs[] = $def;
         }
 
-        return $defs !== [] ? $defs : self::DEFAULT_META_FIELDS;
+        return $defs;
+    }
+
+    /**
+     * The configured field list, in its own order, followed by every built-in
+     * field it doesn't mention, so adding one custom field can't take
+     * alt/title/caption/description/tags out of the editor
+     * (getgrav/grav-plugin-api#76). An entry with `remove: true` takes its key
+     * out wherever it appears: Grav merges this list with the shipped one
+     * position by position, so the same key may also be present further down.
+     *
+     * @param array<mixed> $configured
+     * @return list<array<mixed>>
+     */
+    private function withDefaultMetaFields(array $configured): array
+    {
+        $keyOf = static fn (array $entry): string => trim((string) ($entry['key'] ?? ''));
+
+        $removed = [];
+        $list = [];
+        foreach ($configured as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            if (!empty($entry['remove'])) {
+                $removed[$keyOf($entry)] = true;
+                continue;
+            }
+            $list[] = $entry;
+        }
+        $list = array_values(array_filter($list, static fn (array $entry): bool => !isset($removed[$keyOf($entry)])));
+
+        $present = array_flip(array_map($keyOf, $list));
+        foreach (self::DEFAULT_META_FIELDS as $default) {
+            if (!isset($present[$default['key']]) && !isset($removed[$default['key']])) {
+                $list[] = $default;
+            }
+        }
+
+        return $list;
     }
 
     /**

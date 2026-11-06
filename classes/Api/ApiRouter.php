@@ -185,6 +185,10 @@ class ApiRouter extends ProcessorBase
                 $apiBase . '/auth/',
                 $apiBase . '/translations/',
                 $apiBase . '/thumbnails/',
+                // Admin-next web component modules, imported by Admin2 as
+                // same-origin scripts (see GpmController::moduleScript). Reads
+                // only; the same files are public on disk.
+                'GET ' . $apiBase . '/admin-next/modules/',
             ];
             $publicExact = [
                 $apiBase . '/ping',
@@ -924,6 +928,12 @@ class ApiRouter extends ProcessorBase
         // context panels, custom fields, languages and the translations
         // checksum in one request.
         $r->addRoute('GET', '/admin-next/boot', [BootController::class, 'show']);
+
+        // Plugin and theme web components as same-origin ES modules, with the
+        // element tag line put in front (public; see $publicPrefixes above).
+        $r->addRoute('GET', '/admin-next/modules/plugins/{slug}/{type:page|widget|panel}', [GpmController::class, 'moduleScript']);
+        $r->addRoute('GET', '/admin-next/modules/plugins/{slug}/{type:modal|report|field}/{name}', [GpmController::class, 'moduleScript']);
+        $r->addRoute('GET', '/admin-next/modules/themes/{slug}/{type:field}/{name}', [GpmController::class, 'moduleScript']);
 
         // Admin-next UI preferences (site defaults + per-user overrides + branding)
         $r->addRoute('GET', '/admin-next/preferences', [PreferencesController::class, 'show']);
