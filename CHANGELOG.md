@@ -1,5 +1,5 @@
 # v1.1.14
-## 11/06/2026
+## 11/05/2026
 
 1. [](#new)
     * Admin Next web components from plugins and themes are now also served as public same-origin modules, so Admin2 can run under a strict Content-Security-Policy [admin2#212](https://github.com/getgrav/grav-plugin-admin2/issues/212)
