@@ -9,6 +9,7 @@ use Grav\Common\Page\Pages;
 use Grav\Common\Security;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
+use Grav\Plugin\Api\Services\AdminModules;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use RocketTheme\Toolbox\Event\Event;
@@ -46,6 +47,14 @@ class ReportsController extends AbstractApiController
         $event = new Event(['reports' => $reports]);
         $this->grav->fireEvent('onApiGenerateReports', $event);
         $reports = $event['reports'];
+
+        // A report drawn by a plugin web component gets `v`, the version of
+        // its module URL (/admin-next/modules/plugins/{provider}/report/...).
+        foreach ($reports as $i => $report) {
+            if (is_array($report) && is_string($report['provider'] ?? null) && is_string($report['component'] ?? null) && !isset($report['v'])) {
+                $reports[$i]['v'] = AdminModules::versionFor($this->grav, 'report', $report['provider'], $report['component']);
+            }
+        }
 
         return ApiResponse::create($reports);
     }

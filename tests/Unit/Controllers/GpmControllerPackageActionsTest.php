@@ -264,7 +264,11 @@ class GpmControllerPackageActionsTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $body = json_decode((string) $response->getBody(), true);
-        $this->assertSame(['demo-field' => ['slug' => 'demo', 'kind' => 'plugins']], $body['data']);
+        // `v` (mtime-size) versions the field's module URL.
+        $this->assertSame(['slug', 'kind', 'v'], array_keys($body['data']['demo-field']));
+        $this->assertSame('demo', $body['data']['demo-field']['slug']);
+        $this->assertSame('plugins', $body['data']['demo-field']['kind']);
+        $this->assertMatchesRegularExpression('/^[0-9a-f]+-[0-9a-f]+$/', $body['data']['demo-field']['v']);
     }
 
     // -------------------------------------------------------------------------

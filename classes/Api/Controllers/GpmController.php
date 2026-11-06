@@ -13,6 +13,7 @@ use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Grav\Plugin\Api\Serializers\PackageSerializer;
+use Grav\Plugin\Api\Services\AdminModules;
 use Grav\Plugin\Api\Services\GpmService;
 use Grav\Plugin\Api\Services\ThumbnailService;
 use Psr\Http\Message\ResponseInterface;
@@ -1548,7 +1549,7 @@ class GpmController extends AbstractApiController
     /**
      * The payload of GET /custom-fields, shared with GET /admin-next/boot.
      *
-     * @return array<string, array{slug: string, kind: string}>
+     * @return array<string, array{slug: string, kind: string, v: string|null}>
      */
     public function allCustomFieldsData(ServerRequestInterface $request): array
     {
@@ -1567,7 +1568,8 @@ class GpmController extends AbstractApiController
                 foreach ($fields as $fieldType => $label) {
                     // Provider kind lets admin-next fetch the script from the
                     // correct /gpm/{kind}/{slug}/field/{type} route.
-                    $allFields[$fieldType] = ['slug' => $slug, 'kind' => 'plugins'];
+                    // `v` versions the module URL (/admin-next/modules/...).
+                    $allFields[$fieldType] = ['slug' => $slug, 'kind' => 'plugins', 'v' => AdminModules::versionFor($this->grav, 'field', $slug, $fieldType)];
                 }
             }
         }
@@ -1577,7 +1579,7 @@ class GpmController extends AbstractApiController
             $fields = $this->discoverCustomFields($slug, 'themes');
             if ($fields) {
                 foreach ($fields as $fieldType => $label) {
-                    $allFields[$fieldType] = ['slug' => $slug, 'kind' => 'themes'];
+                    $allFields[$fieldType] = ['slug' => $slug, 'kind' => 'themes', 'v' => AdminModules::versionFor($this->grav, 'field', $slug, $fieldType, 'themes')];
                 }
             }
         }
@@ -1714,6 +1716,10 @@ class GpmController extends AbstractApiController
 
         // Does the plugin ship a page-level web component?
         $definition['has_custom_component'] = $this->hasPluginPageScript($slug);
+        // Versions its module URL (/admin-next/modules/plugins/{slug}/page).
+        $definition['v'] = $definition['has_custom_component']
+            ? AdminModules::versionFor($this->grav, 'page', $slug)
+            : null;
 
         // A page can say its settings live on itself, at a hash route inside
         // its own screen — admin-next then sends /plugins/{slug} there rather
@@ -1883,6 +1889,84 @@ class GpmController extends AbstractApiController
         $file = $path . '/admin-next/reports/' . basename($reportId) . '.js';
 
         return $this->serveComponentScript($request, $file, "Report component '{$reportId}' not found for plugin '{$slug}'.");
+    }
+
+    /**
+     * GET /admin-next/modules/{plugins|themes}/{slug}/{type}[/{name}]?tag=&v=
+     *
+     * Serve an admin-next web component as a same-origin ES module that Admin2
+     * imports directly, so its Content-Security-Policy never has to allow
+     * `blob:` scripts. The line that tells the module its element tag
+     * (`window.__GRAV_PAGE_TAG = "grav-foo--page";` and so on) is put in front
+     * here instead of in the browser. The tag comes from the `tag` query value
+     * and must be a custom element name; it is written with json_encode.
+     *
+     * Public: these files are served by the webserver from
+     * `user/plugins/<slug>/admin-next/` anyway, so a token protects nothing.
+     * Page, widget, panel, modal and report modules still need the plugin to be
+     * enabled, as on the authenticated routes; field modules are served for a
+     * disabled plugin and for themes, as there.
+     *
+     * A `v` that matches the file's current mtime-size gets a year of caching;
+     * any other request is revalidated with the ETag.
+     */
+    public function moduleScript(ServerRequestInterface $request): ResponseInterface
+    {
+        $type = $this->getRouteParam($request, 'type');
+        $slug = $this->getRouteParam($request, 'slug');
+        $kind = str_contains($request->getUri()->getPath(), '/modules/themes/') ? 'themes' : 'plugins';
+
+        if (!isset(AdminModules::TYPES[$type]) || ($kind === 'themes' && $type !== 'field')) {
+            throw new NotFoundException("Unknown admin-next module type '{$type}'.");
+        }
+
+        $named = AdminModules::TYPES[$type]['named'];
+        $name = $named ? $this->getRouteParam($request, 'name') : null;
+        if ($named && ($name === null || !AdminModules::isValidName($name))) {
+            throw new ValidationException("Invalid module name.");
+        }
+
+        $query = $request->getQueryParams();
+        $tag = is_string($query['tag'] ?? null) ? $query['tag'] : '';
+        if (!AdminModules::isValidTag($tag)) {
+            throw new ValidationException("The 'tag' parameter must be a custom element name, such as grav-my-plugin--page.");
+        }
+
+        $path = $this->resolvePackagePath($slug, $kind);
+        if ($type !== 'field') {
+            $this->requireEnabledPlugin($slug);
+        }
+
+        $file = AdminModules::file($path, $type, $slug, $name);
+        $version = AdminModules::version($file);
+        if ($version === null) {
+            throw new NotFoundException("No admin-next {$type} module found for '{$slug}'.");
+        }
+
+        $etag = '"' . $version . '"';
+        $immutable = ($query['v'] ?? null) === $version;
+        $headers = [
+            'Content-Type' => 'text/javascript; charset=utf-8',
+            'X-Content-Type-Options' => 'nosniff',
+            // The URL changes whenever the file does (v), so a matching v is
+            // safe to keep for a year. Without one, store but revalidate.
+            'Cache-Control' => $immutable ? 'public, max-age=31536000, immutable' : 'no-cache',
+            'ETag' => $etag,
+        ];
+        if ($immutable) {
+            // Replaces the long-past Expires that PHP's session start sends.
+            $headers['Expires'] = gmdate('D, d M Y H:i:s', time() + 31536000) . ' GMT';
+        }
+
+        if ($this->etagMatches($request->getHeaderLine('If-None-Match'), $etag)) {
+            return new \Grav\Framework\Psr7\Response(304, $headers, '');
+        }
+
+        return new \Grav\Framework\Psr7\Response(
+            200,
+            $headers,
+            AdminModules::prelude($type, $tag) . file_get_contents($file),
+        );
     }
 
     /**
