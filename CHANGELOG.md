@@ -1,3 +1,9 @@
+# v1.1.16
+## 11/07/2026
+
+1. [](#bugfix)
+    * Page Statistics no longer count requests nobody made: link-preview fetchers such as `facebookexternalhit` (which loads a page each time a shared link or ad is shown), AI fetchers like `ChatGPT-User` and `ClaudeBot`, uptime and monitoring services, and headless or auditing tools like HeadlessChrome and Lighthouse are now skipped along with `curl` and similar clients, while **Exclude Non-Browser Clients** is on. Facebook's and Instagram's in-app browsers are still counted as visitors
+
 # v1.1.15
 ## 11/06/2026
 

@@ -17,20 +17,23 @@ use Grav\Plugin\Api\PermissionResolver;
 class PopularityTracker
 {
     /**
-     * Command-line and library HTTP clients that are never a person reading a
-     * page. Matched case-insensitively anywhere in the User-Agent header.
+     * Clients that are never a person reading a page: command-line and library
+     * HTTP clients, link-preview fetchers, AI fetchers, uptime and monitoring
+     * services, and headless or auditing tools. Matched case-insensitively
+     * anywhere in the User-Agent header.
      *
      * Core's Browser::isHuman() only rejects parsed browser names containing
-     * `bot` or `crawl`, and the user-agent parser has no rule for these, so it
-     * falls through to a generic name/version pattern and reports `curl` as
-     * the browser. A security scanner hammering the site therefore lands in
-     * Page Statistics as real traffic.
+     * `bot` or `crawl`, and the user-agent parser reports many of these as an
+     * ordinary browser (`curl`, `facebookexternalhit`, `chatgpt-user`), so they
+     * would land in Page Statistics as real traffic. A newer core rejects most
+     * of them itself; this list keeps the fix working on a core without that.
      *
-     * Deliberately not listed: headless Chrome, Lighthouse and uptime
-     * monitors. Those are ambiguous enough to be somebody's legitimate
-     * traffic, which is what `exclude_agents` is for.
+     * Nothing here may appear in a real browser's User-Agent: Facebook's and
+     * Instagram's in-app browsers (`FBAN`/`FBAV`, `FB_IAB`) are people and are
+     * still counted. `exclude_agents` adds site-specific entries on top.
      */
     private const NON_BROWSER_AGENTS = [
+        // Command-line and library HTTP clients
         'curl/',
         'wget/',
         'go-http-client/',
@@ -48,6 +51,75 @@ class PopularityTracker
         'restsharp/',
         'java/',
         'php/',
+
+        // Link-preview and social fetchers
+        'facebookexternalhit',
+        'facebookcatalog',
+        'meta-externalagent',
+        'meta-externalfetcher',
+        'twitterbot',
+        'linkedinbot',
+        'slackbot',
+        'slack-imgproxy',
+        'discordbot',
+        'whatsapp/',
+        'telegrambot',
+        'skypeuripreview',
+        'iframely',
+        'embedly',
+        'redditbot',
+        'pinterestbot',
+        'pinterest.com/bot',
+        'vkshare',
+        'applebot',
+
+        // AI fetchers and crawlers
+        'chatgpt-user',
+        'oai-searchbot',
+        'gptbot',
+        'claudebot',
+        'claude-user',
+        'claude-searchbot',
+        'anthropic-ai',
+        'perplexitybot',
+        'perplexity-user',
+        'google-extended',
+        'bytespider',
+        'ccbot',
+        'cohere-ai',
+        'amazonbot',
+        'duckassistbot',
+        'mistralai-user',
+
+        // Uptime and monitoring services
+        'uptimerobot',
+        'pingdom',
+        'statuscake',
+        'site24x7',
+        'better uptime',
+        'betteruptime',
+        'betterstack',
+        'uptime-kuma',
+        'freshping',
+        'hetrixtools',
+        'datadog',
+        'newrelicpinger',
+        'checkly',
+        'guardprobe',
+        'guardpinger',
+        'gravguard',
+
+        // Generic tokens
+        'spider',
+        'crawler',
+        'scraper',
+        'headlesschrome',
+        'lighthouse',
+        'preview',
+        'monitor',
+        'uptime',
+        'externalhit',
+        'fetcher',
     ];
 
     /**
@@ -88,10 +160,10 @@ class PopularityTracker
             return;
         }
 
-        // Skip command-line and library HTTP clients (curl, wget, scanners,
-        // monitoring tools). These parse as browsers rather than bots, so
-        // isHuman() above lets them through. On by default; `exclude_agents`
-        // is an additive list for anything site-specific.
+        // Skip clients no person is behind: HTTP libraries, scanners, link
+        // previews, AI fetchers, uptime monitors. Many parse as browsers rather
+        // than bots, so isHuman() above can let them through. On by default;
+        // `exclude_agents` is an additive list for anything site-specific.
         $agent = (string) ($_SERVER['HTTP_USER_AGENT'] ?? '');
         $excludeAgents = (array) $this->config->get('plugins.api.popularity.exclude_agents', []);
         if ($this->config->get('plugins.api.popularity.exclude_non_browsers', true)) {
@@ -155,6 +227,15 @@ class PopularityTracker
         } catch (\Throwable) {
             // Tracking must never break the page response — swallow.
         }
+    }
+
+    /**
+     * Whether a User-Agent belongs to a built-in non-human client (the
+     * `exclude_non_browsers` list).
+     */
+    public static function isNonBrowserAgent(string $agent): bool
+    {
+        return self::agentMatches($agent, self::NON_BROWSER_AGENTS);
     }
 
     /**

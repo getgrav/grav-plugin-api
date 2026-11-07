@@ -155,7 +155,7 @@ PLUGIN_API:
   EXCLUDED_IP_ADDRESSES: "Excluded IP Addresses"
   EXCLUDED_IP_ADDRESSES_HELP: "Visitor IPs or CIDR ranges to exclude from tracking, e.g. 203.0.113.7 or 203.0.113.0/24. IPv4 and IPv6 are both supported."
   EXCLUDE_NON_BROWSER_CLIENTS: "Exclude Non-Browser Clients"
-  EXCLUDE_NON_BROWSER_CLIENTS_HELP: "Skip page views from command-line and library HTTP clients such as curl, wget, Go-http-client and python-requests. These report themselves as browsers rather than bots, so a scanner hitting your site would otherwise count as real traffic"
+  EXCLUDE_NON_BROWSER_CLIENTS_HELP: "Skip page views from clients no person is behind: command-line and library HTTP clients such as curl and python-requests, link-preview fetchers such as Facebook's, AI fetchers such as ChatGPT-User and ClaudeBot, and uptime monitors. Many report themselves as browsers rather than bots, so they would otherwise count as real traffic"
   EXCLUDED_USER_AGENTS: "Excluded User Agents"
   EXCLUDED_USER_AGENTS_HELP: "Additional User-Agent fragments to exclude from tracking, matched anywhere in the header and ignoring case, e.g. uptimerobot or my-scanner. Added to the built-in list above."
   AUDIT_TRAIL: "Audit Trail"
