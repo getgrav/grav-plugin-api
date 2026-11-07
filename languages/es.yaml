@@ -155,7 +155,7 @@ PLUGIN_API:
   EXCLUDED_IP_ADDRESSES: "Direcciones IP excluidas"
   EXCLUDED_IP_ADDRESSES_HELP: "IPs o rangos CIDR a excluir del seguimiento, por ejemplo 203.0.113.7 o 203.0.113.0/24. Se admiten IPv4 e IPv6."
   EXCLUDE_NON_BROWSER_CLIENTS: "Excluir clientes no navegadores"
-  EXCLUDE_NON_BROWSER_CLIENTS_HELP: "Omite las visitas de clientes HTTP de línea de comandos y bibliotecas como curl, wget, Go-http-client y python-requests. Estos se identifican como navegadores en lugar de bots, así que un escáner que golpee el sitio contaría como tráfico real."
+  EXCLUDE_NON_BROWSER_CLIENTS_HELP: "Omite las visitas de clientes que no son una persona: clientes HTTP de línea de comandos y bibliotecas como curl y python-requests, rastreadores de vistas previas de enlaces como el de Facebook, rastreadores de IA como ChatGPT-User y ClaudeBot, y monitores de disponibilidad. Muchos se identifican como navegadores en lugar de bots, así que contarían como tráfico real."
   EXCLUDED_USER_AGENTS: "Agentes de usuario excluidos"
   EXCLUDED_USER_AGENTS_HELP: "Fragmentos adicionales de User-Agent para excluir del seguimiento, emparejados en cualquier parte de la cabecera e ignorando mayúsculas/minúsculas, por ejemplo uptimerobot o my-scanner. Se añaden a la lista incorporada anterior."
   AUDIT_TRAIL: "Traza de auditoría"
