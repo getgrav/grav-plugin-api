@@ -728,12 +728,47 @@ abstract class AbstractApiController
     }
 
     /**
-     * Why the caller may not change this page's own files, or null when they
-     * may. The one rule behind assertPageUpdatable() and canChangePageMedia(),
-     * so the `permissions.media` flag can't drift from what a media write
-     * does.
+     * Refuse a change to the page's media (upload, delete, metadata, or a file
+     * field that saves into its folder) unless the caller may manage it.
+     *
+     * The page's rules can grant media on its own (`media: true`, letter `m`,
+     * getgrav/grav-plugin-api#77); a block that says nothing about media falls
+     * back to its own `update` rule, so every existing permission block keeps
+     * its current meaning. The account still needs `api.media.write`, which the
+     * caller checks.
      */
-    private function pageUpdateRefusal(ServerRequestInterface $request, PageInterface $page): ?string
+    protected function assertPageMediaChangeable(ServerRequestInterface $request, PageInterface $page): void
+    {
+        $refusal = $this->pageUpdateRefusal($request, $page, 'media');
+        if ($refusal !== null) {
+            throw new ForbiddenException($refusal);
+        }
+    }
+
+    /**
+     * Whether $filename is one of the files that make up a page rather than
+     * its media: its Markdown, `frontmatter.yaml` or `media.json`, the names
+     * Grav's own Media leaves out of a page's media. Writing or deleting one
+     * changes the page (its frontmatter, its `permissions` block), so it never
+     * counts as a media change.
+     */
+    protected static function isPageContentFile(string $filename): bool
+    {
+        $name = strtolower(basename($filename));
+
+        return str_ends_with($name, '.md') || in_array($name, ['frontmatter.yaml', 'media.json'], true);
+    }
+
+    /**
+     * Why the caller may not change this page's own files, or null when they
+     * may. The one rule behind assertPageUpdatable(),
+     * assertPageMediaChangeable() and canChangePageMedia(), so the
+     * `permissions.media` flag can't drift from what a media write does.
+     *
+     * @param string $action `update` for the page's content, `media` for its
+     *                       files (which a rule may grant separately).
+     */
+    private function pageUpdateRefusal(ServerRequestInterface $request, PageInterface $page, string $action = 'update'): ?string
     {
         $user = $this->getUser($request);
         if ($this->isSuperWithinScope($request)) {
@@ -741,9 +776,18 @@ abstract class AbstractApiController
         }
 
         $acl = $this->getPageAcl();
-        $verdict = $acl->authorize($page, $user, 'update');
+        $verdict = $action === 'media'
+            ? $acl->authorizeMedia($page, $user)
+            : $acl->authorize($page, $user, 'update');
         if ($verdict === false) {
-            return "Page permissions deny 'update' on this page.";
+            // Name the rule that did the denying: an explicit `media: false`
+            // when the block has one, otherwise the `update` rule that media
+            // falls back to.
+            $denied = $action === 'media' && $acl->authorize($page, $user, 'media') === false
+                ? 'media'
+                : 'update';
+
+            return "Page permissions deny '{$denied}' on this page.";
         }
         // The same answer requirePermission($request, 'api.pages.write') gives:
         // the key's scopes first, then super or the account permission. Read
@@ -762,8 +806,9 @@ abstract class AbstractApiController
 
     /**
      * Whether the caller may change this page's media: the `media` entry of a
-     * page's `permissions`. A super admin always may. Anyone else needs
-     * `api.media.write` and the right to update this page, the same two checks
+     * page's `permissions`, or that block's `update` rule where it says nothing
+     * about media (getgrav/grav-plugin-api#77). A super admin always may.
+     * Anyone else needs `api.media.write` and that verdict, the same two checks
      * every media write makes (getgrav/grav-plugin-admin2#209).
      */
     protected function canChangePageMedia(ServerRequestInterface $request, PageInterface $page): bool
@@ -774,7 +819,7 @@ abstract class AbstractApiController
             return false;
         }
 
-        return $this->pageUpdateRefusal($request, $page) === null;
+        return $this->pageUpdateRefusal($request, $page, 'media') === null;
     }
 
     /**

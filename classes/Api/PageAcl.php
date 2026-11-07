@@ -44,8 +44,10 @@ final class PageAcl
     public const ACTIONS = ['create', 'read', 'update', 'delete', 'publish', 'list'];
 
     /**
-     * Letter shorthand accepted in a rule string, e.g. `'cru-d'`. Same map
-     * PageAuthorsTrait uses, so a site's existing frontmatter reads identically.
+     * Letter shorthand accepted in a rule string, e.g. `'crm-d'`. The core
+     * letters match PageAuthorsTrait's map, so a site's existing frontmatter
+     * reads identically; `m` adds media management (see {@see authorizeMedia()})
+     * and is evaluated by the API only — core never asks for that action.
      */
     private const RULES = [
         'c' => 'create',
@@ -54,6 +56,7 @@ final class PageAcl
         'd' => 'delete',
         'p' => 'publish',
         'l' => 'list',
+        'm' => 'media',
     ];
 
     /** Parent-walk guard, in case a storage backend ever hands back a cycle. */
@@ -69,6 +72,40 @@ final class PageAcl
      */
     public function authorize(PageInterface $page, UserInterface $user, string $action): ?bool
     {
+        return $this->resolve($page, $user, $action);
+    }
+
+    /**
+     * Resolve whether the user may manage the page's media, allowing for the
+     * `media` action (letter `m`) without breaking the rules a site already
+     * has (getgrav/grav-plugin-api#77).
+     *
+     * Media is a subset of page editing for every existing rule, so each group
+     * answers `media` with its own `media` key when it has one, and otherwise
+     * with that group's `update` rule. That keeps the verdict local to the
+     * block that wrote it: a child page's `-u` still beats a parent's
+     * `media: true`, and `media: false` next to `update: true` can withhold
+     * media from a group that may edit the page.
+     *
+     * @return bool|null true = allowed, false = denied, null = no rule applies
+     */
+    public function authorizeMedia(PageInterface $page, UserInterface $user): ?bool
+    {
+        return $this->resolve($page, $user, 'media', 'update');
+    }
+
+    /**
+     * Walk a page and its ancestors applying one action, optionally falling
+     * back to another action inside each group's own block.
+     *
+     * @return bool|null
+     */
+    private function resolve(
+        PageInterface $page,
+        UserInterface $user,
+        string $action,
+        ?string $fallbackAction = null,
+    ): ?bool {
         // Authorship is a property of the page being acted on, not of whichever
         // ancestor happens to carry the rule — same as core, where isAuthor is
         // computed once and passed down the parent chain.
@@ -80,7 +117,7 @@ final class PageAcl
         while ($current !== null && $depth < self::MAX_DEPTH) {
             $permissions = $this->permissionsOf($current);
 
-            $verdict = $this->blockVerdict($permissions, $user, $isAuthor, $action);
+            $verdict = $this->blockVerdict($permissions, $user, $isAuthor, $action, $fallbackAction);
             if ($verdict !== null) {
                 return $verdict;
             }
@@ -181,13 +218,18 @@ final class PageAcl
      * @param array<string, mixed> $permissions
      * @param bool $isAuthor whether the user is an author of the page being acted on
      */
-    public function blockVerdict(array $permissions, UserInterface $user, bool $isAuthor, string $action): ?bool
-    {
+    public function blockVerdict(
+        array $permissions,
+        UserInterface $user,
+        bool $isAuthor,
+        string $action,
+        ?string $fallbackAction = null,
+    ): ?bool {
         if (empty($permissions['groups'])) {
             return null;
         }
 
-        return $this->verdict($permissions, $this->userGroups($user), $isAuthor, $action);
+        return $this->verdict($permissions, $this->userGroups($user), $isAuthor, $action, $fallbackAction);
     }
 
     /**
@@ -221,8 +263,13 @@ final class PageAcl
      * @param array<string, mixed> $permissions
      * @param list<string> $userGroups
      */
-    private function verdict(array $permissions, array $userGroups, bool $isAuthor, string $action): ?bool
-    {
+    private function verdict(
+        array $permissions,
+        array $userGroups,
+        bool $isAuthor,
+        string $action,
+        ?string $fallbackAction = null,
+    ): ?bool {
         $groups = $permissions['groups'] ?? null;
         if (!is_array($groups) || $groups === []) {
             return null;
@@ -244,7 +291,10 @@ final class PageAcl
                 continue;
             }
 
-            $auth = $this->ruleVerdict($rules, $action);
+            // A group that says nothing about the action may still have an
+            // opinion through the action it implies (media -> update).
+            $auth = $this->ruleVerdict($rules, $action)
+                ?? ($fallbackAction !== null ? $this->ruleVerdict($rules, $fallbackAction) : null);
 
             if ($auth === false) {
                 // A deny is final — it beats a grant from any other group.

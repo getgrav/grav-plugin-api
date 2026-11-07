@@ -18,8 +18,9 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * A blueprint file field that saves into a page's folder changes that page's
- * media, so it needs the right to update the page, like the page media
- * endpoints (getgrav/grav-plugin-admin2#209).
+ * media, so it follows the page's `media` rule (or its `update` rule where the
+ * block says nothing about media), like the page media endpoints
+ * (getgrav/grav-plugin-admin2#209, getgrav/grav-plugin-api#77).
  */
 #[CoversClass(BlueprintUploadController::class)]
 class BlueprintUploadPageFolderAclTest extends TestCase
@@ -33,12 +34,13 @@ class BlueprintUploadPageFolderAclTest extends TestCase
         mkdir($this->dir . '/pages/02.outils', 0777, true);
         mkdir($this->dir . '/pages/04.communication', 0777, true);
         mkdir($this->dir . '/pages/05.blog', 0777, true);
+        mkdir($this->dir . '/pages/06.mediaonly', 0777, true);
         mkdir($this->dir . '/images', 0777, true);
     }
 
     protected function tearDown(): void
     {
-        foreach (['pages/02.outils', 'pages/04.communication', 'pages/05.blog', 'pages', 'images', ''] as $sub) {
+        foreach (['pages/02.outils', 'pages/04.communication', 'pages/05.blog', 'pages/06.mediaonly', 'pages', 'images', ''] as $sub) {
             @rmdir(rtrim($this->dir . '/' . $sub, '/'));
         }
         Grav::resetInstance();
@@ -47,17 +49,19 @@ class BlueprintUploadPageFolderAclTest extends TestCase
     /**
      * @param array<string, mixed> $access
      */
-    private function guard(array $access, string $dir): void
+    private function guard(array $access, string $dir, bool $pageContent = false): void
     {
         $outils = $this->page($this->dir . '/pages/02.outils', ['groups' => ['editors' => 'ru']]);
         $communication = $this->page($this->dir . '/pages/04.communication', ['groups' => ['editors' => 'rl']]);
         $blog = $this->page($this->dir . '/pages/05.blog', null);
+        $mediaOnly = $this->page($this->dir . '/pages/06.mediaonly', ['groups' => ['editors' => ['read' => true, 'media' => true]]]);
 
         $pages = $this->createMock(Pages::class);
         $pages->method('get')->willReturnCallback(static fn (string $path): ?PageInterface => match ($path) {
             $outils->path() => $outils,
             $communication->path() => $communication,
             $blog->path() => $blog,
+            $mediaOnly->path() => $mediaOnly,
             default => null,
         });
 
@@ -82,6 +86,7 @@ class BlueprintUploadPageFolderAclTest extends TestCase
             $controller,
             TestHelper::createMockRequest(attributes: ['api_user' => $this->user]),
             $dir,
+            $pageContent,
         );
     }
 
@@ -129,6 +134,20 @@ class BlueprintUploadPageFolderAclTest extends TestCase
     {
         $this->guard(self::MEDIA_ONLY, $this->dir . '/images');
         $this->addToAssertionCount(1);
+    }
+
+    #[Test]
+    public function a_page_that_grants_media_without_update_accepts_the_file(): void
+    {
+        $this->guard(self::MEDIA_ONLY, $this->dir . '/pages/06.mediaonly');
+        $this->addToAssertionCount(1);
+    }
+
+    #[Test]
+    public function a_media_grant_does_not_cover_the_pages_own_markdown(): void
+    {
+        $this->expectException(ForbiddenException::class);
+        $this->guard(self::MEDIA_ONLY, $this->dir . '/pages/06.mediaonly', true);
     }
 
     #[Test]
