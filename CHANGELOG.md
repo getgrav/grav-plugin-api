@@ -1,7 +1,10 @@
 # v1.1.18
 ## 11/09/2026
 
+1. [](#new)
+    * The Page Groups picker in Admin2 has a Media column, so a group can be allowed or denied managing a page's media separately from editing it. Left unset, the group's Update setting decides, as before. Thanks @phmg701 [#79](https://github.com/getgrav/grav-plugin-api/pull/79)
 1. [](#bugfix)
+    * The Page Access and Page Groups pickers in Admin2 are laid out like Admin2's other lists: each row's remove button is at the end of the row, one Add button sits below the list, and on phones the buttons move below the name instead of running off the screen
     * A page whose folder name matches one of a page's API sub-resources, such as `languages`, `media`, `compare` or `neighbors`, can be opened, saved and deleted in Admin2 again. Requests for the page itself now carry `?resource=page`, so they no longer reach that sub-resource of the parent page [admin2#213](https://github.com/getgrav/grav-plugin-admin2/issues/213)
 
 # v1.1.17

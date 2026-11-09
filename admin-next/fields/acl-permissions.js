@@ -133,7 +133,6 @@ class AclPermissionsField extends HTMLElement {
 
         const rowsHtml = this._rows.map((row, i) => `
             <div class="row" data-i="${i}">
-                <button type="button" class="icon-btn del" title="Remove" data-act="del">${TRASH}</button>
                 <div class="select-wrap">
                     <button type="button" class="combo-trigger ${row.key ? '' : 'empty'}" data-act="open">
                         ${row.key
@@ -143,17 +142,22 @@ class AclPermissionsField extends HTMLElement {
                     </button>
                 </div>
                 <div class="crud-group" role="group">${actionsHtml(row.states)}</div>
-                <button type="button" class="icon-btn add" title="Add" data-act="add">${PLUS}</button>
+                <button type="button" class="icon-btn del" title="Remove" aria-label="Remove" data-act="del">${TRASH}</button>
             </div>
         `).join('');
 
-        this.shadowRoot.innerHTML = `<style>${STYLE}</style><div class="wrap">${rowsHtml}</div>`;
+        // Add does nothing while a blank row is waiting to be filled in.
+        const last = this._rows[this._rows.length - 1];
+        const canAdd = !!(last && last.key);
+        const addHtml = `<button type="button" class="add-row" data-act="add"${canAdd ? '' : ' disabled'}>${PLUS}<span>Add group</span></button>`;
+
+        this.shadowRoot.innerHTML = `<style>${STYLE}</style><div class="wrap">${rowsHtml}${addHtml}</div>`;
+        this.shadowRoot.querySelector('.add-row')?.addEventListener('click', () => this._onAdd());
 
         this.shadowRoot.querySelectorAll('.row').forEach((el) => {
             const i = Number(el.dataset.i);
             el.querySelector('[data-act="open"]')?.addEventListener('click', () => this._toggleOpen(i));
             el.querySelector('[data-act="del"]')?.addEventListener('click', () => this._onDelete(i));
-            el.querySelector('[data-act="add"]')?.addEventListener('click', () => this._onAdd());
             el.querySelectorAll('.crud').forEach((btn) =>
                 btn.addEventListener('click', () => this._onCycle(i, btn.dataset.letter)));
         });
@@ -363,7 +367,7 @@ function esc(s) {
 }
 
 const STYLE = `
-    :host { display: block; font-family: inherit; }
+    :host { display: block; font-family: inherit; container-type: inline-size; }
     .wrap { display: flex; flex-direction: column; gap: 8px; }
     .row { display: flex; align-items: center; gap: 8px; }
     .select-wrap { position: relative; flex: 1; min-width: 0; }
@@ -409,11 +413,25 @@ const STYLE = `
     .crud.allow { background: #16a34a; color: #fff; }
     .crud.deny  { background: #dc2626; color: #fff; }
 
-    .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: 0; border-radius: 8px; cursor: pointer; background: transparent; color: var(--muted-foreground, #64748b); }
-    .icon-btn:hover { background: var(--accent, #f1f5f9); color: var(--foreground, #0f172a); }
-    .icon-btn.add { background: var(--primary, #6366f1); color: #fff; }
-    .icon-btn.add:hover { filter: brightness(1.05); }
-    .icon-btn.del:hover { color: #dc2626; }
+
+    /* Row remove sits at the end of the row and one dashed Add button sits
+       under the list, the same as Admin2's own key/value list fields. */
+    .icon-btn { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 0; border-radius: 6px; cursor: pointer; background: transparent; color: var(--muted-foreground, #64748b); opacity: .6; }
+    .icon-btn:hover, .icon-btn:focus-visible { opacity: 1; color: #dc2626; background: color-mix(in srgb, #dc2626 10%, transparent); }
+    .add-row { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; height: 36px; border: 1px dashed var(--border, #e2e8f0); border-radius: 8px; cursor: pointer; background: transparent; color: var(--muted-foreground, #64748b); font-size: 14px; font-family: inherit; }
+    .add-row:hover:not(:disabled) { border-color: color-mix(in srgb, var(--primary, #6366f1) 50%, transparent); color: var(--primary, #6366f1); }
+    .add-row:disabled { opacity: .5; cursor: default; }
+
+    /* Too narrow for one line (phones, a narrow form column): the name and the
+       remove button keep the first line and the action buttons move below. */
+    @container (max-width: 479px) {
+        .wrap { gap: 14px; }
+        .row { flex-wrap: wrap; }
+        .select-wrap { flex: 1 1 calc(100% - 40px); }
+        .icon-btn.del { order: 1; }
+        .row > [role="group"] { order: 2; }
+        .crud { padding: 0 8px; }
+    }
 `;
 
 customElements.define(TAG, AclPermissionsField);
