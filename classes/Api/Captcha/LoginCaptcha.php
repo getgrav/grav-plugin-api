@@ -9,6 +9,7 @@ use Grav\Common\Grav;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use TrilbyMedia\Cap\Cap;
 use TrilbyMedia\Cap\Config as CapConfig;
+use TrilbyMedia\Cap\Storage\DirectoryStorage;
 use TrilbyMedia\Cap\Storage\Psr16Storage;
 
 /**
@@ -209,8 +210,8 @@ class LoginCaptcha
     }
 
     /**
-     * Cap instance, backed by Grav's cache so challenges and redeemed tokens
-     * survive across the two round-trips without a dedicated store.
+     * Cap instance. Challenges and redeemed tokens have to survive between the
+     * two round-trips, so they go in storage() rather than memory.
      */
     private function cap(): Cap
     {
@@ -219,15 +220,39 @@ class LoginCaptcha
         }
 
         $settings = (array) $this->setting('cap', []);
+        $storage = $this->storage();
 
         return $this->cap = new Cap(new CapConfig(
-            challengeStorage:    new Psr16Storage($this->grav['cache']->getSimpleCache()),
-            tokenStorage:        new Psr16Storage($this->grav['cache']->getSimpleCache()),
+            challengeStorage:    $storage,
+            tokenStorage:        $storage,
             challengeCount:      (int) ($settings['challenge_count'] ?? 30),
             challengeSize:       (int) ($settings['challenge_size'] ?? 32),
             challengeDifficulty: (int) ($settings['challenge_difficulty'] ?? 4),
             expiresMs:           (int) ($settings['expires_ms'] ?? 600_000),
         ));
+    }
+
+    /**
+     * One file per record in tmp/cap-api, so a solved token is used exactly once
+     * even when several logins carrying it arrive at the same moment. A Redis or
+     * Memcached cache, which several servers can share, is used directly instead,
+     * though PSR-16 can't guarantee single use. So is Grav's cache when an older
+     * cap-php (loaded from another plugin) has no DirectoryStorage.
+     */
+    private function storage(): DirectoryStorage|Psr16Storage
+    {
+        $cache = $this->grav['cache'];
+        $shared = method_exists($cache, 'getDriverName')
+            && in_array($cache->getDriverName(), ['redis', 'memcached', 'memcache'], true);
+
+        if (!$shared && class_exists(DirectoryStorage::class)) {
+            $tmp = $this->grav['locator']->findResource('tmp://', true, true);
+            if (is_string($tmp) && $tmp !== '') {
+                return new DirectoryStorage(rtrim($tmp, '/') . '/cap-api');
+            }
+        }
+
+        return new Psr16Storage($cache->getSimpleCache());
     }
 
     private function verifyCap(string $token): bool
