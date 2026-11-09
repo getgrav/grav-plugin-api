@@ -1968,7 +1968,10 @@ class UsersController extends AbstractApiController
             ? $login->getRateLimiter('twofa_attempts')
             : null;
 
-        if ($limiter && $limiter->hasReachedLimit($username)) {
+        // Count the attempt before checking the code (Login 3.13.1+), so codes sent at the
+        // same moment can't all get past the limit; a right code clears the count again.
+        $counted = $limiter && method_exists($limiter, 'attempt');
+        if ($limiter && ($counted ? !$limiter->attempt($username) : $limiter->hasReachedLimit($username))) {
             $seconds = method_exists($limiter, 'getRetryAfter')
                 ? (int) $limiter->getRetryAfter($username)
                 : (int) $limiter->getInterval() * 60;
@@ -1980,7 +1983,9 @@ class UsersController extends AbstractApiController
         }
 
         if (!$this->verifyTwoFactorCode((string) $user->get('twofa_secret'), $code)) {
-            $limiter?->registerRateLimitedAction($username);
+            if (!$counted) {
+                $limiter?->registerRateLimitedAction($username);
+            }
             $message = 'The code is not correct.';
             throw new ValidationException($message, [['field' => 'code', 'message' => $message]]);
         }
