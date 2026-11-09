@@ -1078,7 +1078,7 @@ class BlueprintController extends AbstractApiController
      * classic row picker. We remap each field to a distinct custom type that
      * falls through to the plugin web component:
      *   - data_type: access      → `acl-access`      (Allowed/Denied per action)
-     *   - data_type: permissions → `acl-permissions` (CRUD per group)
+     *   - data_type: permissions → `acl-permissions` (C/R/U/D/M per group)
      *
      * The option lists (access actions / user groups) need `$grav['permissions']`
      * and the groups directory, and the access-actions endpoint is gated on
