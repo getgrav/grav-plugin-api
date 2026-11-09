@@ -1,3 +1,9 @@
+# v1.1.17
+## 11/09/2026
+
+1. [](#improved)
+    * The bundled Cap captcha library is updated to 1.1.0, the same version the Form plugin ships, so both plugins load matching code on sites that use them together
+
 # v1.1.16
 ## 11/07/2026
 
