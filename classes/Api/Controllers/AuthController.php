@@ -139,7 +139,10 @@ class AuthController extends AbstractApiController
         $limiter = is_object($login) && method_exists($login, 'getRateLimiter')
             ? $login->getRateLimiter('twofa_attempts')
             : null;
-        if ($limiter && $limiter->hasReachedLimit($username)) {
+        // Count the attempt before checking the code (Login 3.13.1+), so codes sent at the
+        // same moment can't all get past the limit; a right code clears the count again.
+        $counted = $limiter && method_exists($limiter, 'attempt');
+        if ($limiter && ($counted ? !$limiter->attempt($username) : $limiter->hasReachedLimit($username))) {
             $seconds = method_exists($limiter, 'getRetryAfter')
                 ? (int) $limiter->getRetryAfter($username)
                 : (int) $limiter->getInterval() * 60;
@@ -159,7 +162,9 @@ class AuthController extends AbstractApiController
 
         $twoFa = new TwoFactorAuth();
         if (!$secret || !$twoFa->verifyCode($secret, $code)) {
-            $limiter?->registerRateLimitedAction($username);
+            if (!$counted) {
+                $limiter?->registerRateLimitedAction($username);
+            }
             $this->fireEvent('onApiUserLoginFailure', [
                 'username' => $username,
                 'reason' => '2fa',

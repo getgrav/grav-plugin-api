@@ -23,17 +23,37 @@ use TrilbyMedia\Cap\Prng;
  */
 class LoginCaptchaTest extends TestCase
 {
+    private string $tmp;
+
     protected function setUp(): void
     {
         Grav::resetInstance();
 
+        $this->tmp = sys_get_temp_dir() . '/api-captcha-' . bin2hex(random_bytes(6));
+        mkdir($this->tmp);
+
         $grav = Grav::instance();
+        $tmp = $this->tmp;
+        $grav['locator'] = new class ($tmp) {
+            public function __construct(private string $tmp) {}
+
+            public function findResource(string $uri, bool $absolute = true, bool $first = false): string|false
+            {
+                return $uri === 'tmp://' ? $this->tmp : false;
+            }
+        };
         $grav['log'] = new class {
             public function warning($message): void {}
             public function error($message): void {}
         };
         $grav['cache'] = new class {
+            public string $driver = 'file';
             private CacheInterface $simple;
+
+            public function getDriverName(): string
+            {
+                return $this->driver;
+            }
 
             public function __construct()
             {
@@ -100,6 +120,38 @@ class LoginCaptchaTest extends TestCase
                 return $this->simple;
             }
         };
+    }
+
+    protected function tearDown(): void
+    {
+        if (is_dir($this->tmp)) {
+            exec('rm -rf ' . escapeshellarg($this->tmp));
+        }
+    }
+
+    #[Test]
+    public function it_keeps_records_in_files_unless_the_cache_is_shared(): void
+    {
+        $settings = [
+            'enabled' => true,
+            'flows' => ['login' => true],
+            'cap' => ['challenge_count' => 2, 'challenge_difficulty' => 1],
+        ];
+
+        $captcha = $this->captcha($settings);
+        $token = $this->solve($captcha);
+        $this->assertNotEmpty(glob($this->tmp . '/cap-api/t/*/*'), 'redeemed token is kept as a file');
+        $captcha->verify(LoginCaptcha::FLOW_LOGIN, [LoginCaptcha::TOKEN_FIELD => $token]);
+
+        // With a Redis cache the records go there instead, and still work once.
+        exec('rm -rf ' . escapeshellarg($this->tmp . '/cap-api'));
+        Grav::instance()['cache']->driver = 'redis';
+        $captcha = $this->captcha($settings);
+        $token = $this->solve($captcha);
+        $this->assertDirectoryDoesNotExist($this->tmp . '/cap-api');
+        $captcha->verify(LoginCaptcha::FLOW_LOGIN, [LoginCaptcha::TOKEN_FIELD => $token]);
+        $this->expectException(ValidationException::class);
+        $captcha->verify(LoginCaptcha::FLOW_LOGIN, [LoginCaptcha::TOKEN_FIELD => $token]);
     }
 
     #[Test]

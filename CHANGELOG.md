@@ -1,3 +1,12 @@
+# v1.1.17
+## 11/09/2026
+
+1. [](#improved)
+    * The bundled Cap captcha library is updated to 1.2.0, the same version the Form plugin ships, so both plugins load matching code on sites that use them together
+1. [](#bugfix)
+    * A solved login captcha can no longer be used on several login attempts sent at the same moment. Cap now keeps its records as files in `tmp/cap-api`, unless the site's cache is Redis or Memcached
+    * Wrong 2FA codes sent at the same moment are all counted before any is checked, so a burst can't get past the limit (needs Login 3.13.1)
+
 # v1.1.16
 ## 11/07/2026
 
