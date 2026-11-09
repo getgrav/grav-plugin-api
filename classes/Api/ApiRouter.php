@@ -320,7 +320,13 @@ class ApiRouter extends ProcessorBase
                 $demoGrant = (new DemoModeMiddleware(
                     (array) $this->config->get('plugins.api.demo.writable', []),
                     (array) $this->config->get('plugins.api.demo.allow_routes', []),
-                ))->check($user, $request->getMethod(), $apiRoutePath, $isPublic);
+                ))->check(
+                    $user,
+                    $request->getMethod(),
+                    $apiRoutePath,
+                    $isPublic,
+                    self::explicitPageRoute($request->getMethod(), $apiRoutePath, $request->getQueryParams()) !== null,
+                );
                 if ($demoGrant !== null) {
                     $request = $request->withAttribute(DemoModeMiddleware::ATTRIBUTE, $demoGrant);
                 }
@@ -570,13 +576,49 @@ class ApiRouter extends ProcessorBase
         return (bool) preg_match('#^/auth/sso/[^/]+/(start|callback)$#', $routePath);
     }
 
+    /** The routes for a page itself, by method. */
+    private const PAGE_ITSELF = [
+        'GET' => [PagesController::class, 'show'],
+        'PATCH' => [PagesController::class, 'update'],
+        'DELETE' => [PagesController::class, 'delete'],
+    ];
+
+    /**
+     * The page route a request names as a page in its own right, or null.
+     *
+     * `{route:.+}` can't tell a page from a sub-resource of its parent, so a
+     * page whose route ends like one (`/ref/languages`, `/blog/media`,
+     * `/blog/media/press`) matched `GET /pages/ref` + `/languages` instead of
+     * itself and could not be opened, saved or deleted (admin2#213). With
+     * `?resource=page` a GET, PATCH or DELETE takes the whole path as the page.
+     * Without it the routes match exactly as before, so a parent's sub-resources
+     * stay where they are.
+     *
+     * @param array<string, mixed> $query
+     */
+    public static function explicitPageRoute(string $method, string $routePath, array $query): ?string
+    {
+        if (($query['resource'] ?? null) !== 'page' || !isset(self::PAGE_ITSELF[strtoupper($method)])) {
+            return null;
+        }
+        if (!str_starts_with($routePath, '/pages/')) {
+            return null;
+        }
+        $route = substr($routePath, strlen('/pages/'));
+
+        return $route === '' ? null : $route;
+    }
+
     protected function dispatch(ServerRequestInterface $request, string $routePath): ResponseInterface
     {
         $this->startPhase('route', 'API: Routing');
         $dispatcher = $this->createDispatcher();
 
         $method = $request->getMethod();
-        $routeInfo = $dispatcher->dispatch($method, $routePath);
+        $pageRoute = self::explicitPageRoute($method, $routePath, $request->getQueryParams());
+        $routeInfo = $pageRoute !== null
+            ? [Dispatcher::FOUND, self::PAGE_ITSELF[strtoupper($method)], ['route' => $pageRoute]]
+            : $dispatcher->dispatch($method, $routePath);
         $this->stopPhase('route');
 
         return match ($routeInfo[0]) {

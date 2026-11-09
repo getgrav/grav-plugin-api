@@ -1,3 +1,9 @@
+# v1.1.18
+## 11/09/2026
+
+1. [](#bugfix)
+    * A page whose folder name matches one of a page's API sub-resources, such as `languages`, `media`, `compare` or `neighbors`, can be opened, saved and deleted in Admin2 again. Requests for the page itself now carry `?resource=page`, so they no longer reach that sub-resource of the parent page [admin2#213](https://github.com/getgrav/grav-plugin-admin2/issues/213)
+
 # v1.1.17
 ## 11/09/2026
 
