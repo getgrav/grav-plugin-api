@@ -1577,6 +1577,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/pageRoute"
         - $ref: "#/components/parameters/lang"
+        - $ref: "#/components/parameters/pageResource"
         - name: summary
           in: query
           description: |
@@ -1680,6 +1681,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/pageRoute"
         - $ref: "#/components/parameters/lang"
+        - $ref: "#/components/parameters/pageResource"
         - $ref: "#/components/parameters/ifMatch"
       requestBody:
         required: true
@@ -1746,6 +1748,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/pageRoute"
         - $ref: "#/components/parameters/lang"
+        - $ref: "#/components/parameters/pageResource"
         - name: children
           in: query
           description: |
@@ -12839,6 +12842,19 @@ components:
         type: integer
         minimum: 1
         default: 20
+
+    pageResource:
+      name: resource
+      in: query
+      description: |
+        Set to `page` to make the whole route name the page itself. Without
+        it, a route ending like a page sub-resource (`blog/media`,
+        `ref/languages`, `a/compare`, `a/neighbors`, `a/media/x/meta`) is
+        matched as that sub-resource of the parent page instead. Admin2 always
+        sends it.
+      schema:
+        type: string
+        enum: [page]
 
     pageRoute:
       name: route

@@ -1,23 +1,29 @@
 /**
  * Page Groups ACL picker (admin-next custom field).
  *
- * Mirrors admin-classic's `acl_picker` with `data_type: permissions`: a list
+ * Extends admin-classic's `acl_picker` with `data_type: permissions`: a list
  * of rows, each pairing a group (or special ACL target) with per-action
- * Create / Read / Update / Delete states, each tri-state:
+ * Create / Read / Update / Delete / Media states, each tri-state:
  *   unset → allow → deny → unset.
  *
  * Value shape (what grav-core reads from `header.permissions.groups`):
- *   { "Registered": "cru", "limited": "-c-r-u-d" }
- * Each value is a compact ACL string: letters c/r/u/d (and any others such as
- * `p`); a leading "-" denies the letters that follow it, "+" (or no sign)
- * allows them. Letters absent from the string are unset. Non-CRUD letters in
- * an existing value (e.g. publish `p`) are preserved on round-trip.
+ *   { "Registered": "crum", "limited": "-c-r-u-d-m" }
+ * Each value is a compact ACL string: letters c/r/u/d/m (and any others such
+ * as `p`); a leading "-" denies the letters that follow it, "+" (or no sign)
+ * allows them. Letters absent from the string are unset. Letters outside the
+ * C/R/U/D/M set in an existing value (e.g. publish `p`) are preserved on
+ * round-trip.
  *
  * A value can also be a map of action names, e.g. `{ update: true,
- * delete: false }`. Such a row is saved back as a map: the C/R/U/D buttons
- * edit `create`/`read`/`update`/`delete`, and every other key in it (publish,
- * list, media, ...) is kept as it was. Writing it as letters instead would
+ * delete: false }`. Such a row is saved back as a map: the C/R/U/D/M buttons
+ * edit `create`/`read`/`update`/`delete`/`media`, and every other key in it
+ * (publish, list, ...) is kept as it was. Writing it as letters instead would
  * turn the action names into letters, so `update-delete` grants publish.
+ *
+ * Media is an action of its own (getgrav/grav-plugin-api#77), but the API
+ * falls back to the group's update rule when the group has no media verdict.
+ * An unset M column therefore means "whatever this group's U says", not
+ * "deny"; set M explicitly to grant or withhold media independently.
  *
  * The group dropdown is a type-ahead popover (searchable list), modelled on
  * admin-next's page-parent picker. Options are baked into `field.options`
@@ -26,9 +32,12 @@
 
 const TAG = window.__GRAV_FIELD_TAG;
 
-const CRUD = ['c', 'r', 'u', 'd'];
-const CRUD_LABEL = { c: 'C', r: 'R', u: 'U', d: 'D' };
-const CRUD_ACTION = { c: 'create', r: 'read', u: 'update', d: 'delete' };
+// Actions shown as columns, in display order. `m` (media) is evaluated by the
+// API only; an unset M follows the same group's update rule.
+const LETTERS = ['c', 'r', 'u', 'd', 'm'];
+const LETTER_LABEL = { c: 'C', r: 'R', u: 'U', d: 'D', m: 'M' };
+const LETTER_NAME = { c: 'Create', r: 'Read', u: 'Update', d: 'Delete', m: 'Media' };
+const LETTER_ACTION = { c: 'create', r: 'read', u: 'update', d: 'delete', m: 'media' };
 
 class AclPermissionsField extends HTMLElement {
     constructor() {
@@ -112,15 +121,18 @@ class AclPermissionsField extends HTMLElement {
         if (!this.shadowRoot || !this.isConnected) return;
         if (!this._rows) this._rows = this._rowsFromValue(this._value);
 
-        const crudHtml = (states) => CRUD.map((letter) => {
+        const actionsHtml = (states) => LETTERS.map((letter) => {
             const st = states[letter] || 'unset';
             const icon = st === 'allow' ? LOCK_OPEN : LOCK;
-            return `<button type="button" class="crud ${st}" data-letter="${letter}" title="${CRUD_LABEL[letter]}">${icon}<span>${CRUD_LABEL[letter]}</span></button>`;
+            // The visible letter is only a mnemonic; name the action for screen
+            // readers. Media's tooltip explains the update fallback instead of
+            // repeating the accessible name.
+            const hint = letter === 'm' ? ` title="Unset follows this group's Update rule"` : '';
+            return `<button type="button" class="crud ${st}" data-letter="${letter}" aria-label="${LETTER_NAME[letter]}"${hint}>${icon}<span>${LETTER_LABEL[letter]}</span></button>`;
         }).join('');
 
         const rowsHtml = this._rows.map((row, i) => `
             <div class="row" data-i="${i}">
-                <button type="button" class="icon-btn del" title="Remove" data-act="del">${TRASH}</button>
                 <div class="select-wrap">
                     <button type="button" class="combo-trigger ${row.key ? '' : 'empty'}" data-act="open">
                         ${row.key
@@ -129,18 +141,23 @@ class AclPermissionsField extends HTMLElement {
                         ${UPDOWN}
                     </button>
                 </div>
-                <div class="crud-group" role="group">${crudHtml(row.states)}</div>
-                <button type="button" class="icon-btn add" title="Add" data-act="add">${PLUS}</button>
+                <div class="crud-group" role="group">${actionsHtml(row.states)}</div>
+                <button type="button" class="icon-btn del" title="Remove" aria-label="Remove" data-act="del">${TRASH}</button>
             </div>
         `).join('');
 
-        this.shadowRoot.innerHTML = `<style>${STYLE}</style><div class="wrap">${rowsHtml}</div>`;
+        // Add does nothing while a blank row is waiting to be filled in.
+        const last = this._rows[this._rows.length - 1];
+        const canAdd = !!(last && last.key);
+        const addHtml = `<button type="button" class="add-row" data-act="add"${canAdd ? '' : ' disabled'}>${PLUS}<span>Add group</span></button>`;
+
+        this.shadowRoot.innerHTML = `<style>${STYLE}</style><div class="wrap">${rowsHtml}${addHtml}</div>`;
+        this.shadowRoot.querySelector('.add-row')?.addEventListener('click', () => this._onAdd());
 
         this.shadowRoot.querySelectorAll('.row').forEach((el) => {
             const i = Number(el.dataset.i);
             el.querySelector('[data-act="open"]')?.addEventListener('click', () => this._toggleOpen(i));
             el.querySelector('[data-act="del"]')?.addEventListener('click', () => this._onDelete(i));
-            el.querySelector('[data-act="add"]')?.addEventListener('click', () => this._onAdd());
             el.querySelectorAll('.crud').forEach((btn) =>
                 btn.addEventListener('click', () => this._onCycle(i, btn.dataset.letter)));
         });
@@ -269,13 +286,13 @@ class AclPermissionsField extends HTMLElement {
 // ─── Compact ACL string <-> states map ──────────────────────────────────
 
 // A row's value as button states. A map value also returns `extra`: its
-// entries that aren't a recognised C/R/U/D verdict, kept for saving it back.
+// entries that aren't a recognised C/R/U/D/M verdict, kept for saving it back.
 function parseAcl(raw) {
     const states = {};
     if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
         const extra = {};
         for (const [action, val] of Object.entries(raw)) {
-            const letter = CRUD.find((l) => CRUD_ACTION[l] === action);
+            const letter = LETTERS.find((l) => LETTER_ACTION[l] === action);
             const verdict = letter ? aclBool(val) : null;
             if (verdict === null) extra[action] = val;
             else states[letter] = verdict ? 'allow' : 'deny';
@@ -304,19 +321,19 @@ function aclBool(val) {
     return null;
 }
 
-// A map row saved back as a map: its other keys untouched, the C/R/U/D
+// A map row saved back as a map: its other keys untouched, the C/R/U/D/M
 // actions set from the buttons (and left out when unset).
 function serializeAclMap(states, extra) {
     const out = { ...extra };
-    for (const letter of CRUD) {
-        const action = CRUD_ACTION[letter];
+    for (const letter of LETTERS) {
+        const action = LETTER_ACTION[letter];
         if (states[letter]) out[action] = states[letter] === 'allow';
     }
     return out;
 }
 
 function serializeAcl(states) {
-    const order = [...CRUD, ...Object.keys(states).filter((l) => !CRUD.includes(l))];
+    const order = [...LETTERS, ...Object.keys(states).filter((l) => !LETTERS.includes(l))];
     let out = '';
     let cur = '+';
     for (const letter of order) {
@@ -350,7 +367,7 @@ function esc(s) {
 }
 
 const STYLE = `
-    :host { display: block; font-family: inherit; }
+    :host { display: block; font-family: inherit; container-type: inline-size; }
     .wrap { display: flex; flex-direction: column; gap: 8px; }
     .row { display: flex; align-items: center; gap: 8px; }
     .select-wrap { position: relative; flex: 1; min-width: 0; }
@@ -396,11 +413,25 @@ const STYLE = `
     .crud.allow { background: #16a34a; color: #fff; }
     .crud.deny  { background: #dc2626; color: #fff; }
 
-    .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: 0; border-radius: 8px; cursor: pointer; background: transparent; color: var(--muted-foreground, #64748b); }
-    .icon-btn:hover { background: var(--accent, #f1f5f9); color: var(--foreground, #0f172a); }
-    .icon-btn.add { background: var(--primary, #6366f1); color: #fff; }
-    .icon-btn.add:hover { filter: brightness(1.05); }
-    .icon-btn.del:hover { color: #dc2626; }
+
+    /* Row remove sits at the end of the row and one dashed Add button sits
+       under the list, the same as Admin2's own key/value list fields. */
+    .icon-btn { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 0; border-radius: 6px; cursor: pointer; background: transparent; color: var(--muted-foreground, #64748b); opacity: .6; }
+    .icon-btn:hover, .icon-btn:focus-visible { opacity: 1; color: #dc2626; background: color-mix(in srgb, #dc2626 10%, transparent); }
+    .add-row { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; height: 36px; border: 1px dashed var(--border, #e2e8f0); border-radius: 8px; cursor: pointer; background: transparent; color: var(--muted-foreground, #64748b); font-size: 14px; font-family: inherit; }
+    .add-row:hover:not(:disabled) { border-color: color-mix(in srgb, var(--primary, #6366f1) 50%, transparent); color: var(--primary, #6366f1); }
+    .add-row:disabled { opacity: .5; cursor: default; }
+
+    /* Too narrow for one line (phones, a narrow form column): the name and the
+       remove button keep the first line and the action buttons move below. */
+    @container (max-width: 479px) {
+        .wrap { gap: 14px; }
+        .row { flex-wrap: wrap; }
+        .select-wrap { flex: 1 1 calc(100% - 40px); }
+        .icon-btn.del { order: 1; }
+        .row > [role="group"] { order: 2; }
+        .crud { padding: 0 8px; }
+    }
 `;
 
 customElements.define(TAG, AclPermissionsField);

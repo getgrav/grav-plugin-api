@@ -61,9 +61,19 @@ class PageSerializer implements SerializerInterface
         $headerTitle = $headerArr['title'] ?? null;
         $headerMenu = $headerArr['menu'] ?? null;
 
+        // Grav 2.2.29+: a page under an unpublished parent with
+        // `cascade_unpublish` is unpublished by that parent, and core's
+        // published() then reads false. `published` stays the page's OWN
+        // value, so its toggle keeps showing what is in its frontmatter, and
+        // `unpublished_by` names the ancestor (raw route) that hides it.
+        $unpublishedBy = method_exists($resource, 'unpublishedBy') ? $resource->unpublishedBy() : null;
+
         $published = array_key_exists('published', $headerArr)
             ? (bool) $headerArr['published']
-            : $resource->published();
+            : ($unpublishedBy === null ? $resource->published() : null);
+        $publishWindow = $this->publishWindow($headerArr, $published ?? true);
+        // Hidden by a parent and no `published:` of its own: only its dates decide.
+        $published ??= $publishWindow['publish_state'] === 'published';
 
         $data = [
             // Permanent id of the page folder (Grav 2.2.15+ page ids), null
@@ -118,7 +128,8 @@ class PageSerializer implements SerializerInterface
             // dates entirely (a scheduled page reads true and looks live).
             // These three fields are purely additive — `published` keeps
             // exactly the value it has always had (admin2#2523).
-            ...$this->publishWindow($headerArr, $published),
+            ...$publishWindow,
+            'unpublished_by' => is_string($unpublishedBy) && $unpublishedBy !== '' ? $unpublishedBy : null,
             'visible' => array_key_exists('visible', $headerArr) ? (bool)$headerArr['visible'] : $resource->visible(),
             'routable' => $resource->routable(),
             'date' => $this->formatTimestamp($resource->date()),

@@ -137,7 +137,7 @@ final class DemoPolicy
      * Order mirrors the router's, so `/pages/x/media` is a media upload here
      * exactly as it is there.
      */
-    public static function grantFor(string $method, string $path): string
+    public static function grantFor(string $method, string $path, bool $pageItself = false): string
     {
         $method = strtoupper($method);
         $path = '/' . trim($path, '/');
@@ -162,6 +162,16 @@ final class DemoPolicy
             return $method === 'POST' ? 'api.pages.update' : self::DENY;
         }
         if (self::under($path, '/pages')) {
+            // `?resource=page` (ApiRouter::explicitPageRoute()): the whole path
+            // is the page, whatever its last segments look like.
+            if ($pageItself) {
+                return match ($method) {
+                    'PATCH' => 'api.pages.update',
+                    'DELETE' => 'api.pages.delete',
+                    default => self::DENY,
+                };
+            }
+
             return self::pageGrant($method, $path);
         }
 
@@ -196,9 +206,9 @@ final class DemoPolicy
      * @param list<string> $grants  expand()ed grants
      * @param array<mixed> $allowRoutes  `plugins.api.demo.allow_routes`
      */
-    public static function allows(string $method, string $path, array $grants, array $allowRoutes = []): bool
+    public static function allows(string $method, string $path, array $grants, array $allowRoutes = [], bool $pageItself = false): bool
     {
-        $grant = self::grantFor($method, $path);
+        $grant = self::grantFor($method, $path, $pageItself);
 
         if ($grant === self::OPEN || $grant === self::BATCH) {
             return true;

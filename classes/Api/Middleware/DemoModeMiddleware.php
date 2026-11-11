@@ -44,7 +44,7 @@ class DemoModeMiddleware
      *
      * @throws DemoModeException when a demo account attempts a refused write.
      */
-    public function check(UserInterface $user, string $method, string $routePath, bool $isPublic): ?string
+    public function check(UserInterface $user, string $method, string $routePath, bool $isPublic, bool $pageItself = false): ?string
     {
         if (!$user->get('access.api.demo')) {
             return null;
@@ -54,11 +54,11 @@ class DemoModeMiddleware
             return null;
         }
 
-        if (!DemoPolicy::allows($method, $routePath, DemoPolicy::expand($this->writable), $this->allowRoutes)) {
+        if (!DemoPolicy::allows($method, $routePath, DemoPolicy::expand($this->writable), $this->allowRoutes, $pageItself)) {
             throw new DemoModeException();
         }
 
-        $grant = DemoPolicy::grantFor($method, $routePath);
+        $grant = DemoPolicy::grantFor($method, $routePath, $pageItself);
 
         return $grant === DemoPolicy::DENY ? 'allow_routes' : $grant;
     }
