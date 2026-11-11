@@ -1,5 +1,5 @@
 # v1.1.18
-## 11/09/2026
+## 11/10/2026
 
 1. [](#new)
     * The Page Groups picker in Admin2 has a Media column, so a group can be allowed or denied managing a page's media separately from editing it. Left unset, the group's Update setting decides, as before. Thanks @phmg701 [#79](https://github.com/getgrav/grav-plugin-api/pull/79)
