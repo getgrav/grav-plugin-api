@@ -11,6 +11,7 @@ use Grav\Plugin\Api\Exceptions\ForbiddenException;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
+use Grav\Plugin\Api\Services\BackupJobSwitch;
 use Grav\Plugin\Api\Services\ConfigDiffer;
 use Grav\Plugin\Api\Services\ConfigScopes;
 use Grav\Plugin\Api\Services\ConfigSecretMasker;
@@ -136,7 +137,7 @@ class ConfigController extends AbstractApiController
         // Mask secret values (passwords, API keys, tokens) before the config
         // leaves the server. Applies to every caller, not just demo mode — a
         // plain api.config.read must not expose SMTP passwords or licence keys.
-        $body = ConfigSecretMasker::mask($this->effectiveConfig($scope, $targetEnv), $this->loadBlueprint($scope));
+        $body = ConfigSecretMasker::mask($this->viewConfig($scope, $targetEnv), $this->loadBlueprint($scope));
 
         return $this->respondWithEtag($body, 200, [], $etag, $meta);
     }
@@ -237,7 +238,7 @@ class ConfigController extends AbstractApiController
         $etag = $this->generateEtag($this->configEtagBasis($scope, $targetEnv));
         $meta = $this->overrideMeta($scope, $targetEnv) + ['reverted' => $changed];
         return $this->respondWithEtag(
-            ConfigSecretMasker::mask($effective, $this->loadBlueprint($scope)),
+            ConfigSecretMasker::mask($this->viewConfig($scope, $targetEnv, $effective), $this->loadBlueprint($scope)),
             200,
             $tags,
             $etag,
@@ -364,6 +365,13 @@ class ConfigController extends AbstractApiController
         // Extract (potentially modified) data back from the Data object
         $merged = $obj->toArray();
 
+        // A backup job's on/off switch is its profile's `schedule` flag. The
+        // Scheduler page's switch for it arrives as a `scheduler.status` entry:
+        // move it onto the profile and never store it (grav#4397).
+        if ($scope === 'scheduler') {
+            $merged = $this->moveBackupSwitches($body['status'] ?? null, $merged, $targetEnv);
+        }
+
         // Update in-memory config
         $this->config->set($configKey, $merged);
 
@@ -373,6 +381,12 @@ class ConfigController extends AbstractApiController
 
         $this->fireAdminEvent('onAdminAfterSave', ['object' => $obj]);
         $this->fireEvent('onApiConfigUpdated', ['scope' => $scope, 'data' => $merged]);
+
+        // Saving the backups drops any stale Scheduler entry for their jobs, so
+        // the profile's Scheduled Backup switch is the only state left.
+        if ($scope === 'backups') {
+            $this->dropStaleBackupEntries((array) ($merged['profiles'] ?? []), $targetEnv);
+        }
 
         // Emit invalidations — plugin config changes also invalidate the plugins list.
         $tags = ['config:update:' . $scope];
@@ -389,12 +403,70 @@ class ConfigController extends AbstractApiController
         $etag = $this->generateEtag($this->configEtagBasis($scope, $targetEnv));
         $meta = $this->overrideMeta($scope, $targetEnv);
         return $this->respondWithEtag(
-            ConfigSecretMasker::mask($this->effectiveConfig($scope, $targetEnv), $blueprint),
+            ConfigSecretMasker::mask($this->viewConfig($scope, $targetEnv), $blueprint),
             200,
             $tags,
             $etag,
             $meta
         );
+    }
+
+    /**
+     * The config a client sees for a scope: the effective config, minus the
+     * `scheduler.status` entries for backup jobs, whose switch is the backup
+     * profile's `schedule` flag (see BackupJobSwitch).
+     *
+     * @param array<mixed>|null $effective already-resolved effective config
+     * @return array<mixed>
+     */
+    private function viewConfig(string $scope, ?string $targetEnv, ?array $effective = null): array
+    {
+        $effective ??= $this->effectiveConfig($scope, $targetEnv);
+        if ($scope !== 'scheduler') {
+            return $effective;
+        }
+
+        $backups = $this->effectiveConfig('backups', $targetEnv);
+
+        return BackupJobSwitch::withoutBackupEntries($effective, (array) ($backups['profiles'] ?? []));
+    }
+
+    /**
+     * Copy the backup jobs' entries in a submitted `scheduler.status` onto the
+     * backup profiles (saving the backups config when one changed), and return
+     * the scheduler config without them.
+     *
+     * @param array<mixed> $scheduler merged scheduler config about to be saved
+     * @return array<mixed>
+     */
+    private function moveBackupSwitches(mixed $status, array $scheduler, ?string $targetEnv): array
+    {
+        $backups = $this->effectiveConfig('backups', $targetEnv);
+        $profiles = (array) ($backups['profiles'] ?? []);
+
+        [$profiles, $changed] = BackupJobSwitch::applyToProfiles($status, $profiles);
+        if ($changed) {
+            $backups['profiles'] = $profiles;
+            $this->configStore()->save('backups', $backups, $targetEnv);
+            $this->fireEvent('onApiConfigUpdated', ['scope' => 'backups', 'data' => $backups]);
+        }
+
+        return BackupJobSwitch::withoutBackupEntries($scheduler, $profiles);
+    }
+
+    /**
+     * Remove `scheduler.status` entries for backup jobs from the scheduler
+     * config of the target, if it has any.
+     *
+     * @param array<mixed> $profiles `backups.profiles` as just saved
+     */
+    private function dropStaleBackupEntries(array $profiles, ?string $targetEnv): void
+    {
+        $scheduler = $this->effectiveConfig('scheduler', $targetEnv);
+        $clean = BackupJobSwitch::withoutBackupEntries($scheduler, $profiles);
+        if ($clean !== $scheduler) {
+            $this->configStore()->save('scheduler', $clean, $targetEnv);
+        }
     }
 
     /**
