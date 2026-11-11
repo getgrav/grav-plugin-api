@@ -346,6 +346,7 @@ class ApiRouter extends ProcessorBase
 
             // Dispatch the route
             $response = $this->dispatch($request, $apiRoutePath);
+            self::dropSessionPragma($response);
 
             // Add rate limit headers to successful responses
             $response = $this->addRateLimitHeaders($response, $rateLimitResult);
@@ -608,6 +609,35 @@ class ApiRouter extends ProcessorBase
         $route = substr($routePath, strlen('/pages/'));
 
         return $route === '' ? null : $route;
+    }
+
+    /**
+     * Starting the session sends `Pragma: no-cache` (PHP's nocache cache
+     * limiter), and Chrome treats that as `Cache-Control: no-cache` even when
+     * the response says otherwise, so a response meant to be cached (plugin
+     * modules for a year, media thumbnails for ten minutes) was revalidated on
+     * every page load. Drop it when the response sets a lifetime of its own.
+     */
+    public static function dropSessionPragma(ResponseInterface $response): void
+    {
+        if (headers_sent() || !self::cacheableFor($response->getHeaderLine('Cache-Control'))) {
+            return;
+        }
+        header_remove('Pragma');
+    }
+
+    /**
+     * Whether a Cache-Control value lets the browser keep the response for a
+     * while (a max-age above zero, and no no-cache or no-store).
+     */
+    public static function cacheableFor(string $cacheControl): bool
+    {
+        $value = strtolower($cacheControl);
+        if ($value === '' || preg_match('/\bno-(cache|store)\b/', $value)) {
+            return false;
+        }
+
+        return (bool) preg_match('/\bmax-age\s*=\s*"?[1-9]/', $value);
     }
 
     protected function dispatch(ServerRequestInterface $request, string $routePath): ResponseInterface

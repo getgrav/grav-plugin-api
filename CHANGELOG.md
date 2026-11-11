@@ -5,6 +5,8 @@
     * `GET /admin-next/dashboard` answers the Admin2 dashboard's nine requests in one. Each part is its own endpoint's answer, with the same permission check
 1. [](#improved)
     * `GET /admin-next/boot` also carries the environment list and the dashboard counts, which Admin2 needs on every screen, so each screen makes two fewer requests
+1. [](#bugfix)
+    * Plugin widgets, pages and fields in Admin2, and media thumbnails, are kept by the browser as intended instead of being checked with the server on every page load
 
 # v1.1.18
 ## 11/10/2026
