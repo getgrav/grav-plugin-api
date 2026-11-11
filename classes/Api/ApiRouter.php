@@ -15,6 +15,7 @@ use Grav\Plugin\Api\Popularity\PopularityTracker;
 use Grav\Plugin\Api\Controllers\AuditController;
 use Grav\Plugin\Api\Controllers\AuthController;
 use Grav\Plugin\Api\Controllers\BootController;
+use Grav\Plugin\Api\Controllers\DashboardBatchController;
 use Grav\Plugin\Api\Controllers\CaptchaController;
 use Grav\Plugin\Api\Controllers\BlueprintController;
 use Grav\Plugin\Api\Controllers\BlueprintFilesController;
@@ -967,9 +968,12 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('PATCH', '/dashboard/site-layout', [DashboardWidgetController::class, 'saveSiteLayout']);
 
         // Admin-next boot: preferences, me, menubar, sidebar, floating widgets,
-        // context panels, custom fields, languages and the translations
-        // checksum in one request.
+        // context panels, custom fields, languages, environments, stats and
+        // the translations checksum in one request.
         $r->addRoute('GET', '/admin-next/boot', [BootController::class, 'show']);
+
+        // Admin-next dashboard: its nine requests in one.
+        $r->addRoute('GET', '/admin-next/dashboard', [DashboardBatchController::class, 'show']);
 
         // Plugin and theme web components as same-origin ES modules, with the
         // element tag line put in front (public; see $publicPrefixes above).

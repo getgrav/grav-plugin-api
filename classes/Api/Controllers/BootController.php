@@ -4,15 +4,13 @@ declare(strict_types=1);
 
 namespace Grav\Plugin\Api\Controllers;
 
-use Grav\Plugin\Api\Exceptions\ApiException;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
-use Throwable;
 
 /**
  * GET /admin-next/boot — everything Admin Next fetches when it starts, in one
- * request instead of nine.
+ * request instead of eleven.
  *
  * Each part comes from the same method its own endpoint uses, with the same
  * permission check, so `data.<part>` is exactly the `data` of that endpoint. A
@@ -25,6 +23,8 @@ use Throwable;
  */
 class BootController extends AbstractApiController
 {
+    use CollectsParts;
+
     /**
      * Part name => [controller, data method]. The data method is the one the
      * part's own endpoint wraps.
@@ -51,6 +51,11 @@ class BootController extends AbstractApiController
             $this->collect($part, $data, $errors, fn () => $this->controller($class)->$method($request));
         }
 
+        // The environment switcher in the toolbar and the sidebar's count and
+        // update badges, shown on every screen.
+        $this->collect('environments', $data, $errors, fn () => $this->endpointData(SystemController::class, 'environments', $request));
+        $this->collect('stats', $data, $errors, fn () => $this->endpointData(DashboardController::class, 'stats', $request));
+
         // The checksum /translations/{lang} would send as its ETag, so a client
         // holding that dictionary can skip the request. `?lang=` picks the
         // language; otherwise the user's admin language, then the site default,
@@ -68,40 +73,5 @@ class BootController extends AbstractApiController
         });
 
         return ApiResponse::parts($data, $errors);
-    }
-
-    /**
-     * @template T of AbstractApiController
-     * @param class-string<T> $class
-     * @return T
-     */
-    protected function controller(string $class): AbstractApiController
-    {
-        return new $class($this->grav, $this->config);
-    }
-
-    /**
-     * Run one part, storing its result in $data or its failure in $errors.
-     *
-     * @param array<string, mixed> $data
-     * @param array<string, array{status: int, title: string}> $errors
-     */
-    private function collect(string $part, array &$data, array &$errors, callable $build): void
-    {
-        try {
-            $data[$part] = $build();
-        } catch (ApiException $e) {
-            $errors[$part] = ['status' => $e->getStatusCode(), 'title' => $e->getErrorTitle()];
-        } catch (Throwable $e) {
-            try {
-                $this->grav['log']->error('API boot: part "' . $part . '" failed: ' . $e->getMessage(), [
-                    'file' => $e->getFile(),
-                    'line' => $e->getLine(),
-                ]);
-            } catch (Throwable) {
-                // Logging must never be the reason the other parts are lost.
-            }
-            $errors[$part] = ['status' => 500, 'title' => 'Internal Server Error'];
-        }
     }
 }

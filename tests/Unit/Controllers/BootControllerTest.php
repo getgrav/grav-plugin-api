@@ -12,6 +12,7 @@ use Grav\Plugin\Api\Controllers\AbstractApiController;
 use Grav\Plugin\Api\Controllers\AuthController;
 use Grav\Plugin\Api\Controllers\BootController;
 use Grav\Plugin\Api\Controllers\ContextPanelController;
+use Grav\Plugin\Api\Controllers\DashboardController;
 use Grav\Plugin\Api\Controllers\FloatingWidgetController;
 use Grav\Plugin\Api\Controllers\GpmController;
 use Grav\Plugin\Api\Controllers\MenubarController;
@@ -96,6 +97,8 @@ class BootControllerTest extends TestCase
             'context_panels' => fn () => (new ContextPanelController(Grav::instance(), $this->config))->items($request),
             'custom_fields' => fn () => (new BootTestGpmController(Grav::instance(), $this->config))->allCustomFields($request),
             'languages' => fn () => (new PagesController(Grav::instance(), $this->config))->siteLanguages($request),
+            'environments' => fn () => (new BootTestSystemController(Grav::instance(), $this->config))->environments($request),
+            'stats' => fn () => (new BootTestDashboardController(Grav::instance(), $this->config))->stats($request),
         ];
 
         foreach ($endpoints as $part => $endpoint) {
@@ -131,13 +134,16 @@ class BootControllerTest extends TestCase
     #[Test]
     public function a_part_the_user_may_not_read_goes_to_errors_and_the_rest_still_arrive(): void
     {
-        // api.access only: /languages needs api.pages.read.
+        // api.access only: /languages needs api.pages.read, /dashboard/stats api.system.read.
         $user = TestHelper::createMockUser('viewer', ['access' => ['api' => ['access' => true]]]);
         $body = json_decode((string) (new BootTestController(Grav::instance(), $this->config))->show($this->request($user))->getBody(), true);
 
         self::assertArrayNotHasKey('languages', $body['data']);
-        self::assertSame(['languages' => ['status' => 403, 'title' => 'Forbidden']], $body['errors']);
-        foreach (['preferences', 'me', 'menubar', 'sidebar', 'floating_widgets', 'context_panels', 'custom_fields', 'translations'] as $part) {
+        self::assertSame([
+            'languages' => ['status' => 403, 'title' => 'Forbidden'],
+            'stats' => ['status' => 403, 'title' => 'Forbidden'],
+        ], $body['errors']);
+        foreach (['preferences', 'me', 'menubar', 'sidebar', 'floating_widgets', 'context_panels', 'custom_fields', 'environments', 'translations'] as $part) {
             self::assertArrayHasKey($part, $body['data'], $part);
         }
         // The sidebar item that needs api.pages.read is filtered, as on /sidebar/items.
@@ -174,7 +180,7 @@ class BootControllerTest extends TestCase
     private function editor(array $preferences = []): UserInterface
     {
         return TestHelper::createMockUser('editor', [
-            'access' => ['api' => ['access' => true, 'pages' => ['read' => true]]],
+            'access' => ['api' => ['access' => true, 'pages' => ['read' => true], 'system' => ['read' => true]]],
             'admin_next' => ['preferences' => $preferences],
         ]);
     }
@@ -221,6 +227,9 @@ final class BootTestController extends BootController
         if ($class === SystemController::class) {
             return new BootTestSystemController($this->grav, $this->config);
         }
+        if ($class === DashboardController::class) {
+            return new BootTestDashboardController($this->grav, $this->config);
+        }
 
         return parent::controller($class);
     }
@@ -246,8 +255,30 @@ final class BootTestGpmController extends GpmController
     }
 }
 
+/** The page, plugin and theme collections aren't set up here. */
+final class BootTestDashboardController extends DashboardController
+{
+    public function stats(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.system.read');
+
+        return \Grav\Plugin\Api\Response\ApiResponse::create(['pages' => ['total' => 3, 'published' => 2]]);
+    }
+}
+
 final class BootTestSystemController extends SystemController
 {
+    /** The environment folders and the request's host aren't set up here. */
+    public function environments(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requirePermission($request, 'api.access');
+
+        return \Grav\Plugin\Api\Response\ApiResponse::create([
+            'detected' => 'localhost',
+            'environments' => [['name' => '', 'label' => 'Default', 'exists' => true, 'hasOverrides' => false]],
+        ]);
+    }
+
     public function translationsChecksum(string $lang, ?string $prefix = null): string
     {
         return 'sum:' . $lang;

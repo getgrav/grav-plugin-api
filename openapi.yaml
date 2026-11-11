@@ -12024,7 +12024,7 @@ paths:
       tags: [Admin Next]
       summary: Everything Admin Next loads at startup, in one request
       description: |
-        Returns, in one response, what Admin Next otherwise fetches with nine requests when it starts. Each member of `data` is exactly the `data` of its own endpoint, produced by the same code with the same permission check:
+        Returns, in one response, what Admin Next otherwise fetches with eleven requests when it starts. Each member of `data` is exactly the `data` of its own endpoint, produced by the same code with the same permission check:
 
         | Part | Same as |
         | --- | --- |
@@ -12036,6 +12036,8 @@ paths:
         | `context_panels` | `GET /context-panels` |
         | `custom_fields` | `GET /custom-fields` |
         | `languages` | `GET /languages` |
+        | `environments` | `GET /system/environments` |
+        | `stats` | `GET /dashboard/stats` |
         | `translations` | the `lang` and `checksum` of `GET /translations/{lang}` (the checksum is the ETag that endpoint sends), without the strings |
 
         A part the caller may not read, or one that fails, is left out of `data` and reported under the same key in `errors` with the status and title its own endpoint would have answered with (for example `languages` needs `api.pages.read`). One failing part never fails the response. `errors` is always present, as an empty object when every part succeeded.
@@ -12078,6 +12080,63 @@ paths:
                     checksum: 05e89a7f31f11d80a4860d431c6f0c7b
                 errors:
                   languages:
+                    status: 403
+                    title: Forbidden
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /admin-next/dashboard:
+    get:
+      operationId: getAdminNextDashboard
+      tags: [Admin Next]
+      summary: Everything the Admin Next dashboard loads, in one request
+      description: |
+        Returns, in one response, what the Admin Next dashboard otherwise fetches with nine requests when it opens. Its counts (`GET /dashboard/stats`) come with `GET /admin-next/boot`, since the sidebar's badges need them on every screen. Each member of `data` is exactly the `data` of its own endpoint: the endpoint's own handler runs with this request, so the same permission check applies.
+
+        | Part | Same as |
+        | --- | --- |
+        | `system_info` | `GET /system/info` |
+        | `notifications` | `GET /dashboard/notifications` |
+        | `popularity` | `GET /dashboard/popularity` |
+        | `feed` | `GET /dashboard/feed` |
+        | `backups` | `GET /system/backups` |
+        | `updates` | `GET /gpm/updates` |
+        | `reports` | `GET /systeminfo` |
+        | `widgets` | `GET /dashboard/widgets` |
+        | `recent_pages` | `GET /pages?sort=modified&order=desc&per_page=8&fields=summary` (plus `editable=true` with `?recent_pages=editable`) |
+
+        A part the caller may not read, or one that fails, is left out of `data` and reported under the same key in `errors` with the status and title its own endpoint would have answered with (for example `backups` needs `api.system.backup`). One failing part never fails the response. `errors` is always present, as an empty object when every part succeeded.
+
+        Only the first load of the dashboard uses this; refreshes (the Refresh button, invalidations) go to the individual endpoints, which also take their `force`/`flush` options.
+
+        Requires `api.access`.
+      parameters:
+        - name: recent_pages
+          in: query
+          required: false
+          description: "`editable` lists only pages the caller can edit in `recent_pages`, as `GET /pages?editable=true` does."
+          schema:
+            type: string
+            enum: [editable]
+      responses:
+        "200":
+          description: Dashboard payload returned. Parts that failed are listed in `errors`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminNextDashboard"
+              example:
+                data:
+                  feed:
+                    feed: []
+                    last_checked: "2026-11-11T09:00:00+00:00"
+                  recent_pages: []
+                errors:
+                  backups:
                     status: 403
                     title: Forbidden
         "401":
@@ -17017,6 +17076,19 @@ components:
                 $ref: "#/components/schemas/CustomFieldProvider"
             languages:
               $ref: "#/components/schemas/LanguageInfo"
+            environments:
+              type: object
+              description: Same as the `data` of `GET /system/environments`.
+              properties:
+                detected:
+                  type: string
+                  example: localhost
+                environments:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/EnvironmentEntry"
+            stats:
+              $ref: "#/components/schemas/DashboardStats"
             translations:
               type: object
               required: [lang, checksum]
@@ -17044,6 +17116,53 @@ components:
                 type: string
                 example: Forbidden
 
+    AdminNextDashboard:
+      type: object
+      description: Response of `GET /admin-next/dashboard`. Every member of `data` is optional; a part that is missing is listed in `errors`.
+      required: [data, errors]
+      properties:
+        data:
+          type: object
+          properties:
+            system_info:
+              $ref: "#/components/schemas/SystemInfo"
+            notifications:
+              type: object
+              description: Same as the `data` of `GET /dashboard/notifications`.
+            popularity:
+              type: object
+              description: Same as the `data` of `GET /dashboard/popularity`.
+            feed:
+              type: object
+              description: Same as the `data` of `GET /dashboard/feed`.
+            backups:
+              description: Same as the `data` of `GET /system/backups`.
+            updates:
+              type: object
+              description: Same as the `data` of `GET /gpm/updates`.
+            reports:
+              type: object
+              description: Same as the `data` of `GET /systeminfo`.
+            widgets:
+              $ref: "#/components/schemas/DashboardWidgetsResult"
+            recent_pages:
+              type: array
+              description: Same as the `data` of `GET /pages` with the query listed above.
+              items:
+                type: object
+        errors:
+          type: object
+          description: Parts that were left out of `data`, keyed by part name.
+          additionalProperties:
+            type: object
+            required: [status, title]
+            properties:
+              status:
+                type: integer
+                example: 403
+              title:
+                type: string
+                example: Forbidden
     PreferencesPayload:
       type: object
       description: The full resolved Admin Next preferences payload.

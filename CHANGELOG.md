@@ -1,3 +1,11 @@
+# v1.1.19
+## 11/11/2026
+
+1. [](#new)
+    * `GET /admin-next/dashboard` answers the Admin2 dashboard's nine requests in one. Each part is its own endpoint's answer, with the same permission check
+1. [](#improved)
+    * `GET /admin-next/boot` also carries the environment list and the dashboard counts, which Admin2 needs on every screen, so each screen makes two fewer requests
+
 # v1.1.18
 ## 11/10/2026
 
