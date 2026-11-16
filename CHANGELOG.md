@@ -1,3 +1,9 @@
+# v1.1.20
+## 11/16/2026
+
+1. [](#bugfix)
+    * Saving part of a plugin's or theme's settings through `PATCH /config/plugins/{plugin}` or `/config/themes/{theme}` no longer drops the other keys of the same section: `{"magic_link":{"ttl":15}}` used to remove `magic_link.enabled`. Admin2 sends the whole form, so it wasn't affected
+
 # v1.1.19
 ## 11/16/2026
 
