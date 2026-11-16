@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Grav\Plugin\Api\Controllers;
 
 use Grav\Common\Page\Interfaces\PageInterface;
+use Grav\Common\Page\Medium\AbstractMedia;
 use Grav\Common\Yaml;
 use Grav\Framework\Psr7\Response;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
@@ -408,15 +409,17 @@ class MediaController extends AbstractApiController
     {
         $stem = pathinfo($filename, PATHINFO_FILENAME);
         $ext = pathinfo($filename, PATHINFO_EXTENSION);
-        // <stem>@2x.<ext>, <stem>@3x.<ext>, … (case-insensitive extension)
-        $variantRe = '/^' . preg_quote($stem, '/') . '@\d+x\.' . preg_quote($ext, '/') . '$/i';
+        // <stem>@2x.<ext>, <stem>@3x.<ext>, … (case-insensitive extension).
+        // Core lists a scale above its limit as a medium of its own (admin2#214).
+        $variantRe = '/^' . preg_quote($stem, '/') . '@(\d+)x\.' . preg_quote($ext, '/') . '$/i';
+        $maxScale = defined(AbstractMedia::class . '::MAX_RETINA_SCALE') ? AbstractMedia::MAX_RETINA_SCALE : PHP_INT_MAX;
 
         $files = [];
         foreach (scandir($dir) ?: [] as $entry) {
             if ($entry === '.' || $entry === '..') {
                 continue;
             }
-            if ($entry !== $filename && !preg_match($variantRe, $entry)) {
+            if ($entry !== $filename && !(preg_match($variantRe, $entry, $m) && (int) $m[1] <= $maxScale)) {
                 continue;
             }
             $path = $dir . '/' . $entry;

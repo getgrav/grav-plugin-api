@@ -7,6 +7,7 @@
     * `GET /admin-next/boot` also carries the environment list and the dashboard counts, which Admin2 needs on every screen, so each screen makes two fewer requests
 1. [](#bugfix)
     * Plugin widgets, pages and fields in Admin2, and media thumbnails, are kept by the browser as intended instead of being checked with the server on every page load
+    * Deleting an image no longer also deletes `@Nx` files above Grav's retina limit, which are listed as media of their own [admin2#214](https://github.com/getgrav/grav-plugin-admin2/issues/214)
     * Opening a page to edit it, and translating or syncing it, fires `onAdminObjectGet` as classic admin does, so plugins that keep part of a page's frontmatter in another file, such as Mega Frontmatter, can merge it back in for the editor
 
 # v1.1.18
