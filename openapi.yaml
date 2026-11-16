@@ -7715,7 +7715,7 @@ paths:
                         example: last-run
                       process_available:
                         type: boolean
-                        description: Whether PHP can start processes (`proc_open`), which running jobs from the admin needs.
+                        description: Whether PHP can start processes (`proc_open`), which running command jobs from the admin needs. Jobs that call a PHP function run without it (see each job's `runnable`).
                         example: true
                       last_run:
                         type: string
@@ -13498,7 +13498,7 @@ components:
                 example: Alt Text
               type:
                 type: string
-                enum: [text, textarea, tags, select, number, date, boolean]
+                enum: [text, textarea, tags, pages, select, number, date, boolean]
                 example: text
               options:
                 type: object
@@ -13533,7 +13533,7 @@ components:
                   A string for `text`/`textarea`/`select` fields, a `YYYY-MM-DD`
                   string for a `date` field, a number for a `number` field, a
                   boolean for a `boolean` field, or an array of strings for a
-                  `tags` field. A `select` value is one of its `options` keys, or
+                  `tags` field (page routes for a `pages` field). A `select` value is one of its `options` keys, or
                   an empty string. A stored value that does not fit its field's
                   type is returned as-is.
                 oneOf:
@@ -15696,6 +15696,12 @@ components:
           nullable: true
           description: Error message from the last run, or `null` if successful.
           example: null
+        runnable:
+          type: boolean
+          description: >
+            Whether the job can be run from the admin on this host. A job that
+            calls a PHP function always can; a command job needs `proc_open`.
+          example: true
       required:
         - id
         - command

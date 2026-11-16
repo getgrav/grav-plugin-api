@@ -483,6 +483,7 @@ form:
                     text: PLUGIN_API.SINGLE_LINE
                     textarea: PLUGIN_API.MULTI_LINE
                     tags: PLUGIN_API.TAGS_LIST
+                    pages: PLUGIN_API.PAGES_LIST
                     select: PLUGIN_API.SELECT_LIST
                     number: PLUGIN_API.NUMBER
                     date: PLUGIN_API.DATE

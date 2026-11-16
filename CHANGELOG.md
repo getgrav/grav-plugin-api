@@ -2,10 +2,12 @@
 ## 11/11/2026
 
 1. [](#new)
+    * Media metadata fields can have the type `pages`: a list of page routes, picked from the site's pages in Admin2 and stored as a YAML list in the `.meta.yaml` sidecar, so a file in a downloads folder can be tied to the pages that use it. Filter with `?filter=pages:/services` [#80](https://github.com/getgrav/grav-plugin-api/issues/80)
     * `GET /admin-next/dashboard` answers the Admin2 dashboard's nine requests in one. Each part is its own endpoint's answer, with the same permission check
 1. [](#improved)
     * `GET /admin-next/boot` also carries the environment list and the dashboard counts, which Admin2 needs on every screen, so each screen makes two fewer requests
 1. [](#bugfix)
+    * On hosts with PHP's `proc_open` disabled, the Scheduler can run jobs that call PHP, such as backups, from the admin; only command jobs are refused. Each job in `GET /scheduler/jobs` says whether it can run there (`runnable`). Needs Grav 2.2.30 [grav#4397](https://github.com/getgrav/grav/issues/4397)
     * Plugin widgets, pages and fields in Admin2, and media thumbnails, are kept by the browser as intended instead of being checked with the server on every page load
     * Deleting an image no longer also deletes `@Nx` files above Grav's retina limit, which are listed as media of their own [admin2#214](https://github.com/getgrav/grav-plugin-admin2/issues/214)
     * Opening a page to edit it, and translating or syncing it, fires `onAdminObjectGet` as classic admin does, so plugins that keep part of a page's frontmatter in another file, such as Mega Frontmatter, can merge it back in for the editor

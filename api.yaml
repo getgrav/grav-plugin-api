@@ -168,7 +168,10 @@ media_metadata:
   # and site media manager). Each entry's `key` is the exact key written to the
   # `<filename>.meta.yaml` sidecar next to the media file. Order is preserved in
   # the editor. `type` is `text` (single line), `textarea` (multi-line),
-  # `tags` (a list of values, stored as a YAML sequence), `select` (one of
+  # `tags` (a list of values, stored as a YAML sequence), `pages` (a list of
+  # page routes picked from the site's pages, also stored as a YAML sequence,
+  # e.g. `pages: ['/services', '/about-us']`; filter with
+  # `?filter=pages:/services`), `select` (one of
   # the entries in `options`, a map of stored value to display label, e.g.
   # `options: { generated: 'AI generated', none: 'No AI' }`; a select without
   # options is ignored), `number` (stored as a YAML number, with optional `min`
