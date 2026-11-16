@@ -277,6 +277,7 @@ class PagesController extends AbstractApiController
             // the editor view to a user who can't save it is misleading; let
             // Admin Next show the toast on the show() failure instead.
             $this->guardTwigContent($request, $page, []);
+            $this->loadForEditing($page);
 
             $query = $request->getQueryParams();
             $summary = filter_var($query['summary'] ?? false, FILTER_VALIDATE_BOOLEAN);
@@ -308,6 +309,18 @@ class PagesController extends AbstractApiController
         } finally {
             $this->restoreLanguage($previousLang);
         }
+    }
+
+    /**
+     * Tell plugins a page has been loaded to be edited, with the event classic
+     * admin fires through flex-objects (`onAdminObjectGet`). A plugin that keeps
+     * part of a page's frontmatter outside its .md file, like mega-frontmatter,
+     * merges it back in here, so the editor shows it, the ETag covers it, and a
+     * new translation copies it.
+     */
+    private function loadForEditing(PageInterface $page): void
+    {
+        $this->fireAdminEvent('onAdminObjectGet', ['object' => $page]);
     }
 
     /**
@@ -1182,6 +1195,9 @@ class PagesController extends AbstractApiController
                 }
             }
 
+            // Before the ETag, so it is taken from the same page show() sent.
+            $this->loadForEditing($page);
+
             // ETag validation for conflict detection
             $currentData = $this->serializer->serialize($page);
             $this->validateEtag($request, $this->pageEtag($page, $currentData));
@@ -1757,6 +1773,8 @@ class PagesController extends AbstractApiController
                 throw new ValidationException("A translation already exists for language '{$targetLang}'. Use PATCH to update it.");
             }
 
+            $this->loadForEditing($page);
+
             $title = $body['title'] ?? $page->title();
             $content = $body['content'] ?? $page->rawMarkdown();
             $header = $body['header'] ?? $this->headerToArray($page->header());
@@ -2031,6 +2049,8 @@ class PagesController extends AbstractApiController
             }
 
             $this->authorizePageAction($request, $sourcePage, 'update', self::PERMISSION_WRITE);
+
+            $this->loadForEditing($sourcePage);
 
             $sourceContent = $sourcePage->rawMarkdown();
             $sourceHeader = $this->headerToArray($sourcePage->header());

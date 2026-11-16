@@ -538,6 +538,144 @@
           }
         },
         {
+          "id": "openapi:getPasskeyStatus",
+          "name": "Whether passkey sign-in is offered",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Generated from openapi.yaml by tests/newman/sync-collection.php; the Newman suite skips it.",
+                  "if (pm.variables.get('newman_suite')) { pm.execution.skipRequest(); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/auth/passkey",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "auth",
+                "passkey"
+              ]
+            },
+            "description": "Tells a login screen whether to offer passkey sign-in: true with Login 3.12 or later on Grav 2 when `plugins.login.passkeys.enabled` is on. Public."
+          }
+        },
+        {
+          "id": "openapi:passkeyLogin",
+          "name": "Sign in with a passkey",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Generated from openapi.yaml by tests/newman/sync-collection.php; the Newman suite skips it.",
+                  "if (pm.variables.get('newman_suite')) { pm.execution.skipRequest(); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/auth/passkey",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "auth",
+                "passkey"
+              ]
+            },
+            "description": "Finish a passkey ceremony started with `POST /auth/passkey/options`. With `for: sign-in` a passkey alone signs in: it is both factors, so the account is never asked for its 2FA code and the token pair comes back at once. With `for: two-step` it takes the place of the 2FA code after a password: send the `challenge_token` from the `requires_2fa` response, and the challenge token is burned on success.\nPublic. JSON only (415 otherwise). Answers that fail count against the Login plugin's `passkey_attempts` limit per IP (and, for `two-step`, the account's 2FA limit), and are refused with 429 once it is used up. 403 when the site does not offer passkeys.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"for\": \"sign-in\",\n  \"ticket\": \"\",\n  \"credential\": {},\n  \"challenge_token\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "openapi:passkeyLoginOptions",
+          "name": "Start a passkey sign-in",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Generated from openapi.yaml by tests/newman/sync-collection.php; the Newman suite skips it.",
+                  "if (pm.variables.get('newman_suite')) { pm.execution.skipRequest(); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/auth/passkey/options",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "auth",
+                "passkey",
+                "options"
+              ]
+            },
+            "description": "Options for `navigator.credentials.get()` and a one-use `ticket` to send back with the answer to `POST /auth/passkey`. With `for: sign-in` the browser offers any passkey it holds for this site; with `for: two-step` (and the `challenge_token` from a `requires_2fa` response) only that account's passkeys. Binary fields are base64url.\nPublic. JSON only (415 otherwise). Each call counts against the Login plugin's `passkey_options` limit per IP. 403 when the site does not offer passkeys.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"for\": \"sign-in\",\n  \"challenge_token\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
           "id": "openapi:verifyTwoFactorLogin",
           "name": "Complete a 2FA login",
           "event": [
@@ -950,7 +1088,7 @@
                 "providers"
               ]
             },
-            "description": "Return the single sign-on buttons to show on the login screen, collected from every plugin that answers the `onApiLoginProviders` event (for example Login OAuth2). An empty list means password login only. Public."
+            "description": "Return the single sign-on buttons to show on the login screen, collected from every plugin that answers the `onApiLoginProviders` event (for example Login OAuth2), and whether the login screen shows the username and password form (`show_password_form`, the `login.show_password_form` setting, which those plugins can turn off; always true while no provider is offered). An empty list means password login only. Public."
           }
         },
         {
@@ -1839,6 +1977,12 @@
                   "value": "false",
                   "description": "When `true`, each row also carries the translation fields, as on `GET /pages`.",
                   "disabled": true
+                },
+                {
+                  "key": "editable",
+                  "value": "false",
+                  "description": "`true` steps only through pages the caller may update, matching\n`GET /pages?editable=true`.\n",
+                  "disabled": true
                 }
               ],
               "variable": [
@@ -1849,7 +1993,7 @@
                 }
               ]
             },
-            "description": "Where a page sits among its siblings, for page-to-page navigation:\nits parent, the previous and next sibling, its first child, its\nzero-based position and the number of siblings.\n\nSiblings are the parent's children in exactly the order\n`GET /pages?children_of=<parent>&sort=default&order=asc` lists them\n(`children_of=/` for a top-level page), and `first_child` is the first\nrow of the same listing for the page's own children. Every row is\nserialized exactly like a `GET /pages?fields=summary` row, including\n`permissions`. Only the parent's and the page's own children are read,\nnever the whole site.\n\n`parent` is null for a top-level page, `prev` for the first sibling,\n`next` for the last and `first_child` when the page has no children.\nA page that its parent's listing leaves out (a folder with no content\nfile) gets `index: -1` and null `prev` and `next`.\n\nPages the caller can't read on their own route are left out first:\n`parent` is null when the parent is unreadable, `prev`, `next` and\n`first_child` are the nearest readable pages, and `index` and `total`\ncount only readable siblings.\n\nRequires `api.pages.read` (or a page-level read grant), and the page's\nown rules must allow reading it. An unknown route is a 404."
+            "description": "Where a page sits among its siblings, for page-to-page navigation:\nits parent, the previous and next sibling, its first child, its\nzero-based position and the number of siblings.\n\nSiblings are the parent's children in exactly the order\n`GET /pages?children_of=<parent>&sort=default&order=asc` lists them\n(`children_of=/` for a top-level page), and `first_child` is the first\nrow of the same listing for the page's own children. Every row is\nserialized exactly like a `GET /pages?fields=summary` row, including\n`permissions`. Only the parent's and the page's own children are read,\nnever the whole site.\n\n`parent` is null for a top-level page, `prev` for the first sibling,\n`next` for the last and `first_child` when the page has no children.\nA page that its parent's listing leaves out (a folder with no content\nfile) gets `index: -1` and null `prev` and `next`.\n\nOnly the pages the parent's folder listing returns as normal rows\ncount (getgrav/grav-plugin-admin2#209): pages the caller may read and\nlist, and with `editable=true` only those they may also update. Rows the\nlisting keeps only as `ancestor_only` can't be opened, so they are\nskipped too: `prev`, `next` and `first_child` are the nearest such\npages, and `index` and `total` count only them (`index` is -1 when the\npage itself isn't one, for example a read-only page under\n`editable=true`). `parent` is null when the caller may not read and\nlist it; under `editable=true` a readable parent they can't update is\nreturned with `ancestor_only: true`.\n\nRequires `api.pages.read` (or a page-level read grant), and the page's\nown rules must allow reading it. An unknown route is a 404."
           }
         },
         {
@@ -2841,6 +2985,71 @@
           }
         },
         {
+          "id": "openapi:batchUpdatePageMediaMeta",
+          "name": "Apply metadata to several page media files",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Generated from openapi.yaml by tests/newman/sync-collection.php; the Newman suite skips it.",
+                  "if (pm.variables.get('newman_suite')) { pm.execution.skipRequest(); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "API Key authentication"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/pages/:route/media/batch/meta",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "pages",
+                ":route",
+                "media",
+                "batch",
+                "meta"
+              ],
+              "variable": [
+                {
+                  "key": "route",
+                  "value": "{{page_route}}",
+                  "description": "The page route without leading slash (e.g. `blog/my-post`). Supports\nnested routes with `/` separators.\n"
+                }
+              ]
+            },
+            "description": "Write the same metadata fields to many media files on one page at once.\nOnly the configured fields present in `fields` change; each file keeps\nits other values. The field values are checked once before anything is\nwritten, so an invalid value (or a `required` field sent empty) fails\nthe whole request with a 422. Each filename is then handled on its own,\nso a per-file problem such as a missing file is reported in `results`\nwithout stopping the rest. Filenames must be flat names on the page\n(no path separators). The number of files is capped by\n`plugins.api.batch.max_items` (default 50).\n\nRequires `api.media.write`. On a page with page-level rules it also\nfollows the page's own `media` rule, or that block's `update` rule\nwhere it says nothing about media: a 403 for an editor who may read\nthe page but not change its media. Pages without rules need\n`api.media.write` alone (getgrav/grav-plugin-admin2#209,\ngetgrav/grav-plugin-api#77).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"files\": [\n    \"beach.jpg\",\n    \"dunes.jpg\"\n  ],\n  \"fields\": {\n    \"tags\": [\n      \"beach\",\n      \"summer\"\n    ],\n    \"title\": \"Dunes at dawn\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
           "id": "openapi:deleteMediaFolder",
           "name": "Delete an empty media folder",
           "event": [
@@ -2984,7 +3193,7 @@
                 "meta"
               ]
             },
-            "description": "Write the same metadata fields to many site media files at once. Only the configured fields present in `fields` change; each file keeps its other values. Every file is handled on its own, so one failure is reported in `results` without stopping the rest. The number of files is capped by `plugins.api.batch.max_items` (default 50). Requires `api.media.write`.",
+            "description": "Write the same metadata fields to many site media files at once. Only the configured fields present in `fields` change; each file keeps its other values. The field values are checked once before anything is written, so an invalid value (or a `required` field sent empty) fails the whole request with a 422. Each file is then handled on its own, so a per-file problem such as a missing file is reported in `results` without stopping the rest. The number of files is capped by `plugins.api.batch.max_items` (default 50). Requires `api.media.write`.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"files\": [\n    \"photos/beach.jpg\",\n    \"photos/dunes.jpg\"\n  ],\n  \"fields\": {\n    \"tags\": [\n      \"beach\",\n      \"summer\"\n    ]\n  }\n}",
@@ -3089,7 +3298,7 @@
                 "blueprint-upload"
               ]
             },
-            "description": "Destination-aware upload for blueprint `type: file` fields (a theme logo, a plugin asset, an avatar), mirroring classic admin's `taskFilesUpload`. Requires `api.media.write`.\nThe target folder comes from the field's `destination`: a Grav stream (`theme://images`, `user://media`), a `self@:subpath` token resolved against `scope`, or a plain path relative to `user/`. Absolute paths and `..` segments are rejected.\nEvery multipart file part is saved (nested file arrays are flattened). Each file is capped at 64 MB, and the field's own `filesize` can only tighten that. Extensions listed in `security.uploads_dangerous_extensions` are refused in any dot-separated part of the name (so `shell.php.jpg` fails), as are config-type extensions (`yaml`, `yml`, `json`, `twig`, `env`, `neon`, `lock`), page content (`md`, `markdown`) and stylesheets (`css`, `scss`, `sass`, `less`). Uploads into `user/accounts/` are restricted to image extensions, and uploads resolving into `user/config/` or `user/env/*/config/` are refused with 403. SVG files are sanitized after saving.\nA developer can allow page content or stylesheets for one field by listing them in that field's blueprint, for example `allow_extensions: [css]`. The server reads this from the blueprint that owns `scope` (a plugin or theme config blueprint, the page template's blueprint, or the account blueprint), never from the request: the request only names the field in `field`, and the upload's `destination` must be that field's own `destination`. `allow_extensions` can only lift `md`, `markdown`, `css`, `scss`, `sass` and `less`; dangerous and config-type extensions, the accounts image-only rule and the config directory block always apply.\n`self@:` against a `users/<username>` scope for another account needs `api.users.write` or super-admin.",
+            "description": "Destination-aware upload for blueprint `type: file` fields (a theme logo, a plugin asset, an avatar), mirroring classic admin's `taskFilesUpload`. Requires `api.media.write`.\nThe target folder comes from the field's `destination`: a Grav stream (`theme://images`, `user://media`), a `self@:subpath` token resolved against `scope`, or a plain path relative to `user/`. Absolute paths and `..` segments are rejected.\nEvery multipart file part is saved (nested file arrays are flattened). Each file is capped at 64 MB, and the field's own `filesize` can only tighten that. Extensions listed in `security.uploads_dangerous_extensions` are refused in any dot-separated part of the name (so `shell.php.jpg` fails), as are config-type extensions (`yaml`, `yml`, `json`, `twig`, `env`, `neon`, `lock`), page content (`md`, `markdown`) and stylesheets (`css`, `scss`, `sass`, `less`). Uploads into `user/accounts/` are restricted to image extensions, and uploads resolving into `user/config/` or `user/env/*/config/` are refused with 403. SVG files are sanitized after saving.\nA developer can allow page content or stylesheets for one field by listing them in that field's blueprint, for example `allow_extensions: [css]`. The server reads this from the blueprint that owns `scope` (a plugin or theme config blueprint, the page template's blueprint, or the account blueprint), never from the request: the request only names the field in `field`, and the upload's `destination` must be that field's own `destination`. `allow_extensions` can only lift `md`, `markdown`, `css`, `scss`, `sass` and `less`; dangerous and config-type extensions, the accounts image-only rule and the config directory block always apply.\n`self@:` against a `users/<username>` scope for another account needs `api.users.write` or super-admin.\nWhere the file lands also decides who may write it, judged on the logical path and on the realpath (themes and plugins are often symlinked in): anywhere in `user/themes/` or `user/plugins/` (a theme logo or favicon, a plugin asset) also needs `api.config.write`; a Twig template folder (a theme's or plugin's `templates/`, at any depth, or another registered template path) and anything outside `user/` (`cache://`, `log://`, `system://`, the root `assets/`) need super-admin. A file that lands in a page's folder under `user/pages/` (`self@:` on a page blueprint, a `page://` destination) changes that page's media, so on a page with page-level rules it follows the page's `media` rule (or its `update` rule where the block says nothing about media), as page media does (getgrav/grav-plugin-admin2#209, getgrav/grav-plugin-api#77). Refusals are 403, and an API key's scopes cap both permissions.\nFile names ending in a space or a dot, or containing control or invisible formatting characters, are refused with 422.",
             "body": {
               "mode": "formdata",
               "formdata": [
@@ -3187,7 +3396,7 @@
                 "blueprint-upload"
               ]
             },
-            "description": "Remove a file previously saved through `POST /blueprint-upload`, plus its `.meta.yaml` sidecar when present. Requires `api.media.write`.\n`path` is the logical path the upload returned, relative to the user root (`user/` prefix optional). Absolute input, `..` and null bytes are rejected. Targets in `user/config/` or `user/env/*/config/` are refused with 403. Under `user/accounts/` only image files may be deleted, and without `api.users.write` only the caller's own avatar (403 otherwise). The same extension denylist as the upload applies, so page content (`.md`) and stylesheets can't be deleted here unless `field` and `scope` name a blueprint field that allows them with `allow_extensions` and the file sits in the folder that field's `destination` resolves to.\nThe call is idempotent: a file that no longer exists returns 204.",
+            "description": "Remove a file previously saved through `POST /blueprint-upload`, plus its `.meta.yaml` sidecar when present. Requires `api.media.write`.\n`path` is the logical path the upload returned, relative to the user root (`user/` prefix optional). Absolute input, `..` and null bytes are rejected. Targets in `user/config/` or `user/env/*/config/` are refused with 403. The same folder rules as the upload apply: deleting in `user/themes/` or `user/plugins/` also needs `api.config.write`, in a Twig template folder super-admin, and in a page's folder the page's `media` rule, or its `update` rule where the block says nothing about media (403 otherwise). Under `user/accounts/` only image files may be deleted, and without `api.users.write` only the caller's own avatar (403 otherwise). The same extension denylist as the upload applies, so page content (`.md`) and stylesheets can't be deleted here unless `field` and `scope` name a blueprint field that allows them with `allow_extensions` and the file sits in the folder that field's `destination` resolves to.\nThe call is idempotent: a file that no longer exists returns 204.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"path\": \"user/themes/quark/images/logo/logo.png\",\n  \"field\": \"custom_css\",\n  \"scope\": \"themes/quark\"\n}",
@@ -4476,7 +4685,7 @@
                 }
               ]
             },
-            "description": "Turn off two-factor authentication and clear the secret. The account owner needs `api.access` and must send a valid current `code`. A caller with `api.users.write` (or a super admin), acting through a token or key whose scope includes `api.users.write`, can turn it off for another user without a code, for lost-device recovery; only super admins can do so for a super-admin account.",
+            "description": "Turn off two-factor authentication and clear the secret. The account owner needs `api.access` and, while 2FA is on, must send a valid current `code`, whatever permissions they hold (API 1.1.0 or later; before that a caller with `api.users.write` could turn off their own without one). Without a code, or with a wrong one, it is refused with 422 and a field error on `code`, and wrong codes count against the Login plugin's 2FA limit (429). A caller with `api.users.write` (or a super admin), acting through a token or key whose scope includes `api.users.write`, can turn it off for another user without a code, for lost-device recovery; only super admins can do so for a super-admin account.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"code\": \"123456\"\n}",
@@ -4486,6 +4695,308 @@
                 }
               }
             }
+          }
+        },
+        {
+          "id": "openapi:listUserPasskeys",
+          "name": "List a user's passkeys",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Generated from openapi.yaml by tests/newman/sync-collection.php; the Newman suite skips it.",
+                  "if (pm.variables.get('newman_suite')) { pm.execution.skipRequest(); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "API Key authentication"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/users/:username/passkeys",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "users",
+                ":username",
+                "passkeys"
+              ],
+              "variable": [
+                {
+                  "key": "username",
+                  "value": "{{test_username}}",
+                  "description": "The username of the user account."
+                }
+              ]
+            },
+            "description": "The account's passkeys: names and dates, never the keys. `enabled` says whether the site offers passkeys at all, and `proof` what adding or removing your own takes (`password`, `code` for an account without a password and with 2FA on, or `unavailable` for an account with neither, which can't change its passkeys until it sets one; always null on someone else's account). Your own account needs `api.access`; another user's needs `api.users.read`."
+          }
+        },
+        {
+          "id": "openapi:addUserPasskey",
+          "name": "Finish adding a passkey",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Generated from openapi.yaml by tests/newman/sync-collection.php; the Newman suite skips it.",
+                  "if (pm.variables.get('newman_suite')) { pm.execution.skipRequest(); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "API Key authentication"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/users/:username/passkeys",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "users",
+                ":username",
+                "passkeys"
+              ],
+              "variable": [
+                {
+                  "key": "username",
+                  "value": "{{test_username}}",
+                  "description": "The username of the user account."
+                }
+              ]
+            },
+            "description": "Store the passkey the browser made from `POST /users/{username}/passkeys/options`. Your own account only (403 otherwise), with `api.access`. 422 when the answer doesn't check out, the passkey is already in use, or the account holds the most passkeys it can (20).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ticket\": \"\",\n  \"credential\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "openapi:startUserPasskey",
+          "name": "Start adding a passkey",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Generated from openapi.yaml by tests/newman/sync-collection.php; the Newman suite skips it.",
+                  "if (pm.variables.get('newman_suite')) { pm.execution.skipRequest(); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "API Key authentication"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/users/:username/passkeys/options",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "users",
+                ":username",
+                "passkeys",
+                "options"
+              ],
+              "variable": [
+                {
+                  "key": "username",
+                  "value": "{{test_username}}",
+                  "description": "The username of the user account."
+                }
+              ]
+            },
+            "description": "Options for `navigator.credentials.create()` and a one-use `ticket`. Your own account only (403 otherwise), with `api.access`, and it takes `current_password` (or, for an account without a password and with 2FA on, the current `code`). Wrong passwords and codes count against the Login plugin's limits (429), and so does each call against `passkey_options`. An account with neither a password nor 2FA gets 403. Nobody can add a passkey to another account.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"current_password\": \"\",\n  \"code\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "openapi:renameUserPasskey",
+          "name": "Rename a passkey",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Generated from openapi.yaml by tests/newman/sync-collection.php; the Newman suite skips it.",
+                  "if (pm.variables.get('newman_suite')) { pm.execution.skipRequest(); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "API Key authentication"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/users/:username/passkeys/:id",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "users",
+                ":username",
+                "passkeys",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "username",
+                  "value": "{{test_username}}",
+                  "description": "The username of the user account."
+                },
+                {
+                  "key": "id",
+                  "value": "{{webhook_id}}",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Rename one of your own passkeys (up to 60 characters). Your own account only, with `api.access`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "openapi:removeUserPasskey",
+          "name": "Remove a passkey",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Generated from openapi.yaml by tests/newman/sync-collection.php; the Newman suite skips it.",
+                  "if (pm.variables.get('newman_suite')) { pm.execution.skipRequest(); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "API Key authentication"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/users/:username/passkeys/:id",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "users",
+                ":username",
+                "passkeys",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "username",
+                  "value": "{{test_username}}",
+                  "description": "The username of the user account."
+                },
+                {
+                  "key": "id",
+                  "value": "{{webhook_id}}",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Remove a passkey. Your own takes `current_password` (or the 2FA `code`, as for adding one), in the body or the query. A caller with `api.users.write` (or a super admin), through a token or key whose scope includes it, can remove another user's passkey without proof, for a lost device; only super admins can do so for a super-admin account."
           }
         },
         {
@@ -5232,7 +5743,7 @@
                 "environments"
               ]
             },
-            "description": "Returns the environment Grav detected for this request and the\nenvironments that can be selected as configuration write targets.\nRequires `api.system.read`.\n\nThe first entry is always the base configuration (`user/config`),\nwith `name: \"\"` and `label: \"Default\"`. Every other entry is an\nexisting `user/env/<name>/` folder (legacy `user/<host>/config/`\nlayouts are included too). The `hasOverrides` flag is always `false`\non the base row."
+            "description": "Returns the environment Grav detected for this request and the\nenvironments that can be selected as configuration write targets.\nRequires `api.access`.\n\nThe first entry is always the base configuration (`user/config`),\nwith `name: \"\"` and `label: \"Default\"`. Every other entry is an\nexisting `user/env/<name>/` folder (legacy `user/<host>/config/`\nlayouts are included too). The `hasOverrides` flag is always `false`\non the base row."
           }
         },
         {
@@ -5570,7 +6081,7 @@
                 "languages"
               ]
             },
-            "description": "Returns the locales the admin interface itself can be shown in, one per `languages/*.yaml` file shipped by the admin2 plugin (as opposed to `GET /languages`, which lists the site's content languages). Requires `api.system.read`. Sorted by native name; an empty list when admin2 is not installed."
+            "description": "Returns the locales the admin interface itself can be shown in, one per `languages/*.yaml` file shipped by the admin2 plugin (as opposed to `GET /languages`, which lists the site's content languages). Requires only `api.access`, since every admin user picks their own language from this list. Sorted by native name; an empty list when admin2 is not installed."
           }
         }
       ]
@@ -7866,6 +8377,62 @@
             "body": {
               "mode": "raw",
               "raw": "{\n  \"rule\": \"filter\",\n  \"token\": \"markdown\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "openapi:addTwigTrustedPartial",
+          "name": "Trust a theme or plugin template that page content includes",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Generated from openapi.yaml by tests/newman/sync-collection.php; the Newman suite skips it.",
+                  "if (pm.variables.get('newman_suite')) { pm.execution.skipRequest(); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "API Key authentication"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/reports/twig-content/trusted-partial",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "reports",
+                "twig-content",
+                "trusted-partial"
+              ]
+            },
+            "description": "Appends one template name to `security.twig_sandbox.trusted_partials` and saves it to `user/config/security.yaml`. Since Grav 2.2.18, a theme or plugin template that page content includes follows the content sandbox, so a page that includes a partial using `raw` or a theme function shows its Twig as plain text. Trusting the partial lets it render as the theme renders it, without allowing the blocked filter or function for all page content. The live config is updated, the standard cache is cleared and `onApiConfigUpdated` fires with scope `security`.\n\nThe name must be a relative `.twig` template path, written exactly as the page's `{% include %}` names it. The report offers it as an event's `partial`. Report events from a partial that is now trusted are left out of the report.\n\nNeeds Grav 2.2.18 or later. Super admin only. An API key needs `admin.super` in its scopes; demo accounts are rejected.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"template\": \"partials/teams.html.twig\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -11437,7 +12004,57 @@
                 }
               ]
             },
-            "description": "Returns, in one response, what Admin Next otherwise fetches with nine requests when it starts. Each member of `data` is exactly the `data` of its own endpoint, produced by the same code with the same permission check:\n\n| Part | Same as |\n| --- | --- |\n| `preferences` | `GET /admin-next/preferences` |\n| `me` | `GET /me` |\n| `menubar` | `GET /menubar/items` |\n| `sidebar` | `GET /sidebar/items` |\n| `floating_widgets` | `GET /floating-widgets` |\n| `context_panels` | `GET /context-panels` |\n| `custom_fields` | `GET /custom-fields` |\n| `languages` | `GET /languages` |\n| `translations` | the `lang` and `checksum` of `GET /translations/{lang}` (the checksum is the ETag that endpoint sends), without the strings |\n\nA part the caller may not read, or one that fails, is left out of `data` and reported under the same key in `errors` with the status and title its own endpoint would have answered with (for example `languages` needs `api.pages.read`). One failing part never fails the response. `errors` is always present, as an empty object when every part succeeded.\n\nThe translations checksum is for `?lang=` when given, otherwise the caller's admin language (`preferences.effective.adminLanguage`), resolved exactly as `/translations/{lang}` resolves its path parameter: a malformed code falls back to the site default, and short codes are expanded (`en` becomes `en-US`). A client that already holds that dictionary with the same checksum can skip `/translations` entirely; otherwise it fetches `/translations/{lang}` as before.\n\nRequires `api.access`."
+            "description": "Returns, in one response, what Admin Next otherwise fetches with eleven requests when it starts. Each member of `data` is exactly the `data` of its own endpoint, produced by the same code with the same permission check:\n\n| Part | Same as |\n| --- | --- |\n| `preferences` | `GET /admin-next/preferences` |\n| `me` | `GET /me` |\n| `menubar` | `GET /menubar/items` |\n| `sidebar` | `GET /sidebar/items` |\n| `floating_widgets` | `GET /floating-widgets` |\n| `context_panels` | `GET /context-panels` |\n| `custom_fields` | `GET /custom-fields` |\n| `languages` | `GET /languages` |\n| `environments` | `GET /system/environments` |\n| `stats` | `GET /dashboard/stats` |\n| `translations` | the `lang` and `checksum` of `GET /translations/{lang}` (the checksum is the ETag that endpoint sends), without the strings |\n\nA part the caller may not read, or one that fails, is left out of `data` and reported under the same key in `errors` with the status and title its own endpoint would have answered with (for example `languages` needs `api.pages.read`). One failing part never fails the response. `errors` is always present, as an empty object when every part succeeded.\n\nThe translations checksum is for `?lang=` when given, otherwise the caller's admin language (`preferences.effective.adminLanguage`), resolved exactly as `/translations/{lang}` resolves its path parameter: a malformed code falls back to the site default, and short codes are expanded (`en` becomes `en-US`). A client that already holds that dictionary with the same checksum can skip `/translations` entirely; otherwise it fetches `/translations/{lang}` as before.\n\nRequires `api.access`."
+          }
+        },
+        {
+          "id": "openapi:getAdminNextDashboard",
+          "name": "Everything the Admin Next dashboard loads, in one request",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Generated from openapi.yaml by tests/newman/sync-collection.php; the Newman suite skips it.",
+                  "if (pm.variables.get('newman_suite')) { pm.execution.skipRequest(); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "API Key authentication"
+              },
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/admin-next/dashboard",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "admin-next",
+                "dashboard"
+              ],
+              "query": [
+                {
+                  "key": "recent_pages",
+                  "value": "editable",
+                  "description": "`editable` lists only pages the caller can edit in `recent_pages`, as `GET /pages?editable=true` does.",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Returns, in one response, what the Admin Next dashboard otherwise fetches with nine requests when it opens. Its counts (`GET /dashboard/stats`) come with `GET /admin-next/boot`, since the sidebar's badges need them on every screen. Each member of `data` is exactly the `data` of its own endpoint: the endpoint's own handler runs with this request, so the same permission check applies.\n\n| Part | Same as |\n| --- | --- |\n| `system_info` | `GET /system/info` |\n| `notifications` | `GET /dashboard/notifications` |\n| `popularity` | `GET /dashboard/popularity` |\n| `feed` | `GET /dashboard/feed` |\n| `backups` | `GET /system/backups` |\n| `updates` | `GET /gpm/updates` |\n| `reports` | `GET /systeminfo` |\n| `widgets` | `GET /dashboard/widgets` |\n| `recent_pages` | `GET /pages?sort=modified&order=desc&per_page=8&fields=summary` (plus `editable=true` with `?recent_pages=editable`) |\n\nA part the caller may not read, or one that fails, is left out of `data` and reported under the same key in `errors` with the status and title its own endpoint would have answered with (for example `backups` needs `api.system.backup`). One failing part never fails the response. `errors` is always present, as an empty object when every part succeeded.\n\nOnly the first load of the dashboard uses this; refreshes (the Refresh button, invalidations) go to the individual endpoints, which also take their `force`/`flush` options.\n\nRequires `api.access`."
           }
         },
         {
@@ -11817,6 +12434,216 @@
       "name": "UI Extensions",
       "item": [
         {
+          "id": "openapi:getAdminModule",
+          "name": "Get a plugin page, widget or panel module",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Generated from openapi.yaml by tests/newman/sync-collection.php; the Newman suite skips it.",
+                  "if (pm.variables.get('newman_suite')) { pm.execution.skipRequest(); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/admin-next/modules/plugins/:slug/:type?tag=",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "admin-next",
+                "modules",
+                "plugins",
+                ":slug",
+                ":type"
+              ],
+              "query": [
+                {
+                  "key": "tag",
+                  "value": "",
+                  "description": "Element tag the module defines, written into the line put in front of it. Must be a custom element name in ASCII lowercase (`^[a-z][a-z0-9._]*-[a-z0-9._-]*$`, at most 128 characters).",
+                  "disabled": false
+                },
+                {
+                  "key": "v",
+                  "value": "",
+                  "description": "The module's version from its registry entry. When it matches the file, the response can be cached for a year.",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "slug",
+                  "value": "{{package_slug}}",
+                  "description": "Installed plugin slug. Must not contain `/`, `\\` or be `.`/`..`."
+                },
+                {
+                  "key": "type",
+                  "value": "",
+                  "description": "Module type."
+                }
+              ]
+            },
+            "description": "Serves a plugin's (or, for fields, a theme's) Admin Next web component as a same-origin ES module, for `import()`. The file under `admin-next/` gets one line in front that tells it its element tag, the same line Admin Next used to add in the browser before importing the code from a `blob:` URL, so a strict Content-Security-Policy no longer has to allow `blob:` scripts.\n\n| `type` | File | Line put in front |\n| --- | --- | --- |\n| `page` | `admin-next/pages/{slug}.js` | `window.__GRAV_PAGE_TAG = \"{tag}\";` |\n| `widget` | `admin-next/widgets/{slug}.js` (floating and dashboard widgets) | `window.__GRAV_WIDGET_TAG = \"{tag}\";` |\n| `panel` | `admin-next/panels/{slug}.js` | `window.__GRAV_PANEL_TAG = \"{tag}\";` |\n| `modal` | `admin-next/modals/{name}.js` | `window.__GRAV_MODAL_TAG = \"{tag}\";` |\n| `report` | `admin-next/reports/{name}.js` | `window.__GRAV_REPORT_TAG = \"{tag}\";` |\n| `field` | `admin-next/fields/{name}.js` | `window.__GRAV_FIELD_TAG = \"{tag}\";` |\n\nPublic: the same files are served by the webserver from `user/plugins/{slug}/admin-next/`, so no token is needed. Page, widget, panel, modal and report modules need the plugin to be enabled, as on the `/gpm/plugins/{slug}/*-script` routes; field modules are served for a disabled plugin too, so its settings form can use them.\n\nWith a `v` that matches the file (the `v` from `/custom-fields`, `/floating-widgets`, `/context-panels`, `/dashboard/widgets`, `/reports` or `/gpm/plugins/{slug}/page`), `Cache-Control` is `public, max-age=31536000, immutable`. Without one, or with an old one, it is `no-cache` and the `ETag` answers a conditional GET with 304."
+          }
+        },
+        {
+          "id": "openapi:getAdminModuleNamed",
+          "name": "Get a plugin modal, report or field module",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Generated from openapi.yaml by tests/newman/sync-collection.php; the Newman suite skips it.",
+                  "if (pm.variables.get('newman_suite')) { pm.execution.skipRequest(); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/admin-next/modules/plugins/:slug/:type/:name?tag=",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "admin-next",
+                "modules",
+                "plugins",
+                ":slug",
+                ":type",
+                ":name"
+              ],
+              "query": [
+                {
+                  "key": "tag",
+                  "value": "",
+                  "description": "Element tag the module defines, written into the line put in front of it. Must be a custom element name in ASCII lowercase (`^[a-z][a-z0-9._]*-[a-z0-9._-]*$`, at most 128 characters).",
+                  "disabled": false
+                },
+                {
+                  "key": "v",
+                  "value": "",
+                  "description": "The module's version from its registry entry. When it matches the file, the response can be cached for a year.",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "slug",
+                  "value": "{{package_slug}}",
+                  "description": "Installed plugin slug. Must not contain `/`, `\\` or be `.`/`..`."
+                },
+                {
+                  "key": "type",
+                  "value": "",
+                  "description": "Module type."
+                },
+                {
+                  "key": "name",
+                  "value": "",
+                  "description": "File name under `admin-next/modals/`, `admin-next/reports/` or `admin-next/fields/`, without `.js`. Letters, digits, `_`, `.` and `-`; no `..`."
+                }
+              ]
+            },
+            "description": "Serves a plugin's (or, for fields, a theme's) Admin Next web component as a same-origin ES module, for `import()`. The file under `admin-next/` gets one line in front that tells it its element tag, the same line Admin Next used to add in the browser before importing the code from a `blob:` URL, so a strict Content-Security-Policy no longer has to allow `blob:` scripts.\n\n| `type` | File | Line put in front |\n| --- | --- | --- |\n| `page` | `admin-next/pages/{slug}.js` | `window.__GRAV_PAGE_TAG = \"{tag}\";` |\n| `widget` | `admin-next/widgets/{slug}.js` (floating and dashboard widgets) | `window.__GRAV_WIDGET_TAG = \"{tag}\";` |\n| `panel` | `admin-next/panels/{slug}.js` | `window.__GRAV_PANEL_TAG = \"{tag}\";` |\n| `modal` | `admin-next/modals/{name}.js` | `window.__GRAV_MODAL_TAG = \"{tag}\";` |\n| `report` | `admin-next/reports/{name}.js` | `window.__GRAV_REPORT_TAG = \"{tag}\";` |\n| `field` | `admin-next/fields/{name}.js` | `window.__GRAV_FIELD_TAG = \"{tag}\";` |\n\nPublic: the same files are served by the webserver from `user/plugins/{slug}/admin-next/`, so no token is needed. Page, widget, panel, modal and report modules need the plugin to be enabled, as on the `/gpm/plugins/{slug}/*-script` routes; field modules are served for a disabled plugin too, so its settings form can use them.\n\nWith a `v` that matches the file (the `v` from `/custom-fields`, `/floating-widgets`, `/context-panels`, `/dashboard/widgets`, `/reports` or `/gpm/plugins/{slug}/page`), `Cache-Control` is `public, max-age=31536000, immutable`. Without one, or with an old one, it is `no-cache` and the `ETag` answers a conditional GET with 304."
+          }
+        },
+        {
+          "id": "openapi:getThemeAdminModule",
+          "name": "Get a theme field module",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Generated from openapi.yaml by tests/newman/sync-collection.php; the Newman suite skips it.",
+                  "if (pm.variables.get('newman_suite')) { pm.execution.skipRequest(); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Grav-Environment",
+                "value": "{{grav_environment}}",
+                "description": "Grav environment"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}{{api_prefix}}/admin-next/modules/themes/:slug/:type/:name?tag=",
+              "host": [
+                "{{base_url}}{{api_prefix}}"
+              ],
+              "path": [
+                "admin-next",
+                "modules",
+                "themes",
+                ":slug",
+                ":type",
+                ":name"
+              ],
+              "query": [
+                {
+                  "key": "tag",
+                  "value": "",
+                  "description": "Element tag the module defines, written into the line put in front of it. Must be a custom element name in ASCII lowercase (`^[a-z][a-z0-9._]*-[a-z0-9._-]*$`, at most 128 characters).",
+                  "disabled": false
+                },
+                {
+                  "key": "v",
+                  "value": "",
+                  "description": "The module's version from its registry entry. When it matches the file, the response can be cached for a year.",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "slug",
+                  "value": "{{package_slug}}",
+                  "description": "Installed theme slug. Must not contain `/`, `\\` or be `.`/`..`."
+                },
+                {
+                  "key": "type",
+                  "value": "",
+                  "description": "Always `field` for a theme."
+                },
+                {
+                  "key": "name",
+                  "value": "",
+                  "description": "File name under `admin-next/modals/`, `admin-next/reports/` or `admin-next/fields/`, without `.js`. Letters, digits, `_`, `.` and `-`; no `..`."
+                }
+              ]
+            },
+            "description": "Serves a plugin's (or, for fields, a theme's) Admin Next web component as a same-origin ES module, for `import()`. The file under `admin-next/` gets one line in front that tells it its element tag, the same line Admin Next used to add in the browser before importing the code from a `blob:` URL, so a strict Content-Security-Policy no longer has to allow `blob:` scripts.\n\n| `type` | File | Line put in front |\n| --- | --- | --- |\n| `page` | `admin-next/pages/{slug}.js` | `window.__GRAV_PAGE_TAG = \"{tag}\";` |\n| `widget` | `admin-next/widgets/{slug}.js` (floating and dashboard widgets) | `window.__GRAV_WIDGET_TAG = \"{tag}\";` |\n| `panel` | `admin-next/panels/{slug}.js` | `window.__GRAV_PANEL_TAG = \"{tag}\";` |\n| `modal` | `admin-next/modals/{name}.js` | `window.__GRAV_MODAL_TAG = \"{tag}\";` |\n| `report` | `admin-next/reports/{name}.js` | `window.__GRAV_REPORT_TAG = \"{tag}\";` |\n| `field` | `admin-next/fields/{name}.js` | `window.__GRAV_FIELD_TAG = \"{tag}\";` |\n\nPublic: the same files are served by the webserver from `user/plugins/{slug}/admin-next/`, so no token is needed. Page, widget, panel, modal and report modules need the plugin to be enabled, as on the `/gpm/plugins/{slug}/*-script` routes; field modules are served for a disabled plugin too, so its settings form can use them.\n\nWith a `v` that matches the file (the `v` from `/custom-fields`, `/floating-widgets`, `/context-panels`, `/dashboard/widgets`, `/reports` or `/gpm/plugins/{slug}/page`), `Cache-Control` is `public, max-age=31536000, immutable`. Without one, or with an old one, it is `no-cache` and the `ETag` answers a conditional GET with 304."
+          }
+        },
+        {
           "id": "openapi:getCustomFieldRegistry",
           "name": "List custom field types provided by plugins and themes",
           "event": [
@@ -11854,7 +12681,7 @@
                 "custom-fields"
               ]
             },
-            "description": "Returns a map of custom blueprint field type to the package that provides its Admin Next web component, so Admin Next can fill its field registry at startup. Enabled plugins and all installed themes are scanned for `admin-next/fields/*.js`. When two packages ship the same type, the later one wins (themes are scanned after plugins).\n\nUse `kind` and `slug` to build the script URL: `/gpm/{kind}/{slug}/field/{type}` or the bundle at `/gpm/{kind}/{slug}/fields`. When nothing is registered the map is serialized as an empty array (`[]`).\n\nRequires `api.access`, the same as the field scripts it points to: Admin Next loads it at startup for every account, including editors who cannot manage packages."
+            "description": "Returns a map of custom blueprint field type to the package that provides its Admin Next web component, so Admin Next can fill its field registry at startup. Enabled plugins and all installed themes are scanned for `admin-next/fields/*.js`. When two packages ship the same type, the later one wins (themes are scanned after plugins).\n\nUse `kind` and `slug` to build the script URL: `/gpm/{kind}/{slug}/field/{type}` or the bundle at `/gpm/{kind}/{slug}/fields`, or the public module `/admin-next/modules/{kind}/{slug}/field/{type}?tag=...&v=...` with the entry's `v`. When nothing is registered the map is serialized as an empty array (`[]`).\n\nRequires `api.access`, the same as the field scripts it points to: Admin Next loads it at startup for every account, including editors who cannot manage packages."
           }
         },
         {

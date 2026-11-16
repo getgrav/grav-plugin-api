@@ -131,6 +131,7 @@ PLUGIN_API:
   SINGLE_LINE: "Línea única"
   MULTI_LINE: "Varias líneas"
   TAGS_LIST: "Etiquetas (lista)"
+  PAGES_LIST: "Páginas (lista de rutas)"
   SELECT_LIST: "Selección (desplegable)"
   NUMBER: "Número"
   DATE: "Fecha (AAAA-MM-DD)"

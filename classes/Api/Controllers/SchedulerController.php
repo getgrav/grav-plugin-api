@@ -82,6 +82,8 @@ class SchedulerController extends AbstractApiController
                 'next_run' => $nextRun,
                 'overdue' => $overdue,
                 'error' => $state['error'] ?? null,
+                // Whether the admin can run it on this host (see canRunHere()).
+                'runnable' => $this->canRunHere($scheduler, $job),
             ];
         }
 
@@ -265,12 +267,14 @@ class SchedulerController extends AbstractApiController
         /** @var Scheduler $scheduler */
         $scheduler = $this->grav['scheduler'];
 
-        // Starting a job needs proc_open. Say so plainly rather than letting Symfony's
-        // Process throw an unhandled exception (getgrav/grav-admin-next#16).
+        // Starting a command job needs proc_open. Say so plainly rather than letting
+        // Symfony's Process throw an unhandled exception (getgrav/grav-admin-next#16). Jobs
+        // that call a PHP function, such as backups, don't need it: with Grav 2.2.30+ the
+        // scheduler runs those from here and skips the command jobs (getgrav/grav#4397).
         $processAvailable = method_exists($scheduler, 'isProcessAvailable')
             ? $scheduler::isProcessAvailable()
             : function_exists('proc_open');
-        if (!$processAvailable) {
+        if (!$processAvailable && !method_exists($scheduler, 'canRun')) {
             throw new ApiException(
                 501,
                 'Not Implemented',
@@ -320,6 +324,13 @@ class SchedulerController extends AbstractApiController
                     sprintf("The job '%s' is disabled. Enable it before running it.", $jobId)
                 );
             }
+            if (!$this->canRunHere($scheduler, $target)) {
+                throw new ApiException(
+                    501,
+                    'Not Implemented',
+                    sprintf("The job '%s' runs a command, which can't be started from the admin on this host because PHP's proc_open function is disabled. It still runs whenever your scheduler is triggered by cron or a webhook.", $jobId)
+                );
+            }
 
             $job = $scheduler->runJob($jobId);
             $jobsRun = null === $job ? [] : [$job];
@@ -351,6 +362,9 @@ class SchedulerController extends AbstractApiController
             $message = sprintf('%d job%s ran successfully.', $count, $count === 1 ? '' : 's');
         } else {
             $message = sprintf('%d of %d job%s failed.', $failed, $count, $count === 1 ? '' : 's');
+        }
+        if (!$processAvailable && $jobId === null) {
+            $message .= ' Command jobs were skipped, because this host can\'t start them from the admin. They still run whenever your scheduler is triggered by cron or a webhook.';
         }
 
         return ApiResponse::create([
@@ -430,5 +444,22 @@ class SchedulerController extends AbstractApiController
         ];
 
         return ApiResponse::create($reports);
+    }
+
+    /**
+     * Whether a job can be run from the admin on this host. Command jobs need proc_open,
+     * which many hosts disable for the web server's PHP; jobs that call a PHP function
+     * don't. Before Grav 2.2.30 the scheduler had no way to tell them apart, so without
+     * proc_open nothing counts as runnable.
+     */
+    private function canRunHere(Scheduler $scheduler, \Grav\Common\Scheduler\Job $job): bool
+    {
+        if (method_exists($scheduler, 'canRun')) {
+            return $scheduler::canRun($job);
+        }
+
+        return method_exists($scheduler, 'isProcessAvailable')
+            ? $scheduler::isProcessAvailable()
+            : function_exists('proc_open');
     }
 }

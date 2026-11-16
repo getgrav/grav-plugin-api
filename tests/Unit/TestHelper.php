@@ -39,7 +39,7 @@ final class TestHelper
                 private readonly string $path,
                 private readonly array $headers,
                 private readonly string $body,
-                private readonly array $queryParams,
+                private array $queryParams,
                 private readonly array $serverParams,
                 private array $attributes,
             ) {}
@@ -152,7 +152,12 @@ final class TestHelper
             public function withBody(StreamInterface $body): static { return clone $this; }
             public function getCookieParams(): array { return []; }
             public function withCookieParams(array $cookies): static { return clone $this; }
-            public function withQueryParams(array $query): static { return clone $this; }
+            public function withQueryParams(array $query): static
+            {
+                $clone = clone $this;
+                $clone->queryParams = $query;
+                return $clone;
+            }
             public function getUploadedFiles(): array { return []; }
             public function withUploadedFiles(array $uploadedFiles): static { return clone $this; }
             public function getParsedBody(): mixed { return null; }

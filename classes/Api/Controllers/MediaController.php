@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Grav\Plugin\Api\Controllers;
 
 use Grav\Common\Page\Interfaces\PageInterface;
+use Grav\Common\Page\Medium\AbstractMedia;
 use Grav\Common\Yaml;
 use Grav\Framework\Psr7\Response;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
@@ -408,15 +409,17 @@ class MediaController extends AbstractApiController
     {
         $stem = pathinfo($filename, PATHINFO_FILENAME);
         $ext = pathinfo($filename, PATHINFO_EXTENSION);
-        // <stem>@2x.<ext>, <stem>@3x.<ext>, … (case-insensitive extension)
-        $variantRe = '/^' . preg_quote($stem, '/') . '@\d+x\.' . preg_quote($ext, '/') . '$/i';
+        // <stem>@2x.<ext>, <stem>@3x.<ext>, … (case-insensitive extension).
+        // Core lists a scale above its limit as a medium of its own (admin2#214).
+        $variantRe = '/^' . preg_quote($stem, '/') . '@(\d+)x\.' . preg_quote($ext, '/') . '$/i';
+        $maxScale = defined(AbstractMedia::class . '::MAX_RETINA_SCALE') ? AbstractMedia::MAX_RETINA_SCALE : PHP_INT_MAX;
 
         $files = [];
         foreach (scandir($dir) ?: [] as $entry) {
             if ($entry === '.' || $entry === '..') {
                 continue;
             }
-            if ($entry !== $filename && !preg_match($variantRe, $entry)) {
+            if ($entry !== $filename && !(preg_match($variantRe, $entry, $m) && (int) $m[1] <= $maxScale)) {
                 continue;
             }
             $path = $dir . '/' . $entry;
@@ -1526,7 +1529,8 @@ class MediaController extends AbstractApiController
     /**
      * The configured editable metadata fields, normalized to a list of
      * `['key' => string, 'label' => string, 'type' => string]` where the type
-     * is `text`, `textarea`, `tags`, `select`, `number`, `date` or `boolean`.
+     * is `text`, `textarea`, `tags`, `pages`, `select`, `number`, `date` or
+     * `boolean`.
      * Entries with an unsafe/reserved key are dropped, an unknown type becomes
      * `text`, a `select` also carries `options` (stored value => display
      * label) and is dropped when it has no usable options, a `number` may carry
@@ -1556,7 +1560,7 @@ class MediaController extends AbstractApiController
                 continue;
             }
             $type = (string) ($entry['type'] ?? 'text');
-            if (!in_array($type, ['text', 'textarea', 'tags', 'select', 'number', 'date', 'boolean'], true)) {
+            if (!in_array($type, ['text', 'textarea', 'tags', 'pages', 'select', 'number', 'date', 'boolean'], true)) {
                 $type = 'text';
             }
             $label = trim((string) ($entry['label'] ?? '')) ?: $key;
@@ -1809,7 +1813,7 @@ class MediaController extends AbstractApiController
             $rawValue = $parts[2];
         } elseif (count($parts) === 2) {
             // `field:value` shorthand — operator inferred from the field type.
-            $operator = $type === 'tags' ? 'contains' : '==';
+            $operator = $this->isListMetadataType($type) ? 'contains' : '==';
             $rawValue = $parts[1];
         } else {
             throw new ValidationException(
@@ -1821,10 +1825,10 @@ class MediaController extends AbstractApiController
             throw new ValidationException(sprintf("Unsupported filter operator '%s'.", $operator));
         }
 
-        // Type-aware policy: a tags (list) field only takes membership operators.
-        if ($type === 'tags' && !in_array($operator, ['in', 'contains'], true)) {
+        // Type-aware policy: a list field (tags, pages) only takes membership operators.
+        if ($this->isListMetadataType($type) && !in_array($operator, ['in', 'contains'], true)) {
             throw new ValidationException(
-                sprintf("Field '%s' is a tags field; use the 'in' or 'contains' operator.", $field)
+                sprintf("Field '%s' is a %s field; use the 'in' or 'contains' operator.", $field, $type)
             );
         }
 
@@ -1835,6 +1839,13 @@ class MediaController extends AbstractApiController
             ));
         } else {
             $value = $this->sanitizeFilterValue($rawValue, $maxLen);
+        }
+
+        // Routes are stored normalized, so `/services/` finds `/services`.
+        if ($type === 'pages') {
+            $value = is_array($value)
+                ? array_map(fn($v) => $this->normalizeMetadataRoute((string) $v) ?? $v, $value)
+                : ($this->normalizeMetadataRoute((string) $value) ?? $value);
         }
 
         // A boolean is stored natively, so filter on a real bool too.
@@ -1957,6 +1968,15 @@ class MediaController extends AbstractApiController
     private function isTypedMetadataType(string $type): bool
     {
         return $type === 'number' || $type === 'date' || $type === 'boolean';
+    }
+
+    /**
+     * Whether a field type holds a list of values (a YAML sequence in the
+     * sidecar): `tags`, or `pages`, a list of page routes.
+     */
+    private function isListMetadataType(string $type): bool
+    {
+        return $type === 'tags' || $type === 'pages';
     }
 
     /**
@@ -2147,6 +2167,64 @@ class MediaController extends AbstractApiController
     }
 
     /**
+     * Sanitize an incoming `pages` value into a clean list of page routes.
+     * Accepts an array of routes or a comma-separated string. Each entry must
+     * be a route (`/services`, `/blog/my-post`): it is trimmed, given a leading
+     * slash if it has none, and loses a trailing one; anything with spaces,
+     * markup, a scheme or `..` is refused. Duplicates are dropped and the list
+     * is capped at MAX_TAGS. Routes are not checked against the site's pages,
+     * so a page that is renamed or not yet created does not block a save.
+     *
+     * @return list<string>
+     */
+    private function sanitizeMetadataRoutes(mixed $value, int $maxLen): array
+    {
+        if (is_string($value)) {
+            $value = explode(',', $value);
+        }
+        if (!is_array($value)) {
+            throw new ValidationException('A pages value must be a list of page routes.');
+        }
+
+        $routes = [];
+        foreach ($value as $item) {
+            if (!is_string($item)) {
+                throw new ValidationException('Each page must be a route, such as /services.');
+            }
+            if (trim($item) === '') {
+                continue;
+            }
+            $route = $this->normalizeMetadataRoute($item);
+            if ($route === null || mb_strlen($route) > $maxLen) {
+                throw new ValidationException(sprintf("'%s' is not a page route, such as /services.", mb_substr(trim($item), 0, 80)));
+            }
+            if (!in_array($route, $routes, true)) {
+                $routes[] = $route;
+            }
+            if (count($routes) >= self::MAX_TAGS) {
+                break;
+            }
+        }
+
+        return $routes;
+    }
+
+    /**
+     * A page route in its stored form (leading slash, no trailing slash), or
+     * null when the text is not a route.
+     */
+    private function normalizeMetadataRoute(string $route): ?string
+    {
+        $route = trim($route);
+        if ($route === '' || !preg_match('#^/?[\p{L}\p{N}._~@+\-/]*$#u', $route) || str_contains($route, '..') || str_contains($route, '//')) {
+            return null;
+        }
+        $route = '/' . trim($route, '/');
+
+        return $route;
+    }
+
+    /**
      * Pull the incoming metadata field map from a save request body. Accepts
      * either `{"fields": {key: value}}` or a bare `{key: value}` map.
      *
@@ -2200,8 +2278,8 @@ class MediaController extends AbstractApiController
             $managedKeys[$key] = true;
             $raw = $stored[$key] ?? null;
 
-            if ($def['type'] === 'tags') {
-                // Normalize to a clean list of strings for the tag editor.
+            if ($this->isListMetadataType($def['type'])) {
+                // Normalize to a clean list of strings for the list editor.
                 $value = is_array($raw)
                     ? array_values(array_filter(array_map(
                         static fn($t) => is_scalar($t) ? (string) $t : '',
@@ -2291,6 +2369,9 @@ class MediaController extends AbstractApiController
             if ($def['type'] === 'tags') {
                 $tags = $this->sanitizeMetadataList($input[$key], $maxLen);
                 $value = $tags === [] ? null : $tags;
+            } elseif ($def['type'] === 'pages') {
+                $routes = $this->sanitizeMetadataRoutes($input[$key], $maxLen);
+                $value = $routes === [] ? null : $routes;
             } elseif ($this->isTypedMetadataType($def['type'])) {
                 $value = $this->sanitizeTypedMetadataValue($input[$key], $def);
             } else {
