@@ -309,19 +309,7 @@ class ConfigController extends AbstractApiController
         // Load the blueprint and apply field-type filtering (e.g., commalist → array)
         $blueprint = $this->loadBlueprint($scope);
 
-        // Merge provided values with existing config. Prefer Grav's
-        // blueprint-aware merge — it REPLACES map values at blueprint-defined
-        // leaf fields instead of deep-merging them, which is what we want for
-        // e.g. `type: file` fields whose keys are file paths: when the user
-        // removes a file the client drops that key, and a blind deep-merge
-        // would revive it from $existing. Fall back to our list-aware
-        // mergePatch only when no blueprint is available (rare — mostly test
-        // fixtures); plain array_replace_recursive would corrupt YAML lists.
-        if ($blueprint !== null && is_array($existing)) {
-            $merged = $blueprint->mergeData($existing, $body);
-        } else {
-            $merged = is_array($existing) ? $this->mergePatch($existing, $body) : $body;
-        }
+        $merged = $this->mergeUpdate($scope, $existing, $body, $blueprint);
 
         // Restore any masked secret that round-tripped back unchanged. show()
         // returns secrets as a sentinel (ConfigSecretMasker), and the form posts
@@ -559,6 +547,36 @@ class ConfigController extends AbstractApiController
         } catch (\Throwable) {
             return null;
         }
+    }
+
+    /**
+     * Merge provided values with existing config. Prefer Grav's blueprint-aware
+     * merge: it REPLACES map values at blueprint-defined leaf fields instead of
+     * deep-merging them, which is what we want for e.g. `type: file` fields
+     * whose keys are file paths: when the user removes a file the client drops
+     * that key, and a blind deep-merge would revive it from $existing. Fall
+     * back to our list-aware mergePatch only when no blueprint is available
+     * (rare, mostly test fixtures); plain array_replace_recursive would corrupt
+     * YAML lists.
+     *
+     * The rules come from the blueprint the form is built from: loadBlueprint()
+     * gets an empty schema for a plugin or theme (the `blueprints://` stream
+     * doesn't carry their blueprints.yaml), and with no rules every nested
+     * block is replaced, so a PATCH of `magic_link.ttl` dropped
+     * `magic_link.enabled`.
+     *
+     * @param array<mixed>|mixed $existing
+     * @param array<mixed> $body
+     * @return array<mixed>
+     */
+    private function mergeUpdate(string $scope, mixed $existing, array $body, ?\Grav\Common\Data\Blueprint $blueprint): array
+    {
+        $blueprint = (new ConfigDiffer($this->grav))->blueprintFor($scope) ?? $blueprint;
+        if ($blueprint !== null && is_array($existing)) {
+            return $blueprint->mergeData($existing, $body);
+        }
+
+        return is_array($existing) ? $this->mergePatch($existing, $body) : $body;
     }
 
     /**
