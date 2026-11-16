@@ -7,6 +7,7 @@
     * `GET /admin-next/boot` also carries the environment list and the dashboard counts, which Admin2 needs on every screen, so each screen makes two fewer requests
 1. [](#bugfix)
     * Plugin widgets, pages and fields in Admin2, and media thumbnails, are kept by the browser as intended instead of being checked with the server on every page load
+    * Opening a page to edit it, and translating or syncing it, fires `onAdminObjectGet` as classic admin does, so plugins that keep part of a page's frontmatter in another file, such as Mega Frontmatter, can merge it back in for the editor
 
 # v1.1.18
 ## 11/10/2026
