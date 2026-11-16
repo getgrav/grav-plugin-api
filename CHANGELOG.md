@@ -1,5 +1,5 @@
 # v1.1.19
-## 11/11/2026
+## 11/16/2026
 
 1. [](#new)
     * Media metadata fields can have the type `pages`: a list of page routes, picked from the site's pages in Admin2 and stored as a YAML list in the `.meta.yaml` sidecar, so a file in a downloads folder can be tied to the pages that use it. Filter with `?filter=pages:/services` [#80](https://github.com/getgrav/grav-plugin-api/issues/80)
