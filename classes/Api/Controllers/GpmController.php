@@ -129,6 +129,18 @@ class GpmController extends AbstractApiController
         // Where this plugin keeps its settings — see plugins() above.
         $data += $this->pluginSettingsTarget($slug, $request);
 
+        // The plugin's own admin page, when it has one besides these settings:
+        // the settings screen links to it from its header.
+        $definition = !isset($data['settings_route']) && !empty($data['enabled'])
+            ? $this->resolvePluginPageDefinition($slug, $this->getUser($request))
+            : null;
+        if ($definition) {
+            $data['admin_page'] = [
+                'route' => '/plugin/' . $slug,
+                'title' => $this->translateLabel((string) ($definition['title'] ?? $data['name'] ?? $slug)),
+            ];
+        }
+
         return $this->respondWithConditionalEtag($request, $data);
     }
 
