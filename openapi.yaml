@@ -8103,7 +8103,22 @@ paths:
                             example: true
                           driver:
                             type: string
+                            description: The configured `system.cache.driver` setting.
                             example: auto
+                          active:
+                            type: string
+                            nullable: true
+                            description: |
+                              The driver Grav is really using: what `auto`
+                              picked, or `file` when the configured driver
+                              was unavailable. Null when core doesn't report it.
+                            example: apcu
+                          fallback:
+                            type: boolean
+                            description: |
+                              True when the configured driver was unavailable
+                              and Grav fell back to `active`.
+                            example: false
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":

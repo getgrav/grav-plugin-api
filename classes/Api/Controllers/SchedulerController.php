@@ -435,15 +435,46 @@ class SchedulerController extends AbstractApiController
             'disabled' => $disabledPlugins,
         ];
 
-        // Cache status
-        $cacheDriver = $this->grav['config']->get('system.cache.driver', 'auto');
+        // Cache status. `driver` is the setting (auto, redis, ...), `active` the
+        // driver Grav is really using after auto-detect, and `fallback` says the
+        // chosen driver was unavailable so core fell back (to file).
+        $cacheDriver = (string) ($this->grav['config']->get('system.cache.driver', 'auto') ?: 'auto');
         $cacheEnabled = $this->grav['config']->get('system.cache.enabled', true);
+        $cache = isset($this->grav['cache']) ? $this->grav['cache'] : null;
+        $active = $cache && method_exists($cache, 'getDriverName') ? (string) $cache->getDriverName() : '';
         $reports['cache'] = [
             'enabled' => $cacheEnabled,
             'driver' => $cacheDriver,
+            'active' => $active !== '' ? $active : null,
+            'fallback' => $this->cacheFellBack(
+                $cacheDriver,
+                $active,
+                (bool) $this->grav['config']->get('system.cache.cli_compatibility', false)
+            ),
         ];
 
         return ApiResponse::create($reports);
+    }
+
+    /**
+     * Whether core had to give up on the configured cache driver, mirroring
+     * Cache::getCacheAdapter(): legacy names map to their current driver, and
+     * CLI compatibility swaps APCu for file on purpose, which isn't a failure.
+     */
+    private function cacheFellBack(string $configured, string $active, bool $cliCompatibility): bool
+    {
+        if ($active === '') {
+            return false;
+        }
+
+        $legacy = ['filesystem' => 'file', 'files' => 'file', 'doctrine' => 'file', 'apc' => 'apcu', 'memcache' => 'memcached'];
+        $expected = $legacy[$configured] ?? $configured;
+
+        if ($expected === 'auto' || ($cliCompatibility && in_array($expected, ['apcu', 'array'], true))) {
+            return false;
+        }
+
+        return $expected !== $active;
     }
 
     /**

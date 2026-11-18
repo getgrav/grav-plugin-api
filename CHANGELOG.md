@@ -1,6 +1,8 @@
 # v1.1.21
 ## 11/18/2026
 
+1. [](#improved)
+    * `GET /systeminfo` reports the cache driver Grav is actually using (`cache.active`) and whether the configured one was unavailable and fell back to the file cache (`cache.fallback`), so Admin2 can show what `auto` picked and flag a broken Redis or Memcached setup [admin2#217](https://github.com/getgrav/grav-plugin-admin2/issues/217)
 1. [](#bugfix)
     * The Changelog link for a plugin or theme with an update now includes the entries for the versions on offer, above the installed changelog, instead of stopping at the installed version [getgrav/grav#4410](https://github.com/getgrav/grav/issues/4410)
 
