@@ -1,3 +1,9 @@
+# v1.1.21
+## 11/18/2026
+
+1. [](#bugfix)
+    * The Changelog link for a plugin or theme with an update now includes the entries for the versions on offer, above the installed changelog, instead of stopping at the installed version [getgrav/grav#4410](https://github.com/getgrav/grav/issues/4410)
+
 # v1.1.20
 ## 11/16/2026
 

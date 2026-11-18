@@ -1352,9 +1352,12 @@ class GpmController extends AbstractApiController
      * GET /gpm/plugins/{slug}/changelog - Get plugin CHANGELOG.md content.
      * GET /gpm/themes/{slug}/changelog
      *
-     * With `?available=true` this returns what an update would bring instead:
-     * the GPM feed's entries newer than the installed version, as one markdown
-     * document (see gravChangelog() for the core equivalent).
+     * An outdated package's own CHANGELOG.md stops at the installed version, so
+     * the GPM feed's entries for the newer releases go on top of it.
+     *
+     * With `?available=true` this returns only what an update would bring: the
+     * feed's entries newer than the installed version, as one markdown document
+     * (see gravChangelog() for the core equivalent).
      */
     public function changelog(ServerRequestInterface $request): ResponseInterface
     {
@@ -1371,13 +1374,25 @@ class GpmController extends AbstractApiController
         }
 
         $file = $path . '/CHANGELOG.md';
+        $content = file_exists($file) ? (string) file_get_contents($file) : '';
 
-        if (!file_exists($file)) {
+        // The feed is only a bonus here: when it can't be read (offline, no
+        // cache yet) the installed changelog is still served.
+        try {
+            $newer = $this->newerChangelogEntries($slug, $type);
+        } catch (\Throwable) {
+            $newer = [];
+        }
+        if ($newer) {
+            $content = rtrim($this->assembleChangelog($newer, dateLine: true) . "\n\n" . $content) . "\n";
+        }
+
+        if (trim($content) === '') {
             throw new NotFoundException("No changelog found for '{$slug}'.");
         }
 
         return ApiResponse::create([
-            'content' => file_get_contents($file),
+            'content' => $content,
         ]);
     }
 
@@ -1408,22 +1423,7 @@ class GpmController extends AbstractApiController
      */
     private function availableChangelog(string $slug, string $type): ResponseInterface
     {
-        $gpm = $this->getGpm();
-
-        $installed = $type === 'themes' ? $gpm->getInstalledTheme($slug) : $gpm->getInstalledPlugin($slug);
-        if (!$installed) {
-            throw new NotFoundException("Package '{$slug}' is not installed.");
-        }
-
-        $remote = $type === 'themes' ? $gpm->getRepositoryTheme($slug) : $gpm->getRepositoryPlugin($slug);
-        $installedVersion = (string) ($installed->version ?? '');
-
-        $changelog = [];
-        if ($remote && $installedVersion !== '' && !empty($remote->changelog)) {
-            $changelog = (array) $remote->getChangelog($installedVersion);
-        }
-
-        $content = $this->assembleChangelog($changelog);
+        $content = $this->assembleChangelog($this->newerChangelogEntries($slug, $type));
         if ($content === '') {
             throw new NotFoundException("No newer changelog entries found for '{$slug}'.");
         }
@@ -1434,24 +1434,51 @@ class GpmController extends AbstractApiController
     }
 
     /**
+     * The GPM feed's changelog entries (version => entry) newer than the
+     * installed version of a package, newest first.
+     *
+     * @return array<string, mixed>
+     */
+    private function newerChangelogEntries(string $slug, string $type): array
+    {
+        $gpm = $this->getGpm();
+
+        $installed = $type === 'themes' ? $gpm->getInstalledTheme($slug) : $gpm->getInstalledPlugin($slug);
+        if (!$installed) {
+            throw new NotFoundException("Package '{$slug}' is not installed.");
+        }
+
+        $remote = $type === 'themes' ? $gpm->getRepositoryTheme($slug) : $gpm->getRepositoryPlugin($slug);
+        $installedVersion = (string) ($installed->version ?? '');
+
+        if (!$remote || $installedVersion === '' || empty($remote->changelog)) {
+            return [];
+        }
+
+        return (array) $remote->getChangelog($installedVersion);
+    }
+
+    /**
      * Assemble feed changelog entries (version => entry) into one markdown doc,
-     * one `# v{version} ({date})` section per version.
+     * one `# v{version} ({date})` section per version. With $dateLine the date
+     * goes on its own `## {date}` line instead, the way CHANGELOG.md files
+     * write it.
      *
      * Each entry is either a markdown string or ['date' => ..., 'content' => markdown].
      *
      * @param array<string, mixed> $changelog
      */
-    private function assembleChangelog(array $changelog): string
+    private function assembleChangelog(array $changelog, bool $dateLine = false): string
     {
         $parts = [];
         foreach ($changelog as $version => $entry) {
-            $date = is_array($entry) ? ($entry['date'] ?? '') : '';
+            $date = is_array($entry) ? (string) ($entry['date'] ?? '') : '';
             $body = is_array($entry) ? ($entry['content'] ?? '') : $entry;
             $body = is_string($body) ? trim($body) : '';
 
             $heading = "# v{$version}";
             if ($date !== '') {
-                $heading .= " ({$date})";
+                $heading .= $dateLine ? "\n## {$date}" : " ({$date})";
             }
             $parts[] = "{$heading}\n\n{$body}";
         }

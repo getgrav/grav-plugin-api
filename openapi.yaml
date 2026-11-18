@@ -6241,7 +6241,10 @@ paths:
       summary: Get plugin changelog content
       description: |
         Return the raw Markdown content of the specified plugin's CHANGELOG.md
-        file.
+        file. When the GPM repository has newer releases than the installed
+        version, their entries come first, written the way CHANGELOG.md writes
+        them (`# v{version}` then `## {date}`). If the repository can't be
+        read, only the installed file is returned.
 
         With `available=true` it returns what an update would change instead: the GPM repository's changelog entries for versions newer than the installed one, assembled into one Markdown document with a `# v{version} ({date})` heading per version (the same format as `GET /gpm/grav/changelog`). It answers 404 when the plugin is not in the repository or has no newer entries. An API plugin older than this parameter ignores it and returns the installed CHANGELOG.md.
 
@@ -6344,7 +6347,10 @@ paths:
       summary: Get theme changelog content
       description: |
         Return the raw Markdown content of the specified theme's CHANGELOG.md
-        file.
+        file. When the GPM repository has newer releases than the installed
+        version, their entries come first, written the way CHANGELOG.md writes
+        them (`# v{version}` then `## {date}`). If the repository can't be
+        read, only the installed file is returned.
 
         With `available=true` it returns what an update would change instead: the GPM repository's changelog entries for versions newer than the installed one, assembled into one Markdown document with a `# v{version} ({date})` heading per version (the same format as `GET /gpm/grav/changelog`). It answers 404 when the theme is not in the repository or has no newer entries. An API plugin older than this parameter ignores it and returns the installed CHANGELOG.md.
 
