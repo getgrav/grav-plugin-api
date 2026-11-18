@@ -186,19 +186,38 @@ trait ResolvesAdminBaseUrl
         return $origin;
     }
 
+    /**
+     * Reduce a candidate to scheme://host[:port]/path, rebuilt from the parsed
+     * parts so the link we mail carries exactly the origin that was checked.
+     *
+     * Anything a browser would read differently from parse_url() is refused
+     * outright: a browser treats `\` as `/` in an http(s) URL, so
+     * `https://evil.test\@site.test` is host `site.test` to PHP but `evil.test`
+     * to the browser. Userinfo, whitespace and control characters go the same way.
+     */
     protected function sanitizeHttpUrl(string $url): ?string
     {
         $url = trim($url);
-        if ($url === '') {
+        if ($url === '' || preg_match('/[\\\\\s\x00-\x1F\x7F]/', $url)) {
             return null;
         }
         $parts = parse_url($url);
-        if (empty($parts['scheme']) || empty($parts['host'])) {
+        if (!is_array($parts) || empty($parts['scheme']) || empty($parts['host'])) {
             return null;
         }
-        if (!in_array(strtolower($parts['scheme']), ['http', 'https'], true)) {
+        if (isset($parts['user']) || isset($parts['pass'])) {
             return null;
         }
-        return rtrim($url, '/');
+        $scheme = strtolower($parts['scheme']);
+        if (!in_array($scheme, ['http', 'https'], true)) {
+            return null;
+        }
+
+        $rebuilt = $scheme . '://' . $parts['host'];
+        if (!empty($parts['port'])) {
+            $rebuilt .= ':' . $parts['port'];
+        }
+
+        return rtrim($rebuilt . ($parts['path'] ?? ''), '/');
     }
 }

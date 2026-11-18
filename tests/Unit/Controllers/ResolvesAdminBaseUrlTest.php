@@ -6,6 +6,7 @@ namespace Grav\Plugin\Api\Tests\Unit\Controllers;
 
 use Grav\Plugin\Api\Controllers\ResolvesAdminBaseUrl;
 use Grav\Plugin\Api\Tests\Unit\TestHelper;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
@@ -158,6 +159,72 @@ class ResolvesAdminBaseUrlTest extends TestCase
 
         // Accepted (host comparison is case-insensitive per the URL spec).
         self::assertSame('https://APP.example.com', $result);
+    }
+
+    /**
+     * URLs that parse_url() reads as the trusted host but a browser (WHATWG URL)
+     * sends somewhere else, mostly because a browser treats `\` as `/` in an
+     * http(s) authority.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function parserDifferentialUrls(): array
+    {
+        return [
+            'backslash before userinfo'      => ['https://attacker.com\\@admin.example.com'],
+            'backslash with path'            => ['https://attacker.com\\@admin.example.com/admin'],
+            'backslash with port'            => ['https://attacker.com:443\\@admin.example.com'],
+            'tab before userinfo backslash'  => ["https://attacker.com\t\\@admin.example.com"],
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('parserDifferentialUrls')]
+    public function body_url_read_differently_by_browsers_is_rejected(string $url): void
+    {
+        $resolver = $this->buildResolver();
+        $request = TestHelper::createMockRequest();
+
+        $result = $resolver->resolve($url, $request);
+
+        self::assertSame(self::SERVER_URL, $result);
+        self::assertStringNotContainsString('attacker.com', $result);
+    }
+
+    #[Test]
+    #[DataProvider('parserDifferentialUrls')]
+    public function origin_header_read_differently_by_browsers_is_rejected(string $url): void
+    {
+        $resolver = $this->buildResolver();
+        $request = TestHelper::createMockRequest(headers: ['Origin' => $url]);
+
+        $result = $resolver->resolve(null, $request);
+
+        self::assertSame(self::SERVER_URL, $result);
+        self::assertStringNotContainsString('attacker.com', $result);
+    }
+
+    #[Test]
+    public function userinfo_is_never_carried_into_the_link(): void
+    {
+        $resolver = $this->buildResolver();
+        $request = TestHelper::createMockRequest();
+
+        $result = $resolver->resolve('https://attacker.com@admin.example.com', $request);
+
+        self::assertSame(self::SERVER_URL, $result);
+        self::assertStringNotContainsString('attacker.com', $result);
+    }
+
+    #[Test]
+    public function accepted_url_keeps_its_base_path_but_drops_query_and_fragment(): void
+    {
+        $resolver = $this->buildResolver();
+        $request = TestHelper::createMockRequest();
+
+        $result = $resolver->resolve(self::SERVER_URL . '/admin/?next=https://attacker.com#x', $request);
+
+        self::assertSame(self::SERVER_URL . '/admin', $result);
     }
 
     #[Test]
