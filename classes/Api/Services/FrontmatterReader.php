@@ -32,10 +32,16 @@ final class FrontmatterReader
     private static array $memo = [];
 
     /**
-     * The frontmatter of the first of a page's content files that has one:
-     * the file for the page's own language, then (when given) the active
-     * language's, then the untyped `{template}.md`, then any other
-     * `{template}*.md`. Empty when none of them has frontmatter.
+     * The frontmatter of a page's content file, picked the way Grav picks it.
+     *
+     * On a multi-language site that is the first file that exists in the
+     * language order: the page's own language, then the viewed language
+     * (`$activeLanguage`, else Grav's active or default one) and its fallback
+     * chain, ending with the untyped `{template}.md`. A page shown in one
+     * language never gets another language's header just because its own file
+     * has none. Without language support the untyped file is read, else any
+     * `{template}*.md` with frontmatter (a single-language site whose files
+     * still carry a language suffix).
      *
      * @return array<string, mixed>
      */
@@ -49,21 +55,21 @@ final class FrontmatterReader
             return [];
         }
 
-        $candidates = [];
-        $language = $page->language();
-        if ($language) {
-            $candidates[] = $path . '/' . $template . '.' . $language . '.md';
-        }
-        if ($activeLanguage) {
-            $candidates[] = $path . '/' . $template . '.' . $activeLanguage . '.md';
-        }
-        $candidates[] = $path . '/' . $template . '.md';
-
-        foreach ($candidates as $file) {
-            $header = self::parse($file);
-            if ($header !== []) {
-                return $header;
+        $languages = self::languageOrder($page->language() ?: null, $activeLanguage ?: null);
+        if ($languages !== null) {
+            foreach ($languages as $code) {
+                $file = $path . '/' . $template . ($code !== '' ? '.' . $code : '') . '.md';
+                if (is_file($file)) {
+                    return self::parse($file);
+                }
             }
+
+            return [];
+        }
+
+        $header = self::parse($path . '/' . $template . '.md');
+        if ($header !== []) {
+            return $header;
         }
 
         foreach (glob($path . '/' . $template . '*.md') ?: [] as $file) {
@@ -132,18 +138,60 @@ final class FrontmatterReader
         if ($contents === false) {
             return [];
         }
-        // Grav frontmatter: content between leading `---\n` and the next `---\n`.
-        if (!preg_match('/^---\r?\n(.*?)\r?\n---\r?\n/s', $contents, $matches)) {
+        // Grav frontmatter: the block between a leading `---` line and the next
+        // one. Like core, the closing `---` may end the file (a header-only
+        // page saved without a final newline) and the block may be empty.
+        if (!preg_match('/^---[ \t]*\r?\n(?:(.*?)\r?\n)?---[ \t]*(?:\r?\n|$)/s', ltrim($contents), $matches)) {
             return [];
         }
 
         try {
-            $parsed = Yaml::parse($matches[1]);
+            $parsed = Yaml::parse($matches[1] ?? '');
         } catch (Throwable) {
             return [];
         }
 
         return is_array($parsed) ? $parsed : [];
+    }
+
+    /**
+     * Content-file languages to try, in order ('' is the untyped file), or
+     * null when neither the site nor the caller knows a language.
+     *
+     * @return list<string>|null
+     */
+    private static function languageOrder(?string $pageLanguage, ?string $activeLanguage): ?array
+    {
+        $order = $pageLanguage !== null ? [$pageLanguage] : [];
+        $viewed = $activeLanguage ?? $pageLanguage;
+
+        $service = self::languageService();
+        if ($service !== null && $service->enabled()) {
+            $viewed ??= $service->getActive() ?: $service->getDefault() ?: null;
+            foreach ($service->getFallbackLanguages($viewed, true) as $code) {
+                $order[] = (string) $code;
+            }
+        } elseif ($viewed !== null) {
+            $order[] = $viewed;
+            $order[] = '';
+        } else {
+            return null;
+        }
+
+        return array_values(array_unique($order));
+    }
+
+    private static function languageService(): ?object
+    {
+        try {
+            $language = Grav::instance()['language'] ?? null;
+        } catch (Throwable) {
+            return null;
+        }
+
+        return is_object($language) && method_exists($language, 'enabled') && method_exists($language, 'getFallbackLanguages')
+            ? $language
+            : null;
     }
 
     private static function cache(): ?object
