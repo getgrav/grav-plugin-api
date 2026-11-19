@@ -94,7 +94,18 @@ class FrontmatterReaderTest extends TestCase
     }
 
     #[Test]
-    public function a_page_reads_its_language_file_first_then_the_untyped_one_then_any_other(): void
+    public function a_header_only_file_without_a_final_newline_parses(): void
+    {
+        self::assertSame(['title' => 'English'], FrontmatterReader::parse($this->write('a.md', "---\ntitle: English\n---")));
+        self::assertSame(['title' => 'CRLF'], FrontmatterReader::parse($this->write('b.md', "---\r\ntitle: CRLF\r\n---")));
+        self::assertSame(['title' => 'Trailing space'], FrontmatterReader::parse($this->write('c.md', "---\ntitle: Trailing space\n--- \n\nBody\n")));
+        self::assertSame([], FrontmatterReader::parse($this->write('d.md', "---\n---\n")));
+        // `---` must close on its own line: a longer rule is part of the block.
+        self::assertSame([], FrontmatterReader::parse($this->write('e.md', "---\ntitle: Open\n----\n")));
+    }
+
+    #[Test]
+    public function a_page_reads_its_language_file_first_then_the_viewed_one_then_the_untyped_one(): void
     {
         $this->write('default.fr.md', "---\ntitle: Bonjour\n---\n");
         $this->write('default.md', "---\ntitle: Hello\n---\n");
@@ -106,9 +117,53 @@ class FrontmatterReaderTest extends TestCase
         self::assertSame('Hello', FrontmatterReader::forPage($this->page('es'))['title']);
 
         unlink($this->dir . '/default.md');
-        // Nothing for the page's language or untyped: the first {template}*.md
-        // with frontmatter, in glob order.
-        self::assertSame('Hallo', FrontmatterReader::forPage($this->page('es'))['title']);
+        // A page with a language never picks up another language's file.
+        self::assertSame([], FrontmatterReader::forPage($this->page('es')));
+        self::assertSame([], FrontmatterReader::forPage($this->page(null), 'es'));
+        // Without any language known, any {template}*.md with frontmatter.
+        self::assertSame('Hallo', FrontmatterReader::forPage($this->page(null))['title']);
+    }
+
+    #[Test]
+    public function a_language_file_without_frontmatter_never_yields_another_languages_header(): void
+    {
+        // The Rochen case: menu-section.en-us.md is a header-only file without
+        // a final newline, and de-de sorts first in the folder.
+        $this->write('default.de-de.md', "---\ntitle: Nach Technologie\n---\n");
+        $this->write('default.en-us.md', "---\ntitle: By technology\n---");
+
+        self::assertSame('By technology', FrontmatterReader::forPage($this->page(null), 'en-us')['title']);
+        self::assertSame('By technology', FrontmatterReader::forPage($this->page('en-us'))['title']);
+
+        // The page's own file exists but has no frontmatter: empty, not German.
+        $this->write('default.en-us.md', "Just a body\n");
+        FrontmatterReader::reset();
+        self::assertSame([], FrontmatterReader::forPage($this->page(null), 'en-us'));
+    }
+
+    #[Test]
+    public function a_multi_language_site_follows_grav_fallback_languages(): void
+    {
+        TestHelper::createMockGrav(['cache' => $this->cache, 'language' => new class {
+            public function enabled(): bool { return true; }
+            public function getActive(): ?string { return 'de'; }
+            public function getDefault(): string { return 'en'; }
+            /** @return list<string> */
+            public function getFallbackLanguages(?string $code = null, bool $includeDefault = false): array
+            {
+                $code ??= 'de';
+
+                return $code === 'en' ? ['en', ''] : [$code, 'en', ''];
+            }
+        }]);
+        $this->write('default.en.md', "---\ntitle: Hello\n---\n");
+        $this->write('default.fr.md', "---\ntitle: Bonjour\n---\n");
+
+        // German has no file: Grav falls back to English, not to French.
+        self::assertSame('Hello', FrontmatterReader::forPage($this->page(null))['title']);
+        self::assertSame('Hello', FrontmatterReader::forPage($this->page(null), 'de')['title']);
+        self::assertSame('Bonjour', FrontmatterReader::forPage($this->page(null), 'fr')['title']);
+        self::assertSame('Bonjour', FrontmatterReader::forPage($this->page('fr'), 'de')['title']);
     }
 
     #[Test]

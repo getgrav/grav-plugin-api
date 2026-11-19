@@ -1,3 +1,9 @@
+# v1.1.22
+## 11/18/2026
+
+1. [](#bugfix)
+    * Page listings show each page's title in the language being viewed when its content file ends right after the closing `---` with no final newline. Such a header failed to read, and the listing took another language's file instead (an English page showed its German title in Admin2's page tree). A page shown in one language now only falls back to the languages Grav itself would use
+
 # v1.1.21
 ## 11/18/2026
 
