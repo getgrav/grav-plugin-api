@@ -3893,7 +3893,10 @@ class PagesController extends AbstractApiController
      * response would still echo the source's route.
      *
      * Only a page that already declared a slug gets one written back, so we never
-     * add frontmatter the source did not have. Every language variant in the folder
+     * add frontmatter the source did not have. A `routes.default` is dropped from
+     * the copy for the same reason the slug is rewritten: Page::route() returns it
+     * before looking at the folder or the slug, so it would keep the copy on the
+     * source's route. Every language variant in the folder
      * is rewritten, because each carries its own frontmatter. Child folders are
      * left alone: their slugs are relative to this page, so they become unique
      * again as soon as the parent's does.
@@ -3920,11 +3923,32 @@ class PagesController extends AbstractApiController
 
             try {
                 $header = $file->header();
-                if (!is_array($header) || !array_key_exists('slug', $header)) {
+                if (!is_array($header)) {
                     continue;
                 }
 
-                $header['slug'] = $destSlug;
+                $changed = false;
+                if (array_key_exists('slug', $header)) {
+                    $header['slug'] = $destSlug;
+                    $changed = true;
+                }
+
+                // `routes.default` replaces the page's route outright, so a copy
+                // that keeps it answers to the source's address whatever its
+                // folder or slug (#27). Only that key goes: aliases and
+                // canonical are left as the author wrote them.
+                if (is_array($header['routes'] ?? null) && array_key_exists('default', $header['routes'])) {
+                    unset($header['routes']['default']);
+                    if ($header['routes'] === []) {
+                        unset($header['routes']);
+                    }
+                    $changed = true;
+                }
+
+                if (!$changed) {
+                    continue;
+                }
+
                 $file->header($header);
                 $file->save();
             } finally {
