@@ -1,3 +1,13 @@
+# v1.1.21
+## 11/18/2026
+
+1. [](#improved)
+    * `GET /gpm/plugins/{slug}` returns `admin_page` (`route` and `title`) when an enabled plugin has its own admin page, so Admin2's plugin settings screen can link to it
+    * `GET /systeminfo` reports the cache driver Grav is actually using (`cache.active`) and whether the configured one was unavailable and fell back to the file cache (`cache.fallback`), so Admin2 can show what `auto` picked and flag a broken Redis or Memcached setup [admin2#217](https://github.com/getgrav/grav-plugin-admin2/issues/217)
+1. [](#bugfix)
+    * Password reset and invitation links are built only from the parts of the base URL that passed the trusted-origin check (thanks @Ne0X-Z)
+    * The Changelog link for a plugin or theme with an update now includes the entries for the versions on offer, above the installed changelog, instead of stopping at the installed version [getgrav/grav#4410](https://github.com/getgrav/grav/issues/4410)
+
 # v1.1.20
 ## 11/16/2026
 

@@ -21,7 +21,8 @@ use Psr\Http\Message\ServerRequestInterface;
 /**
  * GET /gpm/{plugins,themes}/{slug}/changelog?available=true returns the feed's
  * changelog entries newer than the installed version, while the plain route
- * keeps serving the installed package's own CHANGELOG.md.
+ * serves the installed package's own CHANGELOG.md with those newer entries on
+ * top (getgrav/grav#4410).
  *
  * The real GPM reads the filesystem and the remote feed, so the controller's
  * protected getGpm() is overridden with a GPM subclass that returns canned
@@ -116,7 +117,43 @@ class GpmControllerAvailableChangelogTest extends TestCase
 
     #[Test]
     #[DataProvider('packageTypes')]
-    public function without_the_flag_the_installed_changelog_is_served_and_the_feed_is_not_read(string $type): void
+    public function without_the_flag_an_outdated_package_gets_the_newer_entries_above_its_installed_changelog(string $type): void
+    {
+        $controller = $this->controller($this->feed());
+
+        $body = $this->body($controller->changelog($this->request($type, 'demo')));
+
+        $this->assertSame(
+            "# v1.2.0\n## 2026-02-01\n\n1. [](#new)\n    * Second feature\n\n"
+            . "# v1.1.0\n## 2026-01-01\n\n1. [](#bugfix)\n    * First fix\n\n"
+            . "# v1.0.0\n\n- the installed changelog\n",
+            $body['data']['content'],
+        );
+    }
+
+    #[Test]
+    public function without_the_flag_an_up_to_date_package_gets_its_installed_changelog_unchanged(): void
+    {
+        $controller = $this->controller($this->feed(installed: '1.2.0'));
+
+        $body = $this->body($controller->changelog($this->request('plugins', 'demo')));
+
+        $this->assertSame("# v1.0.0\n\n- the installed changelog", $body['data']['content']);
+    }
+
+    #[Test]
+    public function available_false_serves_the_installed_changelog_with_the_newer_entries(): void
+    {
+        $controller = $this->controller($this->feed(changelog: ['1.1.0' => ['date' => '2026-01-01', 'content' => '- fix']]));
+
+        $body = $this->body($controller->changelog($this->request('plugins', 'demo', ['available' => 'false'])));
+
+        $this->assertSame("# v1.1.0\n## 2026-01-01\n\n- fix\n\n# v1.0.0\n\n- the installed changelog\n", $body['data']['content']);
+    }
+
+    #[Test]
+    #[DataProvider('packageTypes')]
+    public function without_the_flag_a_feed_failure_still_serves_the_installed_changelog(string $type): void
     {
         $controller = $this->controller($this->feed(), failOnFeedRead: true);
 
@@ -126,13 +163,25 @@ class GpmControllerAvailableChangelogTest extends TestCase
     }
 
     #[Test]
-    public function available_false_serves_the_installed_changelog(): void
+    public function without_the_flag_a_package_without_a_changelog_file_gets_the_newer_entries(): void
     {
-        $controller = $this->controller($this->feed(), failOnFeedRead: true);
+        unlink($this->tempDir . '/plugins/demo/CHANGELOG.md');
+        $controller = $this->controller($this->feed(changelog: ['1.1.0' => ['date' => '2026-01-01', 'content' => '- fix']]));
 
-        $body = $this->body($controller->changelog($this->request('plugins', 'demo', ['available' => 'false'])));
+        $body = $this->body($controller->changelog($this->request('plugins', 'demo')));
 
-        $this->assertSame("# v1.0.0\n\n- the installed changelog", $body['data']['content']);
+        $this->assertSame("# v1.1.0\n## 2026-01-01\n\n- fix\n", $body['data']['content']);
+    }
+
+    #[Test]
+    public function without_the_flag_no_file_and_nothing_newer_is_a_404(): void
+    {
+        unlink($this->tempDir . '/plugins/demo/CHANGELOG.md');
+        $controller = $this->controller($this->feed(installed: '1.2.0'));
+
+        $this->expectException(NotFoundException::class);
+        $this->expectExceptionMessage("No changelog found for 'demo'.");
+        $controller->changelog($this->request('plugins', 'demo'));
     }
 
     #[Test]
@@ -234,7 +283,7 @@ class GpmControllerAvailableChangelogTest extends TestCase
             private function installed(): ?object
             {
                 if ($this->failOnFeedRead) {
-                    throw new \LogicException('The GPM must not be consulted without ?available=true.');
+                    throw new \RuntimeException('The GPM feed could not be read.');
                 }
 
                 return $this->feed['installed'] === null ? null : (object) ['version' => $this->feed['installed']];
