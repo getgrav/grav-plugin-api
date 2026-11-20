@@ -3,6 +3,7 @@
 
 1. [](#bugfix)
     * The Template select on a page's Advanced tab listed every template, ignoring the admin's "Hide page types" and "Hide module types" settings that Add Page already follows. It now offers the same list, and a page whose own template is hidden keeps it [admin#2244](https://github.com/getgrav/grav-plugin-admin/issues/2244)
+    * A copied page no longer answers to the original's addresses. The copy and the pages under it drop the `routes.default`, `routes.canonical` and `routes.aliases` they brought with them, which the original keeps. Thanks @theluckystrike [#27](https://github.com/getgrav/grav-plugin-api/issues/27) [#81](https://github.com/getgrav/grav-plugin-api/pull/81)
 
 # v1.1.22
 ## 11/18/2026

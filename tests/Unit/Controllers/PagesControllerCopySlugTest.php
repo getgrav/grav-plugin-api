@@ -129,9 +129,9 @@ class PagesControllerCopySlugTest extends TestCase
     #[Test]
     public function unrelated_frontmatter_is_preserved(): void
     {
-        // external_url and routes travel with a copy too. They are deliberately
-        // left alone: external_url takes no part in routing, and silently
-        // dropping routes.aliases would destroy something the author typed.
+        // external_url and taxonomy travel with a copy and are left alone:
+        // external_url takes no part in routing. The `routes` addresses do not
+        // travel, because the source still answers to them (#27).
         $this->write('default.md', <<<'MD'
 ---
 title: Linked
@@ -152,7 +152,7 @@ MD);
         $out = $this->read('default.md');
         self::assertStringContainsString('slug: original-2', $out);
         self::assertStringContainsString('example.com', $out);
-        self::assertStringContainsString('/old-address', $out);
+        self::assertStringNotContainsString('/old-address', $out);
         self::assertStringContainsString('one', $out);
     }
 

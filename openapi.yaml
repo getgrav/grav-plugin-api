@@ -1856,7 +1856,9 @@ paths:
         at a new route. The destination parent must exist and the target
         route must not already be occupied (422 otherwise). If the source
         declares a `slug:` in its frontmatter, the copy's is rewritten to the
-        new folder name. A copy of a numbered page (`01.bar`) is numbered
+        new folder name. The copy and the pages under it drop the `routes`
+        addresses (`default`, `canonical`, `aliases`) they copied, since the
+        source still answers to them. A copy of a numbered page (`01.bar`) is numbered
         after the last numbered page in the destination; a copy of an
         unnumbered page stays unnumbered. If the copy cannot be resolved
         afterwards, only `route` and `slug` are returned.

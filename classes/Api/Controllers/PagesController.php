@@ -3873,7 +3873,8 @@ class PagesController extends AbstractApiController
     }
 
     /**
-     * Point a freshly copied page's `slug:` at its own folder.
+     * Point a freshly copied page's `slug:` at its own folder and drop the
+     * `routes` addresses it copied from the source.
      *
      * Folder::copy() reproduces the source byte for byte, so an explicit `slug:`
      * in the frontmatter travels with it and the copy claims the source's route:
@@ -3893,19 +3894,23 @@ class PagesController extends AbstractApiController
      * response would still echo the source's route.
      *
      * Only a page that already declared a slug gets one written back, so we never
-     * add frontmatter the source did not have. A `routes.default` is dropped from
-     * the copy for the same reason the slug is rewritten: Page::route() returns it
-     * before looking at the folder or the slug, so it would keep the copy on the
-     * source's route. Every language variant in the folder
-     * is rewritten, because each carries its own frontmatter. Child folders are
-     * left alone: their slugs are relative to this page, so they become unique
-     * again as soon as the parent's does.
+     * add frontmatter the source did not have. Every language variant in the folder
+     * is rewritten, because each carries its own frontmatter.
+     *
+     * The `routes` addresses go too, from the copy and from every page under it
+     * (#27). Each one is absolute: `routes.default` replaces route() outright, and
+     * Pages::buildRoutes() puts `canonical` and every alias into the same route
+     * map, where the page indexed last takes the address. The source keeps them,
+     * so a copy that kept them would still claim the source's addresses. Child
+     * slugs stay: they are relative to the copy, so they become unique again as
+     * soon as its slug does.
      *
      * @param string $destPath  Filesystem path of the copied page folder.
      * @param string $destSlug  Slug the copy should answer to.
      * @param string $extension Page file extension, including the leading dot.
+     * @param bool   $isCopy    False for the pages below the copy, which keep their slugs.
      */
-    private function rewriteCopiedSlug(string $destPath, string $destSlug, string $extension): void
+    private function rewriteCopiedSlug(string $destPath, string $destSlug, string $extension, bool $isCopy = true): void
     {
         // A translated page's extension carries its language (`.en.md`), but
         // every language file of the copy holds the source slug, so match on
@@ -3915,6 +3920,12 @@ class PagesController extends AbstractApiController
         // scandir rather than glob: a page folder name may legitimately contain
         // `[` or `*`, which glob would read as a pattern.
         foreach (scandir($destPath) ?: [] as $filename) {
+            $child = $destPath . '/' . $filename;
+            if ($filename !== '.' && $filename !== '..' && is_dir($child) && !is_link($child)) {
+                $this->rewriteCopiedSlug($child, $destSlug, $extension, false);
+                continue;
+            }
+
             if (!str_ends_with($filename, $extension)) {
                 continue;
             }
@@ -3928,21 +3939,21 @@ class PagesController extends AbstractApiController
                 }
 
                 $changed = false;
-                if (array_key_exists('slug', $header)) {
+                if ($isCopy && array_key_exists('slug', $header)) {
                     $header['slug'] = $destSlug;
                     $changed = true;
                 }
 
-                // `routes.default` replaces the page's route outright, so a copy
-                // that keeps it answers to the source's address whatever its
-                // folder or slug (#27). Only that key goes: aliases and
-                // canonical are left as the author wrote them.
-                if (is_array($header['routes'] ?? null) && array_key_exists('default', $header['routes'])) {
-                    unset($header['routes']['default']);
+                if (is_array($header['routes'] ?? null)) {
+                    foreach (['default', 'canonical', 'aliases'] as $key) {
+                        if (array_key_exists($key, $header['routes'])) {
+                            unset($header['routes'][$key]);
+                            $changed = true;
+                        }
+                    }
                     if ($header['routes'] === []) {
                         unset($header['routes']);
                     }
-                    $changed = true;
                 }
 
                 if (!$changed) {
