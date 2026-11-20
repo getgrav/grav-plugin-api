@@ -615,6 +615,8 @@ class MediaController extends AbstractApiController
 
             $filename = $this->processUploadedFile($file, $targetDir, $settings);
             $uploadedNames[] = $filename;
+            // Each upload adds to the folder, so its cached listing is out of date.
+            unset($this->siteDirEntries[$targetDir]);
             $created[] = $this->serializeSiteFile($targetDir, $filename, $relativePath);
         }
 
@@ -669,16 +671,16 @@ class MediaController extends AbstractApiController
             'path' => $relativePath,
         ]);
 
-        unlink($filePath);
-
-        // Also remove any metadata file
-        $metaPath = $filePath . '.meta.yaml';
-        if (file_exists($metaPath)) {
-            unlink($metaPath);
+        // The base image takes its retina files (and their sidecars) with it:
+        // the listing shows them as that one image (admin2#222).
+        foreach ($this->mediaFileVariants(dirname($filePath), basename($filePath)) as $target) {
+            if (is_file($target)) {
+                unlink($target);
+            }
+            if (!str_ends_with($target, '.meta.yaml')) {
+                $this->removeFromSiteMediaOrder(dirname($target), basename($target));
+            }
         }
-
-        // Keep the folder's order sidecar coherent.
-        $this->removeFromSiteMediaOrder(dirname($filePath), basename($filePath));
 
         // Same null `object` / `page` caveat as the upload side above.
         $this->fireAdminEvent('onAdminAfterDelMedia', [
@@ -2466,7 +2468,8 @@ class MediaController extends AbstractApiController
      * entries are never entered, so a dot-folder at any depth is skipped along
      * with everything inside it, the same as the listing, the folder counts and
      * validateRelativePath() treat it (#50). The `.meta.yaml` and
-     * `media_order.yaml` sidecars are skipped too. Shared by search and the
+     * `media_order.yaml` sidecars are skipped too, and so are the `@Nx` retina
+     * files of a base image (admin2#222). Shared by search and the
      * dashboard's media count so both agree with what the user can browse.
      *
      * @return \Generator<\SplFileInfo>
@@ -2482,11 +2485,34 @@ class MediaController extends AbstractApiController
 
         foreach ($tree as $file) {
             $name = $file->getFilename();
-            if (!$file->isFile() || str_ends_with($name, '.meta.yaml') || $name === self::MEDIA_ORDER_FILE) {
+            if (!$file->isFile() || str_ends_with($name, '.meta.yaml') || $name === self::MEDIA_ORDER_FILE
+                || self::isGroupedRetinaFile($file->getPath(), $name)) {
                 continue;
             }
             yield $file;
         }
+    }
+
+    /**
+     * Whether $name is a retina file (`photo@2x.jpg`) whose base image
+     * (`photo.jpg`) is in $dir too. Core lists such a set as the one base
+     * medium with the others as its srcset, in page media and for
+     * `media://photo.jpg`, so site media lists it once as well (admin2#222).
+     * A retina file without its base is listed under its own name.
+     */
+    public static function isGroupedRetinaFile(string $dir, string $name): bool
+    {
+        // Same pattern as core's AbstractMedia::getFileParts().
+        if (!preg_match('/^(.*)@(\d+)x\.(.*)$/', $name, $m)) {
+            return false;
+        }
+        $scale = (int) $m[2];
+        $maxScale = defined(AbstractMedia::class . '::MAX_RETINA_SCALE') ? AbstractMedia::MAX_RETINA_SCALE : PHP_INT_MAX;
+        if ($scale < 2 || $scale > $maxScale) {
+            return false;
+        }
+
+        return is_file($dir . '/' . $m[1] . '.' . $m[3]);
     }
 
     /**
@@ -2636,8 +2662,10 @@ class MediaController extends AbstractApiController
                     'file_count' => $fileCount,
                 ];
             } else {
-                // Skip metadata files and the order sidecar
-                if (str_ends_with($name, '.meta.yaml') || $name === self::MEDIA_ORDER_FILE) {
+                // Skip metadata files, the order sidecar, and the retina
+                // files of a base image, which list as that image.
+                if (str_ends_with($name, '.meta.yaml') || $name === self::MEDIA_ORDER_FILE
+                    || self::isGroupedRetinaFile($absolutePath, $name)) {
                     continue;
                 }
                 $files[] = $name;
@@ -2671,7 +2699,8 @@ class MediaController extends AbstractApiController
             }
             if ($child->isDir()) {
                 $childrenCount++;
-            } elseif (!str_ends_with($name, '.meta.yaml') && $name !== self::MEDIA_ORDER_FILE) {
+            } elseif (!str_ends_with($name, '.meta.yaml') && $name !== self::MEDIA_ORDER_FILE
+                && !self::isGroupedRetinaFile($absolutePath, $name)) {
                 $fileCount++;
             }
         }
@@ -2776,6 +2805,40 @@ class MediaController extends AbstractApiController
         return !preg_match('#^' . $userPath . '/(config|env|accounts)(/|$)#i', $relative);
     }
 
+    /** @var array<string, list<string>> Folder listings read by siteRetinaScales(), per request. */
+    private array $siteDirEntries = [];
+
+    /**
+     * Scales of the `@Nx` retina files next to a site media image, e.g. [2, 3]
+     * for photo@2x.jpg and photo@3x.jpg beside photo.jpg. The listing hides
+     * those files under the base image (admin2#222), so this is how a client
+     * can tell they are there.
+     *
+     * @return list<int>
+     */
+    private function siteRetinaScales(string $dir, string $filename): array
+    {
+        $stem = pathinfo($filename, PATHINFO_FILENAME);
+        $ext = pathinfo($filename, PATHINFO_EXTENSION);
+        if ($ext === '' || preg_match('/@\d+x$/', $stem)) {
+            return [];
+        }
+
+        $entries = $this->siteDirEntries[$dir] ??= (scandir($dir) ?: []);
+        $variantRe = '/^' . preg_quote($stem, '/') . '@(\d+)x\.' . preg_quote($ext, '/') . '$/i';
+        $maxScale = defined(AbstractMedia::class . '::MAX_RETINA_SCALE') ? AbstractMedia::MAX_RETINA_SCALE : PHP_INT_MAX;
+
+        $scales = [];
+        foreach ($entries as $entry) {
+            if (preg_match($variantRe, $entry, $m) && (int) $m[1] >= 2 && (int) $m[1] <= $maxScale) {
+                $scales[(int) $m[1]] = (int) $m[1];
+            }
+        }
+        ksort($scales);
+
+        return array_values($scales);
+    }
+
     /**
      * Build a serialized array for a raw file in the site media directory.
      * Used when we don't have Grav Medium objects available.
@@ -2803,6 +2866,11 @@ class MediaController extends AbstractApiController
         }
         if (isset($meta['title']) && is_scalar($meta['title']) && (string) $meta['title'] !== '') {
             $data['title'] = (string) $meta['title'];
+        }
+
+        // `@Nx` retina files grouped under this one (admin2#222).
+        if ($retina = $this->siteRetinaScales($basePath, $filename)) {
+            $data['retina'] = $retina;
         }
 
         if (str_starts_with($mime, 'image/') && $mime !== 'image/svg+xml') {

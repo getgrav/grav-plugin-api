@@ -14539,6 +14539,16 @@ components:
             height:
               type: integer
               example: 1080
+        retina:
+          type: array
+          items:
+            type: integer
+          description: |
+            Scales of the `@Nx` retina files saved next to this image, which
+            Grav uses for its srcset and which the listing shows as this one
+            image (`photo@2x.jpg` and `photo@3x.jpg` give `[2, 3]`). Only
+            present when there are some.
+          example: [2, 3]
         modified:
           type: string
           format: date-time
