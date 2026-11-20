@@ -1370,11 +1370,13 @@ class BlueprintController extends AbstractApiController
                     // pageTypes() needs a type arg. Use the current serialization
                     // context (modular if we're serializing a `modular/*` blueprint,
                     // standard otherwise) so the template selector gets the right
-                    // list baked in.
+                    // list baked in, with the same hide lists, module titles and
+                    // onAdmin(Modular)PageTypes handlers as Add Page / Add Module.
+                    // SelectField keeps a page's own template when it is hidden.
                     if ($method === 'pageTypes') {
                         $result = $class::$method($this->pageTypeContext);
-                        if (is_array($result) && $this->pageTypeContext === 'modular') {
-                            $result = $this->moduleTypeTitles()->apply($result);
+                        if (is_array($result)) {
+                            $result = $this->filterPageTypes($result, $this->pageTypeContext === 'modular');
                         }
                     } else {
                         $result = $class::$method();

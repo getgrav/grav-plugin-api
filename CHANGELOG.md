@@ -1,3 +1,9 @@
+# v1.1.23
+## 11/20/2026
+
+1. [](#bugfix)
+    * The Template select on a page's Advanced tab listed every template, ignoring the admin's "Hide page types" and "Hide module types" settings that Add Page already follows. It now offers the same list, and a page whose own template is hidden keeps it [admin#2244](https://github.com/getgrav/grav-plugin-admin/issues/2244)
+
 # v1.1.22
 ## 11/18/2026
 
