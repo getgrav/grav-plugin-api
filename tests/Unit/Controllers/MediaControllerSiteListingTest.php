@@ -71,12 +71,16 @@ class MediaControllerSiteListingTest extends TestCase
         Grav::resetInstance();
     }
 
-    private function request(array $query = [], string $body = ''): ServerRequestInterface
+    private function request(array $query = [], string $body = '', array $routeParams = []): ServerRequestInterface
     {
         $user = $this->user;
         $request = $this->createMock(ServerRequestInterface::class);
         // The body as JsonBodyParserMiddleware hands it to the controller.
-        $attributes = ['api_user' => $user, 'json_body' => $body === '' ? null : json_decode($body, true)];
+        $attributes = [
+            'api_user' => $user,
+            'json_body' => $body === '' ? null : json_decode($body, true),
+            'route_params' => $routeParams,
+        ];
         $request->method('getAttribute')->willReturnCallback(
             static fn (string $name, $default = null) => $attributes[$name] ?? $default
         );
@@ -169,5 +173,59 @@ class MediaControllerSiteListingTest extends TestCase
         self::assertSame(1, $payload['data']['children_count']);
         // a.txt + b.txt; the .meta.yaml and media_order.yaml sidecars don't count.
         self::assertSame(2, $payload['data']['file_count']);
+    }
+
+    /**
+     * A base image's `@Nx` retina files list as that one image, like page
+     * media; a retina file without its base keeps its own entry (admin2#222).
+     */
+    private function seedRetinaSet(): void
+    {
+        foreach (['hero.jpg', 'hero@2x.jpg', 'hero@3x.jpg', 'lone@2x.jpg', 'big@200x.jpg'] as $name) {
+            file_put_contents($this->mediaDir . '/photos/' . $name, 'x');
+        }
+    }
+
+    #[Test]
+    public function listing_groups_retina_files_under_their_base(): void
+    {
+        $this->seedRetinaSet();
+
+        $payload = $this->json($this->controller->siteMedia($this->request(['path' => 'photos'])));
+        $names = array_column($payload['data'], 'filename');
+        sort($names);
+
+        self::assertSame(['a.txt', 'b.txt', 'big@200x.jpg', 'hero.jpg', 'lone@2x.jpg'], $names);
+
+        // The base image says which retina files it stands for, so Admin2 can badge it.
+        $retina = array_column($payload['data'], 'retina', 'filename');
+        self::assertSame(['hero.jpg' => [2, 3]], $retina);
+    }
+
+    #[Test]
+    public function search_and_counts_group_retina_files(): void
+    {
+        $this->seedRetinaSet();
+
+        $payload = $this->json($this->controller->siteMedia($this->request(['search' => 'hero'])));
+        self::assertSame(['hero.jpg'], array_column($payload['data'], 'filename'));
+
+        $root = $this->json($this->controller->siteMedia($this->request()));
+        $photos = array_values(array_filter($root['meta']['folders'], static fn (array $f) => $f['name'] === 'photos'));
+        // a.txt, b.txt, big@200x.jpg, hero.jpg, lone@2x.jpg
+        self::assertSame(5, $photos[0]['file_count']);
+    }
+
+    #[Test]
+    public function deleting_a_base_image_removes_its_retina_files(): void
+    {
+        $this->seedRetinaSet();
+        file_put_contents($this->mediaDir . '/photos/hero@2x.jpg.meta.yaml', 'alt: x');
+
+        $this->controller->deleteSiteMedia($this->request([], '', ['filename' => 'photos/hero.jpg']));
+
+        $left = array_values(array_diff(scandir($this->mediaDir . '/photos'), ['.', '..']));
+        sort($left);
+        self::assertSame(['a.txt', 'a.txt.meta.yaml', 'b.txt', 'big@200x.jpg', 'lone@2x.jpg', 'media_order.yaml', 'nested'], $left);
     }
 }

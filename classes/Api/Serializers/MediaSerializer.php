@@ -39,6 +39,11 @@ class MediaSerializer implements SerializerInterface
             $data['title'] = $title;
         }
 
+        // `@Nx` retina files grouped under this one (admin2#222).
+        if ($retina = $this->retinaScales($medium)) {
+            $data['retina'] = $retina;
+        }
+
         if (str_starts_with($mime, 'image/')) {
             $width = $medium->get('width');
             $height = $medium->get('height');
@@ -81,6 +86,31 @@ class MediaSerializer implements SerializerInterface
         }
 
         return $items;
+    }
+
+    /**
+     * Scales of the `@Nx` files on disk that core grouped under this image for
+     * its srcset, e.g. [2, 3] for photo@2x.jpg and photo@3x.jpg (admin2#222).
+     * Copies core scaled down itself are not counted.
+     *
+     * @return list<int>
+     */
+    public static function retinaScales(object $medium): array
+    {
+        if (!method_exists($medium, 'getAlternatives')) {
+            return [];
+        }
+
+        $scales = [];
+        foreach ($medium->getAlternatives(false) as $alternative) {
+            $file = basename((string) $alternative->get('filepath'));
+            if (preg_match('/@(\d+)x\.[^.]+$/', $file, $m) && (int) $m[1] >= 2) {
+                $scales[(int) $m[1]] = (int) $m[1];
+            }
+        }
+        ksort($scales);
+
+        return array_values($scales);
     }
 
     /**
