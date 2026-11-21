@@ -112,13 +112,16 @@ class AdminProxy
      */
     public function getPage(string $path): ?PageInterface
     {
-        $pages = self::enablePages();
-
         if ($path && $path[0] !== '/') {
             $path = "/{$path}";
         }
 
         $path = urldecode($path);
+        if (str_contains($path, "\0")) {
+            return null;
+        }
+
+        $pages = self::enablePages();
 
         return $path ? $pages->find($path, true) : $pages->root();
     }

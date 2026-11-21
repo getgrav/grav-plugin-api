@@ -53,7 +53,7 @@ class BlueprintTemplateHideListTest extends TestCase
 
         $ref = new ReflectionClass(BlueprintController::class);
         $instance = $ref->newInstanceWithoutConstructor();
-        $ref->getProperty('grav')->setValue($instance, $grav);
+        (new \ReflectionProperty(\Grav\Plugin\Api\Controllers\AbstractApiController::class, 'grav'))->setValue($instance, $grav);
         $ref->getProperty('pageTypeContext')->setValue(
             $instance,
             str_starts_with($blueprintName, 'modular/') ? 'modular' : 'standard'

@@ -209,7 +209,7 @@ class DashboardController extends AbstractApiController
         if ($force || !$lastChecked || empty($feed) || (time() - $lastChecked > $timeout)) {
             try {
                 $body = Response::get('https://getgrav.org/blog.atom');
-                $xml = simplexml_load_string($body);
+                $xml = str_contains((string) $body, "\0") ? false : simplexml_load_string((string) $body);
 
                 if ($xml) {
                     $feed = [];
@@ -229,7 +229,7 @@ class DashboardController extends AbstractApiController
                     $feedFile->content(['last_checked' => time(), 'data' => $feed]);
                     $feedFile->save();
                 }
-            } catch (\Exception $e) {
+            } catch (\Throwable $e) {
                 // Use cached data on failure
             }
         }
@@ -329,7 +329,7 @@ class DashboardController extends AbstractApiController
         if ($backupsDir && is_dir($backupsDir)) {
             // Only Grav's own `<name>--<timestamp>.zip` archives, not the exposure
             // probe's sentinel or anything else that happens to be a zip.
-            $backups = preg_grep('/--\d+\.zip$/', glob($backupsDir . '/*.zip') ?: []);
+            $backups = preg_grep('/--\d+\.zip$/', glob($backupsDir . '/*.zip') ?: []) ?: [];
             if (!empty($backups)) {
                 $latest = max(array_map('filemtime', $backups));
                 $lastBackup = date('c', $latest);

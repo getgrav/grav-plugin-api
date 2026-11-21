@@ -134,7 +134,9 @@ class BlueprintPathResolver
      */
     public function resolveScopeRoot(string $scope, ?UserInterface $caller = null, bool $callerMayWriteUsers = false): ?string
     {
-        if ($scope === '') return null;
+        if ($scope === '' || str_contains($scope, "\0") || str_contains($scope, '\\')) {
+            return null;
+        }
 
         $parts = explode('/', $scope, 2);
         $type = $parts[0];

@@ -200,7 +200,6 @@ class GpmControllerSettingsRouteTest extends TestCase
         );
 
         $method = new \ReflectionMethod(GpmController::class, 'pluginSettingsTarget');
-        $method->setAccessible(true);
 
         return $method->invoke($controller, $slug, $request);
     }
@@ -227,7 +226,6 @@ class GpmControllerSettingsRouteTest extends TestCase
         $controller = new GpmController(\Grav\Common\Grav::instance(), $this->config());
 
         $method = new \ReflectionMethod(GpmController::class, 'resolvePluginPageDefinition');
-        $method->setAccessible(true);
 
         return $method->invoke($controller, $slug, null) ?? [];
     }

@@ -1,3 +1,9 @@
+# v1.1.24
+## mm/dd/2026
+
+1. [](#improved)
+    * Added PHP 8.6 compatibility (while keeping PHP 8.3+ support): rejected NUL bytes in decoded route parameters (`ApiRouter`), blueprint scopes (`BlueprintPathResolver`), backup filenames (`SystemController`), `AdminProxy::getPage()`, and username inputs (`AuthController`, `UsersController`, `SetupController`, `InvitationsController`) so PHP 8.6 filesystem `ValueError` exceptions return clean 401/422 responses instead of 500s; guarded `DashboardController` feed XML parsing and `preg_grep()` fallbacks; removed deprecated `curl_close()` in `WebhookDispatcher`; and cleaned up test-suite PHP 8.3–8.6 Reflection deprecations
+
 # v1.1.23
 ## 11/20/2026
 

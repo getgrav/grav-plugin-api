@@ -49,6 +49,7 @@ use Grav\Plugin\Api\Controllers\WebhookController;
 use Grav\Plugin\Api\Controllers\DemoController;
 use Grav\Plugin\Api\Demo\DemoManager;
 use Grav\Plugin\Api\Exceptions\ApiException;
+use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Middleware\AuthMiddleware;
 use Grav\Plugin\Api\Middleware\CorsMiddleware;
 use Grav\Plugin\Api\Middleware\DemoModeMiddleware;
@@ -678,6 +679,12 @@ class ApiRouter extends ProcessorBase
             static fn($v) => is_string($v) ? rawurldecode($v) : $v,
             $vars
         );
+
+        foreach ($vars as $value) {
+            if (is_string($value) && str_contains($value, "\0")) {
+                throw new ValidationException('Invalid route parameter.');
+            }
+        }
 
         $request = $request->withAttribute('route_params', $vars);
 
