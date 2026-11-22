@@ -973,7 +973,7 @@ class UsersController extends AbstractApiController
         // characters \ / ? * : ; { } and line breaks. Keep a 3-64 length
         // bound for a friendlier message and to match the admin-next UI hint.
         $length = mb_strlen((string) $username);
-        if ($length < 3 || $length > 64 || !DataUser::isValidUsername((string) $username)) {
+        if ($length < 3 || $length > 64 || str_contains((string) $username, "\0") || !DataUser::isValidUsername((string) $username)) {
             throw new ValidationException(
                 'Invalid username format.',
                 [['field' => 'username', 'message' => 'Username must be 3-64 characters, cannot start with a period or contain "..", and cannot contain \\ / ? * : ; { } or a line break.']],

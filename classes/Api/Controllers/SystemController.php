@@ -673,8 +673,8 @@ class SystemController extends AbstractApiController
 
         $filename = $this->getRouteParam($request, 'filename');
 
-        // Validate filename (no path traversal)
-        if (!$filename || $filename !== basename($filename) || !str_ends_with($filename, '.zip')) {
+        // Validate filename (no path traversal or NUL bytes)
+        if (!$filename || str_contains($filename, "\0") || $filename !== basename($filename) || !str_ends_with($filename, '.zip')) {
             throw new ValidationException(
                 'Invalid backup filename.',
                 [['field' => 'filename', 'message' => 'Invalid backup filename.']],
@@ -709,7 +709,7 @@ class SystemController extends AbstractApiController
 
         $filename = $this->getRouteParam($request, 'filename');
 
-        if (!$filename || $filename !== basename($filename) || !str_ends_with($filename, '.zip')) {
+        if (!$filename || str_contains($filename, "\0") || $filename !== basename($filename) || !str_ends_with($filename, '.zip')) {
             throw new ValidationException(
                 'Invalid backup filename.',
                 [['field' => 'filename', 'message' => 'Invalid backup filename.']],

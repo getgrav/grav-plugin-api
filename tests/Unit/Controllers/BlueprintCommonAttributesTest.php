@@ -58,7 +58,7 @@ class BlueprintCommonAttributesTest extends TestCase
         unset($grav['language']);
         $grav['language'] = $language;
 
-        $ref->getProperty('grav')->setValue($instance, $grav);
+        (new \ReflectionProperty(\Grav\Plugin\Api\Controllers\AbstractApiController::class, 'grav'))->setValue($instance, $grav);
 
         return $ref->getMethod('serializeFields')->invoke($instance, $fields);
     }

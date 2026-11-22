@@ -20,6 +20,7 @@ use Grav\Plugin\Api\Auth\ApiKeyManager;
 use Grav\Plugin\Api\Popularity\PopularityTracker;
 use Grav\Plugin\Api\Services\TranslationOverrideStore;
 use Grav\Plugin\Api\Services\TranslationSourceIndex;
+use Grav\Plugin\Api\Services\UnsubscribedHandlers;
 use Grav\Plugin\Api\Webhooks\WebhookDispatcher;
 use RocketTheme\Toolbox\Event\Event;
 
@@ -359,6 +360,10 @@ class ApiPlugin extends Plugin
                 // Disable the audit toggle in the plugin's own config form when
                 // the SQLite backend the trail depends on isn't available.
                 'onApiBlueprintResolved' => ['onApiBlueprintResolved', 0],
+                // Page types contributed by plugins that only subscribe behind
+                // an isAdmin() check, which is still false at this point.
+                'onGetPageBlueprints' => ['onGetPageBlueprints', 0],
+                'onGetPageTemplates' => ['onGetPageTemplates', 0],
             ]);
             return;
         }
@@ -640,6 +645,28 @@ class ApiPlugin extends Plugin
      * to persist the data. Backend writes already fail closed without SQLite;
      * this just makes the constraint visible in the UI.
      */
+    /**
+     * Let plugins written for classic admin add their page blueprints.
+     *
+     * The usual pattern subscribes to onGetPageBlueprints and
+     * onGetPageTemplates only when `isAdmin()` is true, and during an API
+     * request it isn't yet when plugins initialise. Without this their page
+     * types never reach Admin2: the template is missing from Add Page and the
+     * extra tabs never appear. See UnsubscribedHandlers.
+     */
+    public function onGetPageBlueprints(Event $event): void
+    {
+        UnsubscribedHandlers::notify($this->grav, 'onGetPageBlueprints', $event);
+    }
+
+    /**
+     * The template half of onGetPageBlueprints() above.
+     */
+    public function onGetPageTemplates(Event $event): void
+    {
+        UnsubscribedHandlers::notify($this->grav, 'onGetPageTemplates', $event);
+    }
+
     public function onApiBlueprintResolved(Event $event): void
     {
         if (($event['plugin'] ?? null) !== 'api' || AuditStore::available()) {

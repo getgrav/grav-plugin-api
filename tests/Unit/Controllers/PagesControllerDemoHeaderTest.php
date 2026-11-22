@@ -20,8 +20,8 @@ final class PagesControllerDemoHeaderTest extends TestCase
         $user = TestHelper::createMockUser('demo', ['access.api.demo' => $demo]);
         $request = TestHelper::createMockRequest(attributes: ['api_user' => $user]);
         $controller = (new \ReflectionClass(PagesController::class))->newInstanceWithoutConstructor();
-        (new \ReflectionProperty($controller, 'grav'))->setValue($controller, $grav);
-        (new \ReflectionProperty($controller, 'config'))->setValue($controller, $config);
+        (new \ReflectionProperty(\Grav\Plugin\Api\Controllers\AbstractApiController::class, 'grav'))->setValue($controller, $grav);
+        (new \ReflectionProperty(\Grav\Plugin\Api\Controllers\AbstractApiController::class, 'config'))->setValue($controller, $config);
         return (new \ReflectionMethod(PagesController::class, 'demoSafeHeader'))->invoke($controller, $request, $header);
     }
 

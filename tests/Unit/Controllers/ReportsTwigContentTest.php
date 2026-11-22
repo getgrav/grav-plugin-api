@@ -41,7 +41,7 @@ class ReportsTwigContentTest extends TestCase
     private function invoke(ReportsController $c, string $method, array $args): mixed
     {
         $ref = new \ReflectionMethod($c, $method);
-        return $ref->invoke($c, ...$args);
+        return $ref->invoke($ref->isStatic() ? null : $c, ...$args);
     }
 
     // -- appendToList (tags/filters/functions) --------------------------------

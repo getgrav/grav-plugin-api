@@ -275,7 +275,8 @@ class PagesControllerTemplateCheckTest extends TestCase
 
     private function call(PagesController $controller, string $method, mixed ...$args): mixed
     {
-        return (new ReflectionClass(PagesController::class))->getMethod($method)->invoke($controller, ...$args);
+        $ref = (new ReflectionClass(PagesController::class))->getMethod($method);
+        return $ref->invoke($ref->isStatic() ? null : $controller, ...$args);
     }
 
     /**

@@ -39,6 +39,17 @@ class AuthController extends AbstractApiController
         // (which is a remote call for Turnstile/reCAPTCHA) on every attempt.
         $this->captcha()->verify(LoginCaptcha::FLOW_LOGIN, $body, $this->getRequestIp($request));
 
+        // Reject NUL bytes before handing username to account storage (PHP 8.6
+        // stat/file_exists throws ValueError on NUL) or auth plugins.
+        if (str_contains($username, "\0")) {
+            $this->fireEvent('onApiUserLoginFailure', [
+                'username' => $username,
+                'reason' => 'password',
+                'ip' => $this->getRequestIp($request),
+            ]);
+            throw new UnauthorizedException('Invalid username or password.');
+        }
+
         // Route through the Login plugin when available so the full
         // onUserLoginAuthenticate / onUserLoginAuthorize / onUserLogin chain
         // fires. This is what lets LDAP (and any other auth plugin that
@@ -645,6 +656,10 @@ class AuthController extends AbstractApiController
         $this->enforceLoginRateLimit($username);
 
         $invalidMessage = 'Invalid or expired reset link.';
+
+        if (str_contains($username, "\0")) {
+            throw new ValidationException($invalidMessage);
+        }
 
         /** @var UserCollectionInterface $accounts */
         $accounts = $this->grav['accounts'];
