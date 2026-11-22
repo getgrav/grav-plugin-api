@@ -15,6 +15,7 @@ use Grav\Plugin\Api\Services\ConfigScopes;
 use Grav\Plugin\Api\Services\IconSets;
 use Grav\Plugin\Api\Services\ModuleTypeTitles;
 use Grav\Plugin\Api\Services\PathContainment;
+use Grav\Plugin\Api\Services\UnsubscribedHandlers;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use RocketTheme\Toolbox\Event\Event;
@@ -175,7 +176,9 @@ class BlueprintController extends AbstractApiController
         $event = new Event(['types' => &$types]);
 
         $this->grav->fireEvent($name, $event);
-        $this->notifyUnsubscribedPageTypeHandlers($name, $event);
+        // Plugins that registered this handler behind an isAdmin() check never
+        // subscribed during an API request. See UnsubscribedHandlers.
+        UnsubscribedHandlers::notify($this->grav, $name, $event);
 
         // Classic passes `types` by reference, and handlers commonly assign a
         // rebuilt array back to `$event['types']` rather than mutating in
@@ -211,66 +214,6 @@ class BlueprintController extends AbstractApiController
                 return is_string($path) ? $path : null;
             },
         );
-    }
-
-    /**
-     * Call page-type handlers belonging to plugins that never got the chance to
-     * subscribe.
-     *
-     * Plugins written for classic admin register these two handlers inside an
-     * `isAdmin()` check in onPluginsInitialized. `isAdmin()` is simply
-     * `isset($grav['admin'])`, and during an API request the admin proxy is not
-     * registered until routing, which happens after every plugin has already
-     * initialised. Those plugins therefore never subscribed, and firing the
-     * event alone would reach nobody — the customisation would silently stop
-     * working the moment a site moved to the new admin.
-     *
-     * Rather than register the admin proxy earlier, which would put every API
-     * request into admin scope before it has been authenticated, this bridges
-     * only these two events: any enabled plugin exposing a matching method that
-     * is not already listening gets called directly. Plugins that did subscribe
-     * are skipped, so nothing runs twice.
-     */
-    private function notifyUnsubscribedPageTypeHandlers(string $name, Event $event): void
-    {
-        $plugins = $this->grav['plugins'] ?? null;
-        if (!$plugins) {
-            return;
-        }
-
-        $subscribed = [];
-        foreach ($this->grav['events']->getListeners($name) as $listener) {
-            if (is_array($listener) && isset($listener[0]) && is_object($listener[0])) {
-                $subscribed[spl_object_id($listener[0])] = true;
-            }
-        }
-
-        foreach ($plugins as $plugin) {
-            if (!is_object($plugin)
-                || isset($subscribed[spl_object_id($plugin)])
-                || !method_exists($plugin, $name)) {
-                continue;
-            }
-
-            // Disabled plugins are still instantiated in the collection, and
-            // Plugins::init() skips them when subscribing. Do the same here.
-            $slug = $plugin->name ?? null;
-            if (!$slug || !$this->grav['config']->get("plugins.{$slug}.enabled", false)) {
-                continue;
-            }
-
-            try {
-                $plugin->{$name}($event);
-            } catch (Throwable $e) {
-                // One misbehaving plugin must not take the template list down.
-                $this->grav['log']->warning(sprintf(
-                    '[api] %s handler in %s failed: %s',
-                    $name,
-                    get_class($plugin),
-                    $e->getMessage()
-                ));
-            }
-        }
     }
 
     /**

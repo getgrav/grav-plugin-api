@@ -3,6 +3,8 @@
 
 1. [](#improved)
     * Added PHP 8.6 compatibility (while keeping PHP 8.3+ support): rejected NUL bytes in decoded route parameters (`ApiRouter`), blueprint scopes (`BlueprintPathResolver`), backup filenames (`SystemController`), `AdminProxy::getPage()`, and username inputs (`AuthController`, `UsersController`, `SetupController`, `InvitationsController`) so PHP 8.6 filesystem `ValueError` exceptions return clean 401/422 responses instead of 500s; guarded `DashboardController` feed XML parsing and `preg_grep()` fallbacks; removed deprecated `curl_close()` in `WebhookDispatcher`; and cleaned up test-suite PHP 8.3–8.6 Reflection deprecations
+1. [](#bugfix)
+    * Page types a plugin adds through `onGetPageBlueprints` / `onGetPageTemplates` now reach Admin2 when the plugin subscribes to them behind an `isAdmin()` check, the pattern most plugins written for classic admin use. `isAdmin()` is still false while plugins initialise on an API request, so the template was missing from Add Page and its extra tabs never appeared. The API now calls those handlers itself, as it already did for `onAdminPageTypes`
 
 # v1.1.23
 ## 11/20/2026
