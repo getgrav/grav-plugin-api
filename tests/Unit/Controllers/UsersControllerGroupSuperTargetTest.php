@@ -45,9 +45,12 @@ class UsersControllerGroupSuperTargetTest extends TestCase
         ]);
     }
 
-    private function invoke(UserInterface $current, array $scopes, UserInterface $target, Config $config): void
+    private function invoke(UserInterface $current, array $scopes, UserInterface $target, Config $config, ?object $setup = null): void
     {
         Grav::resetInstance();
+        if ($setup !== null) {
+            Grav::instance()['setup'] = $setup;
+        }
         $controller = new UsersController(Grav::instance(), $config);
 
         $attributes = ['api_user' => $current];
@@ -85,6 +88,53 @@ class UsersControllerGroupSuperTargetTest extends TestCase
             scopes: ['api.users.write'],
             target: TestHelper::createMockUser('bob', ['access' => [], 'groups' => ['authors']]),
             config: $config,
+        );
+
+        $this->addToAssertionCount(1);
+    }
+
+    #[Test]
+    public function a_group_that_is_super_only_in_another_environment_is_protected(): void
+    {
+        // The request's configuration has the group without super; the
+        // environment folder a different Host selects makes it super.
+        $env = sys_get_temp_dir() . '/grav_api_env_groups_' . uniqid();
+        mkdir($env . '/www.example.com/config', 0775, true);
+        file_put_contents($env . '/www.example.com/config/groups.yaml', "admins:\n  access:\n    admin:\n      super: true\n");
+        $setup = new class ([$env . '/www.example.com']) {
+            public function __construct(private array $paths) {}
+            public function getEnvironmentPaths(): array { return $this->paths; }
+        };
+
+        try {
+            $this->invoke(
+                current: TestHelper::createMockUser('manager', ['access' => ['api' => ['users' => ['write' => true]]]]),
+                scopes: ['api.users.write'],
+                target: $this->groupSuperTarget('boss'),
+                config: new Config(['groups' => ['admins' => ['access' => ['site' => ['login' => true]]]]]),
+                setup: $setup,
+            );
+            self::fail('Expected the target to count as super.');
+        } catch (ForbiddenException $e) {
+            self::assertSame('Only super-admins can manage super-admin accounts.', $e->getMessage());
+        } finally {
+            unlink($env . '/www.example.com/config/groups.yaml');
+            rmdir($env . '/www.example.com/config');
+            rmdir($env . '/www.example.com');
+            rmdir($env);
+        }
+    }
+
+    #[Test]
+    public function a_core_without_the_environment_list_reads_the_configuration_only(): void
+    {
+        // Grav 2.2.34 and older: Setup has no getEnvironmentPaths().
+        $this->invoke(
+            current: TestHelper::createMockUser('manager', ['access' => ['api' => ['users' => ['write' => true]]]]),
+            scopes: ['api.users.write'],
+            target: TestHelper::createMockUser('bob', ['access' => [], 'groups' => ['authors']]),
+            config: new Config(['groups' => ['authors' => ['access' => ['site' => ['login' => true]]]]]),
+            setup: new \stdClass(),
         );
 
         $this->addToAssertionCount(1);
