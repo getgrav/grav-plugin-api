@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Grav\Plugin\Api\Services;
 
+use Grav\Common\Page\Medium\ImageFile;
+
 class ThumbnailService
 {
     /**
@@ -295,6 +297,10 @@ class ThumbnailService
      */
     private function generate(string $sourcePath, string $cachePath, string $mime): ?string
     {
+        if (!$this->withinDecodeLimits($sourcePath, $mime)) {
+            return null;
+        }
+
         $sourceImage = $this->loadImage($sourcePath, $mime);
         if (!$sourceImage) {
             return null;
@@ -351,13 +357,12 @@ class ThumbnailService
      */
     private function applyOrientation(\GdImage $image, string $sourcePath, string $mime): \GdImage
     {
-        // exif_read_data() reads JPEG and TIFF only, and GD can't decode TIFF.
-        if ($mime !== 'image/jpeg' || !function_exists('exif_read_data')) {
+        // GD can't decode TIFF, so only a JPEG gets here with an orientation.
+        if ($mime !== 'image/jpeg') {
             return $image;
         }
 
-        $exif = @exif_read_data($sourcePath);
-        $orientation = is_array($exif) ? (int) ($exif['Orientation'] ?? 1) : 1;
+        $orientation = $this->exifOrientation($sourcePath);
 
         $flip = match ($orientation) {
             2, 7 => IMG_FLIP_HORIZONTAL,
@@ -377,6 +382,74 @@ class ThumbnailService
         };
 
         return $angle === 0 ? $image : (imagerotate($image, $angle, 0) ?: $image);
+    }
+
+    /**
+     * The source's Exif Orientation. Core's reader (Grav 2.2.35+) looks at that
+     * one entry only; exif_read_data() decodes every entry, and a small crafted
+     * file makes it run out of memory. Older cores fall back to it.
+     */
+    private function exifOrientation(string $sourcePath): int
+    {
+        if (method_exists(ImageFile::class, 'exifOrientation')) {
+            return ImageFile::exifOrientation($sourcePath) ?? 1;
+        }
+
+        if (!function_exists('exif_read_data')) {
+            return 1;
+        }
+        $exif = @exif_read_data($sourcePath);
+
+        return is_array($exif) ? (int) ($exif['Orientation'] ?? 1) : 1;
+    }
+
+    /**
+     * Whether the source can be decoded within the limits core checks before
+     * it decodes an image (Grav 2.2.35+): no more JPEG scans than
+     * ImageFile::MAX_JPEG_SCANS, each of which is a pass over the whole image,
+     * and no more memory than memory_limit leaves for PHP's bundled GD, where
+     * running out is a fatal error. Without those core helpers nothing is
+     * refused here.
+     */
+    private function withinDecodeLimits(string $sourcePath, string $mime): bool
+    {
+        if ($mime === 'image/jpeg'
+            && defined(ImageFile::class . '::MAX_JPEG_SCANS')
+            && method_exists(ImageFile::class, 'jpegScanCount')
+            && ImageFile::jpegScanCount($sourcePath, ImageFile::MAX_JPEG_SCANS + 1) > ImageFile::MAX_JPEG_SCANS
+        ) {
+            return false;
+        }
+
+        if (method_exists(ImageFile::class, 'decodeBytes')) {
+            $needed = ImageFile::decodeBytes($sourcePath);
+            $left = $needed !== null ? $this->gdMemoryLeft() : null;
+            if ($needed !== null && $left !== null && $needed > $left) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * What is left of memory_limit for GD, as core's ImageFile::memoryLeft()
+     * works it out. That one goes by the site's image adapter; thumbnails are
+     * always made with GD. Null when GD allocates outside memory_limit (a
+     * system libgd) or there is no limit.
+     */
+    private function gdMemoryLeft(): ?int
+    {
+        $limit = trim((string) ini_get('memory_limit'));
+        if (!(defined('GD_BUNDLED') && GD_BUNDLED) || (int) $limit <= 0) {
+            return null;
+        }
+
+        $unit = strtolower(substr($limit, -1));
+        $bytes = (float) $limit * (1024 ** max(0, (int) strpos('bkmg', $unit)));
+        $margin = defined(ImageFile::class . '::MEMORY_MARGIN') ? (int) ImageFile::MEMORY_MARGIN : 0;
+
+        return (int) $bytes - memory_get_usage(true) - $margin;
     }
 
     /**
