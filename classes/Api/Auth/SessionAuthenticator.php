@@ -63,6 +63,14 @@ class SessionAuthenticator implements AuthenticatorInterface
                             return null;
                         }
 
+                        // The account was deleted and its username given to a new
+                        // account since this session signed in. Same check as core's
+                        // Session::refreshUser() (2.2.35+), for older cores.
+                        $created = (int) $fresh->get('created', 0);
+                        if ($created > 0 && $created !== (int) $user->get('created', 0)) {
+                            return null;
+                        }
+
                         $user->set('state', $fresh->get('state', 'enabled'));
                         $user->set('access', $fresh->get('access'));
                         $user->set('groups', $fresh->get('groups'));

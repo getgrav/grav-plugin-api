@@ -5,6 +5,7 @@
     * Removing an account's avatar only deletes a file in the avatars folder, and an avatar is only shown from the accounts folder. Changing your own avatar now needs API access, like the other changes to your own account
     * A user manager who is not a super admin can no longer change an account that is a super admin through a group defined in another environment's configuration
     * Saving a group no longer undoes a change another save made to a different group at the same time
+    * A browser session signed in to a deleted account no longer reaches the API after a new account is given the same username
 
 # v1.1.25
 ## 11/24/2026

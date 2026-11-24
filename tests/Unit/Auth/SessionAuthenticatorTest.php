@@ -109,6 +109,29 @@ class SessionAuthenticatorTest extends TestCase
         self::assertNotNull($this->authenticate($this->accounts(['editor' => $fresh]), ['api_tokens_valid_after' => 2000]));
     }
 
+    #[Test]
+    public function a_session_of_a_deleted_account_is_rejected_by_a_new_account_with_the_same_username(): void
+    {
+        $recreated = TestHelper::createMockUser('editor', [
+            'access'  => ['api' => ['access' => true, 'super' => true]],
+            'created' => 3000,
+        ]);
+
+        self::assertNull($this->authenticate($this->accounts(['editor' => $recreated]), ['created' => 1000]));
+        self::assertNull($this->authenticate($this->accounts(['editor' => $recreated])));
+    }
+
+    #[Test]
+    public function a_session_of_the_same_account_is_accepted(): void
+    {
+        $same = TestHelper::createMockUser('editor', ['access' => ['api' => ['access' => true]], 'created' => 3000]);
+        self::assertNotNull($this->authenticate($this->accounts(['editor' => $same]), ['created' => 3000]));
+
+        // Accounts made without `created` (Login registration, the CLI) are not compared.
+        $legacy = TestHelper::createMockUser('editor', ['access' => ['api' => ['access' => true]]]);
+        self::assertNotNull($this->authenticate($this->accounts(['editor' => $legacy])));
+    }
+
     /** @param array<string, mixed> $sessionData */
     private function authenticate(object $accounts, array $sessionData = []): ?UserInterface
     {
