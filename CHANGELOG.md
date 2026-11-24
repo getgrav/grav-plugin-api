@@ -10,6 +10,7 @@
     * A page can no longer be created, copied, moved or renamed to a folder name containing `|`, which Grav's page index can't list
     * Media and blueprint file uploads, and media renames, always refuse the file types Grav treats as dangerous, even when a site's own security settings hold an older list, and follow the same file name rules as form uploads
     * Thumbnails read a photo's orientation without decoding all of its metadata, and are skipped for images that would take too long or too much memory to decode, as Grav's own image processing does
+    * Blueprint file uploads can no longer write into a folder Grav may read as an environment's configuration, such as `user/<host>/config/` on a site without `user/env/`. Uploads into every other folder work as before
 
 # v1.1.25
 ## 11/24/2026

@@ -29,6 +29,12 @@ use Grav\Plugin\Api\Exceptions\ValidationException;
  */
 class BlueprintPathResolver
 {
+    /**
+     * Folders of an environment Grav loads on top of the site's own
+     * `user/config`, `user/blueprints` and `user/languages`.
+     */
+    private const ENVIRONMENT_CONFIG_FOLDERS = ['config', 'blueprints', 'languages'];
+
     public function __construct(
         private readonly Grav $grav,
     ) {}
@@ -215,7 +221,9 @@ class BlueprintPathResolver
     /**
      * Classify a resolved directory for the upload-side guards. Returns:
      *
-     *   - 'accounts', 'config', 'env': the config-bearing dirs under `user/`;
+     *   - 'accounts', 'config', 'env': the config-bearing dirs under `user/`,
+     *     where 'env' also covers the configuration folders of any folder Grav
+     *     may read as an environment (see isEnvironmentConfigDir());
      *   - 'templates': a folder Twig loads templates from (see isTemplateDir());
      *   - 'theme_or_plugin': anywhere inside `user/themes/` or `user/plugins/`;
      *   - 'outside': anywhere outside the user root;
@@ -281,6 +289,9 @@ class BlueprintPathResolver
         )));
         $roots = $this->userRoots();
 
+        if ($this->isEnvironmentConfigDir($targets, $roots)) {
+            return 'env';
+        }
         if ($this->isTemplateDir($targets, $roots)) {
             return 'templates';
         }
@@ -296,6 +307,71 @@ class BlueprintPathResolver
         }
 
         return 'outside';
+    }
+
+    /**
+     * Whether a directory is, or sits inside, the `config/` (or `blueprints/`,
+     * `languages/`) folder of a folder Grav may read as an environment, whose
+     * configuration it loads on top of the site's for requests whose Host
+     * names it.
+     *
+     * Without `user/env/` (the shipped layout) every folder directly below
+     * `user/` that no stream serves from is one: `user/<host>/config/`. Core
+     * lists the existing ones, for every layout, with
+     * Setup::getEnvironmentPaths() (Grav 2.2.35+). A folder directly below
+     * `user/` that does not exist yet would be one too once the upload creates
+     * it, so `user/<new>/config/` is refused as well, with any core. Uploading
+     * into a new folder anywhere else, or into any other existing folder, is
+     * unaffected.
+     *
+     * @param string[] $targets Logical path and realpath, '/'-separated.
+     * @param string[] $roots   User roots from userRoots().
+     */
+    private function isEnvironmentConfigDir(array $targets, array $roots): bool
+    {
+        $configDirs = [];
+
+        $setup = isset($this->grav['setup']) ? $this->grav['setup'] : null;
+        if (is_object($setup) && method_exists($setup, 'getEnvironmentPaths')) {
+            foreach ((array) $setup->getEnvironmentPaths() as $path) {
+                $paths = [rtrim(str_replace('\\', '/', (string) $path), '/')];
+                if (($real = realpath((string) $path)) !== false) {
+                    $paths[] = rtrim(str_replace('\\', '/', $real), '/');
+                }
+                foreach ($paths as $envPath) {
+                    foreach (self::ENVIRONMENT_CONFIG_FOLDERS as $folder) {
+                        $configDirs[] = $envPath . '/' . $folder;
+                    }
+                }
+            }
+        }
+
+        foreach ($roots as $root) {
+            foreach ($targets as $target) {
+                if (!PathContainment::isWithin($target, $root, false, '/')) {
+                    continue;
+                }
+                $segments = explode('/', substr($target, strlen($root) + 1), 3);
+                if (count($segments) >= 2
+                    && in_array(strtolower($segments[1]), self::ENVIRONMENT_CONFIG_FOLDERS, true)
+                    && !file_exists($root . '/' . $segments[0])
+                ) {
+                    return true;
+                }
+            }
+        }
+
+        foreach ($configDirs as $configDir) {
+            foreach ($targets as $target) {
+                // Compared case-insensitively: on a case-insensitive filesystem
+                // `Config/` is the same folder, and elsewhere this only refuses more.
+                if (PathContainment::isWithin(strtolower($target), strtolower($configDir), true, '/')) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**

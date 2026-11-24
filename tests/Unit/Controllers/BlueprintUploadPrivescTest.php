@@ -62,7 +62,7 @@ class BlueprintUploadPrivescTest extends TestCase
         rmdir($dir);
     }
 
-    private function buildController(): BlueprintUploadController
+    private function buildController(?array $environmentPaths = null): BlueprintUploadController
     {
         $userRoot = $this->userRoot;
         $config = new Config([
@@ -96,12 +96,20 @@ class BlueprintUploadPrivescTest extends TestCase
             }
         };
 
-        TestHelper::createMockGrav([
+        $services = [
             'config'      => $config,
             'locator'     => $locator,
             'permissions' => new Permissions(),
             'uri'         => new class { public function rootUrl(): string { return ''; } },
-        ]);
+        ];
+        if ($environmentPaths !== null) {
+            // Core's Setup::getEnvironmentPaths() (Grav 2.2.35+).
+            $services['setup'] = new class ($environmentPaths) {
+                public function __construct(private array $paths) {}
+                public function getEnvironmentPaths(): array { return $this->paths; }
+            };
+        }
+        TestHelper::createMockGrav($services);
 
         return new BlueprintUploadController(\Grav\Common\Grav::instance(), $config);
     }
@@ -327,6 +335,74 @@ class BlueprintUploadPrivescTest extends TestCase
         $this->expectException(ForbiddenException::class);
         $this->expectExceptionMessageMatches('/env.*not allowed/i');
         $controller->upload($request);
+    }
+
+    /**
+     * Without `user/env/`, core reads `user/<host>/config/` as the
+     * configuration of the environment the Host names. A blueprint upload may
+     * not create one, or write into one that exists.
+     *
+     * @return array<string, array{string, ?array}>
+     */
+    public static function environmentConfigDestinations(): array
+    {
+        return [
+            'new host folder' => ['example.com/config/system', null],
+            'new host folder, other case' => ['Example.com/Config', null],
+            'new host folder, blueprints' => ['example.com/blueprints/pages', null],
+            'new host folder with core list' => ['example.com/config', []],
+            'existing environment folder' => ['legacy.example.com/config', ['legacy.example.com']],
+            'existing environment folder, languages' => ['legacy.example.com/languages', ['legacy.example.com']],
+        ];
+    }
+
+    #[Test]
+    #[\PHPUnit\Framework\Attributes\DataProvider('environmentConfigDestinations')]
+    public function uploads_into_an_environments_configuration_are_rejected(string $destination, ?array $environments): void
+    {
+        @mkdir($this->userRoot . '/legacy.example.com', 0775, true);
+        $caller = TestHelper::createMockUser('uploader', [
+            'access' => ['api' => ['access' => true, 'super' => true]],
+        ]);
+
+        $controller = $this->buildController($environments === null ? null : array_map(fn ($e) => $this->userRoot . '/' . $e, $environments));
+        $request = $this->makeRequest($caller, [
+            'destination' => $destination,
+            'scope'       => '',
+        ], ['file' => $this->makeUpload('logo.png', 'png-bytes')]);
+
+        try {
+            $controller->upload($request);
+            self::fail('The upload was accepted.');
+        } catch (ForbiddenException $e) {
+            self::assertStringContainsString("environment's folder or configuration", $e->getMessage());
+        }
+        self::assertDirectoryDoesNotExist($this->userRoot . '/' . $destination);
+    }
+
+    /** @return array<string, array{string}> */
+    public static function ordinaryDestinations(): array
+    {
+        return [
+            'new folder below user' => ['uploads'],
+            'new folder below user, nested' => ['uploads/2026/config'],
+            'existing environment folder, not its configuration' => ['legacy.example.com/images'],
+            'a config folder further down' => ['data/files/config'],
+        ];
+    }
+
+    #[Test]
+    #[\PHPUnit\Framework\Attributes\DataProvider('ordinaryDestinations')]
+    public function uploads_into_other_folders_still_work(string $destination): void
+    {
+        @mkdir($this->userRoot . '/legacy.example.com', 0775, true);
+        @mkdir($this->userRoot . '/data', 0775, true);
+        $this->buildController([$this->userRoot . '/legacy.example.com']);
+        // The folder the upload would create is no protected directory. (The
+        // stubbed core here can't create folders, so the guard is asked directly.)
+        $resolver = new \Grav\Plugin\Api\Services\BlueprintPathResolver(\Grav\Common\Grav::instance());
+
+        $this->assertNull($resolver->classifyTargetDir($this->userRoot . '/' . $destination));
     }
 
     // ------------------------------------------------------------------
