@@ -14,6 +14,7 @@ use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\FlexBackend;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Grav\Plugin\Api\Serializers\GroupSerializer;
+use RocketTheme\Toolbox\File\File;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -148,9 +149,8 @@ class GroupsController extends AbstractApiController
 
         $entry = $this->normalizeGroupPayload($body);
         $entry['groupname'] = $groupname;
-        $groups[$groupname] = $entry;
 
-        $this->saveGroupsArray($groups);
+        $this->saveGroupRow($groupname, $entry, true);
 
         $this->fireEvent('onApiGroupCreated', ['groupname' => $groupname, 'group' => $entry]);
 
@@ -196,8 +196,7 @@ class GroupsController extends AbstractApiController
         // Renames are out of scope — groupname is the storage key.
         $merged['groupname'] = (string) $name;
 
-        $groups[$name] = $merged;
-        $this->saveGroupsArray($groups);
+        $this->saveGroupRow((string) $name, $merged);
 
         $this->fireEvent('onApiGroupUpdated', ['groupname' => $name, 'group' => $merged]);
 
@@ -216,8 +215,7 @@ class GroupsController extends AbstractApiController
             throw new NotFoundException("Group '{$name}' not found.");
         }
 
-        unset($groups[$name]);
-        $this->saveGroupsArray($groups);
+        $this->saveGroupRow((string) $name, null);
 
         $this->fireEvent('onApiGroupDeleted', ['groupname' => $name]);
 
@@ -250,7 +248,7 @@ class GroupsController extends AbstractApiController
 
     /**
      * Load groups straight from the base user/config/groups.yaml: the file the
-     * Flex `user-groups` directory stores to, and the one saveGroupsArray()
+     * Flex `user-groups` directory stores to, and the one saveGroupRow()
      * writes. Not `$this->config->get('groups')`: that has env overlays merged
      * in, so a group from an overlay was found here but not by Flex, and saving
      * the merged array baked overlay-only groups into the base file.
@@ -272,19 +270,35 @@ class GroupsController extends AbstractApiController
     {
         /** @var \RocketTheme\Toolbox\ResourceLocator\UniformResourceLocator $locator */
         $locator = $this->grav['locator'];
+
+        // Resolved the way the Flex storage resolves its `user://config/groups.yaml`
+        // (UniformResourceLocator::getResource()), so both name the file, and the
+        // lock taken for it, with the same string.
+        $file = $locator->findResource('user://config/groups.yaml', true)
+            ?: $locator->findResource('user://config/groups.yaml', true, true);
+        if (is_string($file) && $file !== '') {
+            return $file;
+        }
+
         $userConfig = $locator->findResource('user://config', true);
 
         return $userConfig ? $userConfig . '/groups.yaml' : null;
     }
 
     /**
-     * Persist groups back to user/config/groups.yaml. Writes to the base
-     * config file (not an env overlay) so saved groups are visible in every
-     * environment — mirrors how classic admin's groups page writes.
+     * Write one group (or remove it, with null) in user/config/groups.yaml.
+     * Writes to the base config file (not an env overlay) so saved groups are
+     * visible in every environment, as classic admin's groups page
+     * writes.
      *
-     * @param array<string, array<string, mixed>> $groups
+     * Holds the lock Flex's SimpleStorage takes to save the same file and reads
+     * the file again under it, so a group saved meanwhile, here or through Flex,
+     * is not undone by writing back the copy read at the start of the request.
+     *
+     * @param array<string, mixed>|null $entry
+     * @param bool $create Refuse when the group exists by now.
      */
-    private function saveGroupsArray(array $groups): void
+    private function saveGroupRow(string $name, ?array $entry, bool $create = false): void
     {
         $grav = Grav::instance();
 
@@ -293,7 +307,30 @@ class GroupsController extends AbstractApiController
             throw new \RuntimeException('Base user/config directory not found.');
         }
 
-        file_put_contents($filePath, Yaml::dump($groups, 99, 2));
+        // Same lock file as core's SimpleStorage::lockFile() (Grav 2.2.35+).
+        $lock = File::instance(CACHE_DIR . 'compiled/files/' . md5($filePath) . '.lock');
+        try {
+            $lock->lock();
+        } catch (\RuntimeException) {
+            // Carry on without the lock if it cannot be created, as core does.
+        }
+
+        try {
+            clearstatcache(true, $filePath);
+            $groups = $this->loadGroupsArray();
+            if ($create && isset($groups[$name])) {
+                throw new ConflictException("Group '{$name}' already exists.");
+            }
+            if ($entry === null) {
+                unset($groups[$name]);
+            } else {
+                $groups[$name] = $entry;
+            }
+
+            file_put_contents($filePath, Yaml::dump($groups, 99, 2));
+        } finally {
+            $lock->free();
+        }
 
         // Reflect in-memory so subsequent reads in the same request see it.
         $this->config->set('groups', $groups);

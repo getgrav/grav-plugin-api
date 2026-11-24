@@ -8,6 +8,7 @@ use Grav\Common\Config\Config;
 use Grav\Common\Grav;
 use Grav\Common\Yaml;
 use Grav\Plugin\Api\Controllers\GroupsController;
+use Grav\Plugin\Api\Exceptions\ConflictException;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Tests\Unit\TestHelper;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -19,7 +20,10 @@ use PHPUnit\Framework\TestCase;
  * update()/delete() checked the merged `groups` config, so a group show()
  * found could 404 on update/delete, and an env-overlay-only group could be
  * baked into the base file on the next save. Every path now reads the base
- * file, the same one Flex stores to and saveGroupsArray() writes.
+ * file, the same one Flex stores to and saveGroupRow() writes.
+ *
+ * Writes take the lock core's SimpleStorage takes for the same file and read
+ * the file again under it, so a group saved meanwhile is not undone.
  */
 #[CoversClass(GroupsController::class)]
 class GroupsControllerStorageTest extends TestCase
@@ -89,6 +93,55 @@ class GroupsControllerStorageTest extends TestCase
         self::assertSame(200, $response->getStatusCode());
     }
 
+    #[Test]
+    public function a_write_keeps_a_group_saved_since_the_request_read_the_file(): void
+    {
+        $controller = $this->controller(['groups' => []]);
+        $file = $this->tmp . '/user/config/groups.yaml';
+
+        // Another save (Flex or a second request) adds `authors` after this
+        // request read the file, then this request writes `writers`.
+        file_put_contents($file, Yaml::dump([
+            'editors' => ['groupname' => 'editors', 'enabled' => true, 'access' => []],
+            'authors' => ['groupname' => 'authors', 'enabled' => false, 'access' => []],
+        ]));
+        $this->saveRow($controller, 'writers', ['groupname' => 'writers', 'access' => []]);
+
+        $stored = Yaml::parse((string) file_get_contents($file));
+        self::assertSame(['editors', 'authors', 'writers'], array_keys($stored));
+        self::assertFalse($stored['authors']['enabled']);
+    }
+
+    #[Test]
+    public function create_refuses_a_group_that_appeared_meanwhile(): void
+    {
+        $controller = $this->controller(['groups' => []]);
+
+        $this->expectException(ConflictException::class);
+        $this->saveRow($controller, 'editors', ['groupname' => 'editors', 'access' => ['admin' => ['super' => true]]], true);
+    }
+
+    #[Test]
+    public function the_write_takes_the_lock_file_core_takes_for_groups_yaml(): void
+    {
+        $controller = $this->controller(['groups' => []]);
+        $file = $this->tmp . '/user/config/groups.yaml';
+        // Core: SimpleStorage::lockFile($file->filename()).
+        $lock = CACHE_DIR . 'compiled/files/' . md5($file) . '.lock';
+        @unlink($lock);
+
+        $controller->delete($this->request('DELETE', 'editors'));
+
+        self::assertFileExists($lock);
+        @unlink($lock);
+    }
+
+    private function saveRow(GroupsController $controller, string $name, ?array $entry, bool $create = false): void
+    {
+        $method = new \ReflectionMethod($controller, 'saveGroupRow');
+        $method->invoke($controller, $name, $entry, $create);
+    }
+
     /**
      * @param array<string, mixed> $config
      */
@@ -102,7 +155,11 @@ class GroupsControllerStorageTest extends TestCase
 
             public function findResource(string $uri, bool $absolute = true, bool $first = false): string|false
             {
-                return $uri === 'user://config' ? $this->root . '/user/config' : false;
+                return match ($uri) {
+                    'user://config' => $this->root . '/user/config',
+                    'user://config/groups.yaml' => is_file($this->root . '/user/config/groups.yaml') ? $this->root . '/user/config/groups.yaml' : false,
+                    default => false,
+                };
             }
         };
         $grav['cache'] = new class {
