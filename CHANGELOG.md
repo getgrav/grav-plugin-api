@@ -6,6 +6,7 @@
     * A user manager who is not a super admin can no longer change an account that is a super admin through a group defined in another environment's configuration
     * Saving a group no longer undoes a change another save made to a different group at the same time
     * A browser session signed in to a deleted account no longer reaches the API after a new account is given the same username
+    * Changing a page's template on a multi-language site is refused when the page's language is not one of the site's languages, since the language becomes part of the new file name
 
 # v1.1.25
 ## 11/24/2026

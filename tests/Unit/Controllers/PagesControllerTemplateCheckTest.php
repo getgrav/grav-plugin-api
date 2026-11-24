@@ -85,7 +85,7 @@ class PagesControllerTemplateCheckTest extends TestCase
      * @param list<string> $twigTemplates templates only Twig knows (a plugin's Twig path)
      * @param array<string, PageInterface> $pages pages served by find()
      */
-    private function controller(?array $modular = self::MODULAR, array $twigTemplates = [], array $pages = []): PagesController
+    private function controller(?array $modular = self::MODULAR, array $twigTemplates = [], array $pages = [], ?object $language = null): PagesController
     {
         $config = new Config([
             'plugins' => ['api' => ['route' => '/api', 'version_prefix' => 'v1']],
@@ -143,7 +143,7 @@ class PagesControllerTemplateCheckTest extends TestCase
                 }
             };
 
-        $language = new class {
+        $language ??= new class {
             public function getActive(): ?string { return null; }
 
             public function enabled(): bool { return false; }
@@ -735,6 +735,31 @@ class PagesControllerTemplateCheckTest extends TestCase
 
         self::assertSame(200, $response->getStatusCode());
         self::assertArrayNotHasKey('warnings', $this->data($response));
+    }
+
+    #[Test]
+    public function update_refuses_a_template_switch_when_the_page_language_is_not_a_site_language(): void
+    {
+        // A page's language can come from its own frontmatter, and it becomes
+        // part of the new file name.
+        $multiLang = new class {
+            public function getActive(): ?string { return null; }
+            public function enabled(): bool { return true; }
+            public function resetFallbackPageExtensions(): void {}
+            public function validate(string $lang): bool { return in_array($lang, ['en', 'fr'], true); }
+            public function getLanguages(): array { return ['en', 'fr']; }
+            public function getDefault(): string { return 'en'; }
+        };
+
+        $page = $this->pageOnDisk('odd', 'default.md', 'default', false);
+        $page->method('language')->willReturn('de');
+        $page->expects(self::never())->method('save');
+        $controller = $this->controller(pages: ['/parent/odd' => $page], language: $multiLang);
+
+        $e = $this->refused(fn () => $controller->update($this->request(['template' => 'blog'], ['route' => 'parent/odd'], 'PATCH')));
+
+        self::assertStringContainsString("Invalid language code 'de'", $e->getMessage());
+        self::assertSame(['default.md'], $this->listing('parent/odd'));
     }
 
     #[Test]

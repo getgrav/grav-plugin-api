@@ -1291,6 +1291,13 @@ class PagesController extends AbstractApiController
                 // leave the original module untouched (admin2#69). buildPageFilename()
                 // strips the prefix (basename) and handles the language extension.
                 $lang = $page->language() ?: null;
+                // The language goes into the new file name, and a page's
+                // language can come from its own frontmatter, so it has to be
+                // one of the site's languages (the other callers check theirs).
+                // buildPageFilename() leaves it out without multi-language.
+                if ($lang !== null && $this->isMultiLangEnabled()) {
+                    $this->validateLanguageCode($lang);
+                }
                 // The file the page was loaded from. template() is no guide to
                 // it when a `template` header overrides the display template.
                 $oldFilePath = $page->filePath()
