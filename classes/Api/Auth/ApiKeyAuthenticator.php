@@ -85,6 +85,13 @@ class ApiKeyAuthenticator implements AuthenticatorInterface
             return null;
         }
 
+        // A key created before this account was belongs to an earlier account
+        // with the same username.
+        $created = (int) $user->get('created', 0);
+        if ($created > 0 && (int) ($keyData['created'] ?? 0) < $created) {
+            return null;
+        }
+
         // Auto-rehash legacy SHA-256 keys to bcrypt
         if (!str_starts_with($keyData['hash'], '$2')) {
             $manager->rehashKey($keyId, $apiKey);

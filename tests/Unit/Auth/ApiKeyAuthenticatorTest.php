@@ -123,6 +123,29 @@ class ApiKeyAuthenticatorTest extends TestCase
     }
 
     #[Test]
+    public function key_created_before_the_account_is_refused(): void
+    {
+        // The key belonged to an earlier account with the same username.
+        $user = TestHelper::createMockUser('alice', ['created' => time()]);
+        $authenticator = $this->buildAuthenticator([
+            'key1' => [
+                'id' => 'key1',
+                'username' => 'alice',
+                'hash' => hash('sha256', self::RAW_KEY),
+                'active' => true,
+                'created' => time() - 3600,
+                'expires' => null,
+            ],
+        ], ['alice' => $user]);
+
+        $request = TestHelper::createMockRequest(
+            headers: ['X-API-Key' => self::RAW_KEY],
+        );
+
+        self::assertNull($authenticator->authenticate($request));
+    }
+
+    #[Test]
     public function authenticates_via_query_param(): void
     {
         $user = TestHelper::createMockUser('bob');

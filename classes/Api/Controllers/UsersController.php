@@ -1632,6 +1632,10 @@ class UsersController extends AbstractApiController
             throw new \RuntimeException('Failed to delete user account.');
         }
 
+        // The account's API keys go with it, so they can't sign in to a later
+        // account given the same username.
+        (new ApiKeyManager())->revokeAllFor($username);
+
         $this->fireEvent('onApiUserDeleted', ['username' => $username]);
 
         return ApiResponse::noContent(

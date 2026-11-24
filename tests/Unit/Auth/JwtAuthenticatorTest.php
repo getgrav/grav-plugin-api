@@ -579,6 +579,34 @@ class JwtAuthenticatorTest extends TestCase
     }
 
     #[Test]
+    public function refresh_token_from_an_earlier_account_with_the_same_username_is_rejected(): void
+    {
+        // An account deleted and later created again under the same username:
+        // tokens issued to the first one must not sign in to the second.
+        $earlier = TestHelper::createMockUser('reused');
+        $authenticator = $this->buildAuthenticator(['reused' => $earlier]);
+        $refreshToken = $authenticator->generateRefreshToken($earlier);
+        $accessToken = $authenticator->generateAccessToken($earlier);
+
+        $later = TestHelper::createMockUser('reused', ['created' => time() + 10]);
+        $authenticator = $this->buildAuthenticator(['reused' => $later]);
+
+        self::assertNull($authenticator->validateRefreshToken($refreshToken));
+        self::assertNull($authenticator->authenticate(TestHelper::createMockRequest(
+            headers: ['Authorization' => 'Bearer ' . $accessToken],
+        )));
+    }
+
+    #[Test]
+    public function token_issued_after_the_account_was_created_is_accepted(): void
+    {
+        $user = TestHelper::createMockUser('fresh', ['created' => time() - 10]);
+        $authenticator = $this->buildAuthenticator(['fresh' => $user]);
+
+        self::assertNotNull($authenticator->validateRefreshToken($authenticator->generateRefreshToken($user)));
+    }
+
+    #[Test]
     public function token_query_param_ignored_on_json_route(): void
     {
         // GHSA-hqm9-5xxw-4qxp: a JWT in `?token=` must not authenticate ordinary
