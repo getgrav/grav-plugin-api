@@ -30,6 +30,10 @@ trait StoresMediaUploads
                 if (!is_file($temporary) || filesize($temporary) === 0) {
                     throw new ValidationException("'{$filename}' could not be read as SVG markup, so it was not saved.");
                 }
+            } elseif ($this->isUntypedMarkup($temporary, $filename)) {
+                throw new ValidationException(
+                    "'{$filename}' holds markup under a file type this site does not recognise, so it was not saved."
+                );
             }
 
             if (!rename($temporary, $targetPath)) {
@@ -71,6 +75,28 @@ trait StoresMediaUploads
         }
 
         return preg_match('/<(?:[A-Za-z_][\w.-]*:)?svg(?=[\s\/>])/i', $head) === 1;
+    }
+
+    /**
+     * Whether the file starts with markup (`<`, once a byte order mark and
+     * whitespace are skipped) and its extension has no type in `media.types`.
+     *
+     * Apache and Caddy send a file under an extension they can't type with no
+     * Content-Type at all, and the browser then reads markup in it as a page
+     * and runs its script in the site's origin. A site that needs such files
+     * (KML, GPX, ...) adds the extension to `media.types` with its MIME type.
+     */
+    protected function isUntypedMarkup(string $path, string $filename): bool
+    {
+        $extension = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+        $mime = $extension !== 'defaults' ? $this->config->get("media.types.{$extension}.mime") : null;
+        if (is_string($mime) && $mime !== '' && $mime !== 'application/octet-stream') {
+            return false;
+        }
+
+        $head = ltrim((string) @file_get_contents($path, false, null, 0, 1024), "\xEF\xBB\xBF\xFE\xFF\0 \t\r\n\f");
+
+        return $head !== '' && $head[0] === '<';
     }
 
     /**

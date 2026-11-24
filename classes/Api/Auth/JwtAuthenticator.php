@@ -463,6 +463,13 @@ class JwtAuthenticator implements AuthenticatorInterface
             return false;
         }
 
+        // A token issued before this account was created belongs to an earlier
+        // account with the same username.
+        $created = (int) $user->get('created', 0);
+        if ($created > 0 && (int) ($decoded->iat ?? 0) < $created) {
+            return false;
+        }
+
         return true;
     }
 

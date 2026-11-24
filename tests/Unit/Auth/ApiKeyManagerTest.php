@@ -80,6 +80,21 @@ class ApiKeyManagerTest extends TestCase
     }
 
     #[Test]
+    public function revoke_all_for_deletes_only_that_users_keys(): void
+    {
+        $alice = TestHelper::createMockUser('alice');
+        $bob = TestHelper::createMockUser('bob');
+        $this->manager->generateKey($alice, 'one');
+        $this->manager->generateKey($alice, 'two');
+        $this->manager->generateKey($bob, 'three');
+
+        self::assertSame(2, $this->manager->revokeAllFor('alice'));
+        self::assertSame([], $this->manager->listKeys($alice));
+        self::assertCount(1, $this->manager->listKeys($bob));
+        self::assertSame(0, $this->manager->revokeAllFor('alice'));
+    }
+
+    #[Test]
     public function generate_key_returns_key_and_id(): void
     {
         $user = TestHelper::createMockUser('alice');

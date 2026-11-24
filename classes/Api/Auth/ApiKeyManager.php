@@ -114,6 +114,29 @@ class ApiKeyManager
     }
 
     /**
+     * Delete every API key of a username, e.g. when the account is deleted.
+     *
+     * @return int The number of keys deleted
+     */
+    public function revokeAllFor(string $username): int
+    {
+        $revoked = 0;
+
+        $this->updateKeys(static function (array $keys) use ($username, &$revoked): ?array {
+            foreach ($keys as $keyId => $keyData) {
+                if (is_array($keyData) && ($keyData['username'] ?? '') === $username) {
+                    unset($keys[$keyId]);
+                    $revoked++;
+                }
+            }
+
+            return $revoked > 0 ? $keys : null;
+        });
+
+        return $revoked;
+    }
+
+    /**
      * Verify a raw API key against a stored hash.
      */
     public static function verifyKey(string $rawKey, string $hash): bool

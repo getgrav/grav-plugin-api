@@ -1426,6 +1426,10 @@ class BlueprintController extends AbstractApiController
                 'destination', 'accept', 'random_name', 'avoid_overwriting', 'filesize', 'limit',
                 'use', 'key', 'controls', 'collapsed',
                 'show_all', 'show_modular', 'show_root', 'show_slug',
+                // pages field — classic's start_route / show_fullpath /
+                // limit_levels. A `config-start_route@` reference is already
+                // resolved to `start_route` by Blueprint::init().
+                'start_route', 'show_fullpath', 'limit_levels',
                 'placeholder_key', 'placeholder_value', 'value_type',
                 'btnLabel', 'placement', 'sortby', 'sortby_dir',
                 'sort', 'collapsible', 'min_height', 'selectunique',
