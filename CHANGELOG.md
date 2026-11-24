@@ -7,6 +7,7 @@
     * Saving a group no longer undoes a change another save made to a different group at the same time
     * A browser session signed in to a deleted account no longer reaches the API after a new account is given the same username
     * Changing a page's template on a multi-language site is refused when the page's language is not one of the site's languages, since the language becomes part of the new file name
+    * A page can no longer be created, copied, moved or renamed to a folder name containing `|`, which Grav's page index can't list
 
 # v1.1.25
 ## 11/24/2026

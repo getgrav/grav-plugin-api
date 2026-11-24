@@ -626,7 +626,9 @@ class PagesController extends AbstractApiController
      * becomes the new folder, joined onto the parent's path, so `.` or `..`
      * there would put the page file in the parent's folder or the one above it,
      * outside the page the request was authorized against. A separator or null
-     * byte has no place in a folder name either.
+     * byte has no place in a folder name either, and neither has `|`: it ends
+     * the folder path in a Flex page storage key, so a folder named with one
+     * drops out of the page index and every check that walks it.
      *
      * @throws ValidationException
      */
@@ -636,6 +638,7 @@ class PagesController extends AbstractApiController
         $last = (string) end($segments);
         $invalid = str_contains($route, '\\')
             || str_contains($route, "\0")
+            || str_contains($last, '|')
             || ($last !== '' && $last[0] === '.');
         foreach ($segments as $segment) {
             if ($segment === '.' || $segment === '..') {
@@ -3773,6 +3776,9 @@ class PagesController extends AbstractApiController
      * Folder::copy()'s recursive mkdir resolves `..`). Shared by move() and
      * batchCopy(). (GHSA-qjq4-jp55-4mx2, GHSA-g6j3-8jv9-ch5f)
      *
+     * `|` ends the folder path in a Flex page storage key, so a folder named
+     * with one drops out of the page index and every check that walks it.
+     *
      * @param mixed $value
      * @param string $field
      * @return string
@@ -3781,7 +3787,7 @@ class PagesController extends AbstractApiController
     {
         if (!is_string($value)
             || $value === ''
-            || preg_match('#[/\\\\]#', $value)
+            || preg_match('#[/\\\\|]#', $value)
             || str_contains($value, '..')
             || str_contains($value, "\0")) {
             throw new ValidationException("Invalid {$field}: must be a single path segment.");
@@ -3804,7 +3810,9 @@ class PagesController extends AbstractApiController
         // separator or traversal before it reaches Folder::copy() (whose
         // recursive mkdir resolves `..`). (GHSA-g6j3-8jv9-ch5f)
         $this->assertSinglePathSegment($suffix, 'suffix');
-        $destSlug = $page->slug() . $suffix;
+        // The page's slug can come from its own frontmatter, and it becomes the
+        // folder name too.
+        $destSlug = $this->assertSinglePathSegment($page->slug() . $suffix, 'slug');
 
         if ($destParent === '/') {
             $parent = method_exists($this->grav['pages'], 'root') ? $this->grav['pages']->root() : null;

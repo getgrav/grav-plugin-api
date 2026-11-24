@@ -470,6 +470,23 @@ class PagesControllerSlugClashTest extends TestCase
         self::assertSame(['01.bar', '02.baz', '03.bar-copy'], $this->listing());
     }
 
+    #[Test]
+    public function a_batch_copy_refuses_a_frontmatter_slug_that_is_not_one_folder_name(): void
+    {
+        // The slug a frontmatter `slug:` gives the page becomes the copy's folder.
+        $this->folders(['01.bar']);
+        $controller = $this->controller($this->parentPage($this->dir . '/parent', ['01.bar']));
+        $source = $this->pageAt('/parent/bar', 'guide|x', $this->dir . '/parent/01.bar');
+
+        try {
+            $this->call($controller, 'batchCopy', $this->request([]), $source, ['destination' => '/parent']);
+            self::fail('The copy was made.');
+        } catch (\Grav\Plugin\Api\Exceptions\ValidationException $e) {
+            self::assertStringContainsString('single path segment', $e->getMessage());
+        }
+        self::assertSame(['01.bar'], $this->listing());
+    }
+
     // -------------------------------------------------------
     // #53: clearing the pages cache clears the Flex index
     // -------------------------------------------------------
