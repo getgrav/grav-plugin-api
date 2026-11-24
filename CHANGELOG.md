@@ -1,3 +1,9 @@
+# v1.1.25
+## 11/24/2026
+
+1. [](#bugfix)
+    * Blueprint `pages` fields now pass `start_route`, `show_fullpath` and `limit_levels` to Admin2, including a `start_route` set from plugin config with `config-start_route@`, so a picker limited to part of the site (such as Module Reuse's "Start in" setting) lists only those pages
+
 # v1.1.24
 ## 11/22/2026
 

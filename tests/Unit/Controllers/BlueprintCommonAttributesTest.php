@@ -133,4 +133,28 @@ class BlueprintCommonAttributesTest extends TestCase
         $this->assertArrayHasKey('display_label', $fields[0]);
         $this->assertFalse($fields[0]['display_label']);
     }
+
+    #[Test]
+    public function pages_field_list_options_reach_the_browser(): void
+    {
+        // Classic's pages field limits its list with `start_route`,
+        // `show_fullpath` and `limit_levels`; without them in the allowlist a
+        // "Start in" setting such as module-reuse's did nothing in admin2.
+        $fields = $this->serialize([
+            'header.module' => [
+                'type' => 'pages',
+                'start_route' => '/root',
+                'show_all' => false,
+                'show_modular' => true,
+                'show_fullpath' => true,
+                'limit_levels' => 2,
+            ],
+        ]);
+
+        $this->assertSame('/root', $fields[0]['start_route']);
+        $this->assertFalse($fields[0]['show_all']);
+        $this->assertTrue($fields[0]['show_modular']);
+        $this->assertTrue($fields[0]['show_fullpath']);
+        $this->assertSame(2, $fields[0]['limit_levels']);
+    }
 }
