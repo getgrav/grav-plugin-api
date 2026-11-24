@@ -3,6 +3,7 @@
 
 1. [](#bugfix)
     * Blueprint `pages` fields now pass `start_route`, `show_fullpath` and `limit_levels` to Admin2, including a `start_route` set from plugin config with `config-start_route@`, so a picker limited to part of the site (such as Module Reuse's "Start in" setting) lists only those pages
+    * Media, site media and blueprint file uploads refuse a file that starts with markup when its extension has no type in `media.types`, since the web server may send such a file with no Content-Type. Sites that attach XML formats such as KML or GPX can add the extension to `media.types` with its MIME type
 
 # v1.1.24
 ## 11/22/2026
