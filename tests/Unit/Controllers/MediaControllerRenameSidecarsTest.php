@@ -55,4 +55,47 @@ final class MediaControllerRenameSidecarsTest extends TestCase
             rmdir($dir);
         }
     }
+
+    public static function namesWithAnotherExtension(): array
+    {
+        return [
+            ['note.var.jpg'],
+            ['note.php.jpg'],
+            ['note.phar.jpg'],
+        ];
+    }
+
+    /**
+     * A rename keeps the source's last extension, but the new stem keeps its
+     * dots, so it gets the same extension checks as an upload.
+     */
+    #[DataProvider('namesWithAnotherExtension')]
+    public function testARenameCannotAddADangerousExtension(string $to): void
+    {
+        $dir = sys_get_temp_dir() . '/api-media-rename-' . bin2hex(random_bytes(6));
+        mkdir($dir);
+        file_put_contents($dir . '/note.jpg', 'jpg');
+        $locator = new class ($dir) {
+            public function __construct(private string $dir) {}
+            public function findResource(...$args): string { return $this->dir; }
+        };
+        $config = new Config(['security' => ['uploads_dangerous_extensions' => ['php', 'html']]]);
+        $grav = TestHelper::createMockGrav(['config' => $config, 'locator' => $locator]);
+        $user = TestHelper::createMockUser('editor', ['access' => ['api' => ['access' => true, 'media' => ['write' => true]]]]);
+        try {
+            try {
+                (new MediaController($grav, $config))->renameFile(TestHelper::createMockRequest(
+                    method: 'POST', body: json_encode(['from' => 'note.jpg', 'to' => $to]),
+                    attributes: ['api_user' => $user, 'json_body' => ['from' => 'note.jpg', 'to' => $to]],
+                ));
+                self::fail('Expected a validation response.');
+            } catch (ValidationException $e) {
+                self::assertSame(422, $e->getStatusCode());
+            }
+            self::assertSame(['note.jpg'], array_map('basename', glob($dir . '/*')));
+        } finally {
+            foreach (glob($dir . '/*') as $file) unlink($file);
+            rmdir($dir);
+        }
+    }
 }

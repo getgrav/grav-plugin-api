@@ -963,6 +963,9 @@ class MediaController extends AbstractApiController
         $rawTo = str_replace('\\', '/', (string) $body['to']);
         $toDir = trim(dirname($rawTo), '/.');
         $toName = $this->sanitizeMediaFilename(basename($rawTo), $originalExt);
+        // The stem keeps its dots, so the new name can carry extensions the old
+        // one did not (`note.var.jpg`). Same checks as an upload.
+        $this->validateFileExtension($toName);
         $to = $this->validateRelativePath(($toDir !== '' ? $toDir . '/' : '') . $toName, $mediaPath);
 
         foreach ([$from, $rawTo, $to] as $name) {

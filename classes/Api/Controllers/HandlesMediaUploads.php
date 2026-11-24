@@ -187,6 +187,9 @@ trait HandlesMediaUploads
                 );
             }
         }
+
+        // Core's floor and filename rules on top, whatever the site's list says.
+        UploadFieldSettings::assertCoreFilenameRules($filename);
     }
 
     /**

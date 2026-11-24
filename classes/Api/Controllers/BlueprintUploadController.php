@@ -348,6 +348,7 @@ class BlueprintUploadController extends AbstractApiController
         // allowlist. Both run against the original name; random_name/
         // avoid_overwriting are applied afterwards and preserve the extension.
         $this->assertSafeExtension($filename, $isAccountsDir, $lifted);
+        UploadFieldSettings::assertCoreFilenameRules($filename);
         $settings?->assertAccepted($filename);
 
         if ($settings !== null) {

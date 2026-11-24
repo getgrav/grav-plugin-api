@@ -36,6 +36,38 @@ use function is_string;
 final class UploadFieldSettings
 {
     /**
+     * Extensions core refuses whatever `security.uploads_dangerous_extensions`
+     * says (a site's own security.yaml may be an older copy of the list): the
+     * PHP family, and `var`, which Apache on Debian and Ubuntu hands to its
+     * type-map handler. The same floor as core's Utils::checkFilename() from
+     * Grav 2.2.35, kept here so older cores get it too.
+     */
+    public const DANGEROUS_EXTENSIONS_FLOOR = [
+        'php', 'php2', 'php3', 'php4', 'php5', 'php7', 'php8', 'phar', 'phtml', 'pht', 'phtm', 'phps', 'var',
+    ];
+
+    /**
+     * Refuse a file name core's upload rules refuse: any dot-separated part on
+     * the floor above (also URL-decoded), and whatever Utils::checkFilename()
+     * refuses. Part of the server-side floor every upload endpoint applies.
+     *
+     * @throws ValidationException
+     */
+    public static function assertCoreFilenameRules(string $filename): void
+    {
+        foreach (array_slice(explode('.', strtolower($filename)), 1) as $part) {
+            $decoded = strtolower(trim(rawurldecode($part)));
+            if (in_array($part, self::DANGEROUS_EXTENSIONS_FLOOR, true) || in_array($decoded, self::DANGEROUS_EXTENSIONS_FLOOR, true)) {
+                throw new ValidationException("File extension '.{$decoded}' is not allowed for security reasons.");
+            }
+        }
+
+        if (!Utils::checkFilename($filename)) {
+            throw new ValidationException("Invalid filename: '{$filename}'.");
+        }
+    }
+
+    /**
      * @param string[] $accept
      */
     private function __construct(

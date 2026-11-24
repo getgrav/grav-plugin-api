@@ -661,6 +661,28 @@ namespace Grav\Common {
          */
         class Utils
         {
+            /**
+             * Mirrors core's checkFilename() (2.2.35), which HandlesMediaUploads
+             * runs on every uploaded or renamed file name.
+             */
+            public static function checkFilename($filename): bool
+            {
+                $dangerous = array_merge(
+                    ['php', 'php2', 'php3', 'php4', 'php5', 'php7', 'php8', 'phar', 'phtml', 'pht', 'phtm', 'phps', 'var'],
+                    array_map('mb_strtolower', (array) \Grav\Common\Grav::instance()['config']->get('security.uploads_dangerous_extensions', []))
+                );
+                $extensions = array_map('mb_strtolower', array_slice(explode('.', (string) $filename), 1));
+
+                return !(
+                    !$filename
+                    || strtr($filename, "\t\v\n\r\0\\/", '_______') !== $filename
+                    || trim($filename, '. ') !== $filename
+                    || str_replace('..', '', $filename) !== $filename
+                    || strtr($filename, '<>"', '___') !== $filename
+                    || array_intersect($extensions, $dangerous)
+                );
+            }
+
             /** Mirrors core's unicode-safe basename(), which core's Security calls. */
             public static function basename($path, string $suffix = ''): string
             {
