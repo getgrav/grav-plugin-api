@@ -1,3 +1,9 @@
+# v1.1.26
+## 11/24/2026
+
+1. [](#bugfix)
+    * Removing an account's avatar only deletes a file in the avatars folder, and an avatar is only shown from the accounts folder. Changing your own avatar now needs API access, like the other changes to your own account
+
 # v1.1.25
 ## 11/24/2026
 

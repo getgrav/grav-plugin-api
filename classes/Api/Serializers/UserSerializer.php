@@ -7,6 +7,7 @@ namespace Grav\Plugin\Api\Serializers;
 use DateTimeImmutable;
 use DateTimeZone;
 use Grav\Common\User\Interfaces\UserInterface;
+use Grav\Plugin\Api\Services\PathContainment;
 
 class UserSerializer implements SerializerInterface
 {
@@ -66,17 +67,40 @@ class UserSerializer implements SerializerInterface
         // Avatar is stored as { filename: { name, type, size, path } } or similar
         if (is_array($avatar) && !empty($avatar)) {
             $first = reset($avatar);
-            if (is_array($first) && isset($first['path'])) {
-                // path is relative to Grav root (e.g. user/accounts/avatars/file.jpg)
-                $filePath = GRAV_ROOT . '/' . $first['path'];
-
-                if (is_file($filePath)) {
+            if (is_array($first)) {
+                $filePath = self::storedAvatarFile($first['path'] ?? null);
+                if ($filePath !== null) {
                     return self::thumbnailUrl($filePath);
                 }
             }
         }
 
         return null;
+    }
+
+    /**
+     * The file a stored avatar `path` points at (relative to the Grav root, e.g.
+     * `user/accounts/avatars/file.jpg`), when it is a file inside $folder. The
+     * path is data from the account file, so a file anywhere else is never used.
+     *
+     * @param mixed  $path   The stored `path` value.
+     * @param string $folder Locator URI of the folder the file has to be in.
+     * @return string|null The resolved path, or null.
+     */
+    public static function storedAvatarFile(mixed $path, string $folder = 'account://'): ?string
+    {
+        if (!is_string($path) || $path === '' || str_contains($path, "\0")) {
+            return null;
+        }
+
+        $base = \Grav\Common\Grav::instance()['locator']->findResource($folder, true);
+        $base = is_string($base) ? realpath($base) : false;
+        $file = realpath(GRAV_ROOT . '/' . $path);
+        if ($base === false || $file === false || !is_file($file) || !PathContainment::isWithin($file, $base)) {
+            return null;
+        }
+
+        return $file;
     }
 
     private static function thumbnailUrl(string $filePath): ?string

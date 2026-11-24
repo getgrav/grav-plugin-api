@@ -1654,6 +1654,9 @@ class UsersController extends AbstractApiController
         $currentUser = $this->getUser($request);
         if ($currentUser->username !== $username) {
             $this->requirePermission($request, 'api.users.write');
+        } else {
+            // The self path needs api.access, like every other self-service route.
+            $this->requirePermission($request, 'api.access');
         }
         // Sibling gap found alongside GHSA-985r-mpj8-5rqw: overwriting a
         // super-admin's avatar re-saves their account from a lesser caller.
@@ -1739,18 +1742,21 @@ class UsersController extends AbstractApiController
         $currentUser = $this->getUser($request);
         if ($currentUser->username !== $username) {
             $this->requirePermission($request, 'api.users.write');
+        } else {
+            // The self path needs api.access, like every other self-service route.
+            $this->requirePermission($request, 'api.access');
         }
         // Sibling gap found alongside GHSA-985r-mpj8-5rqw.
         $this->requireNotSuperTarget($request, $user);
 
-        // Delete avatar file(s)
+        // Delete avatar file(s). The path comes from the account file, so only a
+        // file inside the avatars folder is removed, never one it points at elsewhere.
         $avatar = $user->get('avatar');
         if (is_array($avatar)) {
             foreach ($avatar as $entry) {
-                if (is_array($entry) && isset($entry['path'])) {
-                    // path is relative to Grav root (e.g. user/accounts/avatars/file.jpg)
-                    $filePath = GRAV_ROOT . '/' . $entry['path'];
-                    if (file_exists($filePath)) {
+                if (is_array($entry)) {
+                    $filePath = UserSerializer::storedAvatarFile($entry['path'] ?? null, 'account://avatars');
+                    if ($filePath !== null) {
                         @unlink($filePath);
                     }
                 }
