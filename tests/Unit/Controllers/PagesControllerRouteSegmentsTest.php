@@ -15,6 +15,11 @@ use ReflectionMethod;
 /**
  * The route a page is created or copied to is made of page folder names: its
  * last segment becomes the new folder, so `.` and `..` are refused.
+ *
+ * `|` ends the folder path in a Flex page storage key, so a folder named with
+ * one drops out of the page index, and the descendant checks of a delete
+ * never see what is under it. It is refused in every new folder name: the
+ * route of a create or copy, the slug of a move, and a batch copy's name.
  */
 #[CoversClass(PagesController::class)]
 class PagesControllerRouteSegmentsTest extends TestCase
@@ -35,6 +40,8 @@ class PagesControllerRouteSegmentsTest extends TestCase
             'hidden folder' => ['/blog/.post'],
             'backslash' => ['/blog/..\\post'],
             'null byte' => ["/blog/post\0"],
+            'pipe' => ['/docs/guide|x'],
+            'pipe with an order prefix' => ['/docs/01.guide|x'],
         ];
     }
 
@@ -56,6 +63,29 @@ class PagesControllerRouteSegmentsTest extends TestCase
             'module' => ['/home/_hero'],
             'dots inside a name' => ['/docs/v1.2'],
         ];
+    }
+
+    /** @return array<string, array{mixed}> */
+    public static function invalidSegments(): array
+    {
+        return [
+            'pipe' => ['guide|x'],
+            'slash' => ['a/b'],
+            'backslash' => ['a\\b'],
+            'parent' => ['..'],
+            'empty' => [''],
+            'not a string' => [['x']],
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('invalidSegments')]
+    public function a_moved_or_copied_folder_name_is_one_plain_segment(mixed $value): void
+    {
+        $controller = (new \ReflectionClass(PagesController::class))->newInstanceWithoutConstructor();
+
+        $this->expectException(ValidationException::class);
+        (new ReflectionMethod(PagesController::class, 'assertSinglePathSegment'))->invoke($controller, $value, 'slug');
     }
 
     #[Test]

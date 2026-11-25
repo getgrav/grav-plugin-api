@@ -1418,6 +1418,42 @@ abstract class AbstractApiController
     }
 
     /**
+     * Hash a plain-text password an account still holds.
+     *
+     * An account written by hand (the Login plugin's "manual user creation") or
+     * brought in by a WordPress or Drupal import keeps its `password:` in plain
+     * text until its owner first signs in. Saving the account hashes and removes
+     * it, so do that as soon as the API is about to show the account instead of
+     * leaving it readable on disk until then. Accounts without one cost a couple
+     * of property reads. A failed save is logged and never breaks the response.
+     */
+    protected function hashPlainPassword(UserInterface $user): void
+    {
+        $plain = false;
+        foreach (['password', 'password1'] as $key) {
+            $value = $user->get($key);
+            if ($value !== null && $value !== '') {
+                $plain = true;
+                break;
+            }
+        }
+
+        if (!$plain || !$user->exists()) {
+            return;
+        }
+
+        try {
+            $user->save();
+        } catch (\Throwable $e) {
+            if (isset($this->grav['log'])) {
+                $this->grav['log']->warning(
+                    'api: could not hash the plain-text password of account "' . $user->username . '": ' . $e->getMessage()
+                );
+            }
+        }
+    }
+
+    /**
      * The canonical "who am I / what can I do" envelope for a user, shared by
      * every login transport's token-pair response and GET /me so the two never
      * drift. Includes the resolved permission map and the per-account demo_mode
@@ -1427,6 +1463,8 @@ abstract class AbstractApiController
      */
     protected function buildUserProfile(UserInterface $user): array
     {
+        $this->hashPlainPassword($user);
+
         // @scope-cap-exempt: describes the account for the client to display;
         // it authorizes nothing, and every write re-checks through the cap.
         $isSuperAdmin = $this->isSuperAdmin($user);

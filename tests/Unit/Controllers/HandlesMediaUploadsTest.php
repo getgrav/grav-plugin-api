@@ -176,6 +176,39 @@ class HandlesMediaUploadsTest extends TestCase
         self::assertSame([], array_values(array_diff(scandir($this->tempDir) ?: [], ['.', '..'])));
     }
 
+    /**
+     * The site's list here has no `var` and no `php7`, like an older
+     * security.yaml. Core's floor applies whatever the list says.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function namesRefusedWhateverTheSiteList(): array
+    {
+        return [
+            'type map' => ['photo.var.jpg'],
+            'type map last' => ['photo.var'],
+            'php7' => ['shell.php7.png'],
+            'phar' => ['x.PHAR.jpg'],
+            'html metacharacters' => ['a"onload=x.png'],
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('namesRefusedWhateverTheSiteList')]
+    public function a_name_core_refuses_is_refused_whatever_the_site_list_says(string $filename): void
+    {
+        $file = new TraitTestUploadedFile($filename, 'png');
+
+        try {
+            $this->invoke('processUploadedFile', $file, $this->tempDir);
+            self::fail('Expected the filename to be refused.');
+        } catch (ValidationException $e) {
+            self::assertSame(422, $e->getStatusCode());
+        }
+
+        self::assertSame([], array_values(array_diff(scandir($this->tempDir) ?: [], ['.', '..'])));
+    }
+
     #[Test]
     public function percent_sign_in_a_filename_is_accepted(): void
     {

@@ -312,6 +312,12 @@ final class UserSerializerTestLocator
         if (str_starts_with($uri, 'cache://')) {
             return rtrim($this->base . '/cache/' . ltrim(substr($uri, strlen('cache://')), '/'), '/');
         }
+        // Stored avatar paths are relative to the Grav root, so the accounts
+        // folder is the real one there.
+        if (str_starts_with($uri, 'account://')) {
+            $path = rtrim(GRAV_ROOT . '/user/accounts/' . ltrim(substr($uri, strlen('account://')), '/'), '/');
+            return file_exists($path) ? $path : false;
+        }
 
         return false;
     }

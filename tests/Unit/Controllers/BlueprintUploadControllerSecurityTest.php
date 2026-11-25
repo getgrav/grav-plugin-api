@@ -113,6 +113,22 @@ class BlueprintUploadControllerSecurityTest extends TestCase
     }
 
     #[Test]
+    public function type_map_extension_is_rejected_whatever_the_site_list_says(): void
+    {
+        // The site's list here has no `var`; core's floor refuses it anyway.
+        $controller = $this->buildController('alice', ['media' => ['write' => true]]);
+        $request = $this->uploadRequest('alice', 'user://media', 'plugins/api', 'photo.var.jpg', 'jpg');
+
+        $this->expectException(ValidationException::class);
+
+        try {
+            $controller->upload($request);
+        } finally {
+            self::assertFileDoesNotExist($this->tempDir . '/media/photo.var.jpg');
+        }
+    }
+
+    #[Test]
     public function avatar_svg_is_sanitized_of_embedded_script(): void
     {
         // SVG avatars are allowed under user/accounts/ but must be stripped of

@@ -348,6 +348,7 @@ class BlueprintUploadController extends AbstractApiController
         // allowlist. Both run against the original name; random_name/
         // avoid_overwriting are applied afterwards and preserve the extension.
         $this->assertSafeExtension($filename, $isAccountsDir, $lifted);
+        UploadFieldSettings::assertCoreFilenameRules($filename);
         $settings?->assertAccepted($filename);
 
         if ($settings !== null) {
@@ -567,7 +568,10 @@ class BlueprintUploadController extends AbstractApiController
      * scope cap applied, and so does the config permission.
      *
      *   - `user/config/` and any `user/env/.../config/`: Grav reads them as
-     *     authoritative configuration. Refused for everyone.
+     *     authoritative configuration. Refused for everyone. So is the
+     *     `config/`, `blueprints/` or `languages/` folder of any other folder
+     *     Grav may read as an environment, such as `user/<host>/config/` on a
+     *     site without `user/env/`, whether that folder exists yet or not.
      *   - Twig template folders (a theme's or plugin's `templates/`, or any
      *     registered Twig path): every file there is site template code,
      *     whatever its extension. Super admin only.
@@ -589,9 +593,14 @@ class BlueprintUploadController extends AbstractApiController
         $where = $filename !== null ? "'{$filename}' under" : 'into';
         $action = $filename !== null ? 'Deleting' : 'Uploading';
 
-        if ($classification === 'config' || $classification === 'env') {
+        if ($classification === 'config') {
             throw new ForbiddenException(
-                "Uploads {$where} the '{$classification}' directory are not allowed via this endpoint."
+                "Uploads {$where} the 'config' directory are not allowed via this endpoint."
+            );
+        }
+        if ($classification === 'env') {
+            throw new ForbiddenException(
+                "Uploads {$where} an environment's folder or configuration are not allowed via this endpoint."
             );
         }
 

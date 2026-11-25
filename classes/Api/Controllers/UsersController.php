@@ -10,6 +10,7 @@ use Grav\Common\User\DataUser\User as DataUser;
 use Grav\Common\User\Interfaces\UserCollectionInterface;
 use Grav\Common\User\Interfaces\UserInterface;
 use Grav\Common\Utils;
+use Grav\Common\Yaml;
 use Grav\Framework\Collection\ArrayCollection;
 use Grav\Framework\Flex\FlexDirectory;
 use Grav\Framework\Flex\Interfaces\FlexCollectionInterface;
@@ -1654,6 +1655,9 @@ class UsersController extends AbstractApiController
         $currentUser = $this->getUser($request);
         if ($currentUser->username !== $username) {
             $this->requirePermission($request, 'api.users.write');
+        } else {
+            // The self path needs api.access, like every other self-service route.
+            $this->requirePermission($request, 'api.access');
         }
         // Sibling gap found alongside GHSA-985r-mpj8-5rqw: overwriting a
         // super-admin's avatar re-saves their account from a lesser caller.
@@ -1739,18 +1743,21 @@ class UsersController extends AbstractApiController
         $currentUser = $this->getUser($request);
         if ($currentUser->username !== $username) {
             $this->requirePermission($request, 'api.users.write');
+        } else {
+            // The self path needs api.access, like every other self-service route.
+            $this->requirePermission($request, 'api.access');
         }
         // Sibling gap found alongside GHSA-985r-mpj8-5rqw.
         $this->requireNotSuperTarget($request, $user);
 
-        // Delete avatar file(s)
+        // Delete avatar file(s). The path comes from the account file, so only a
+        // file inside the avatars folder is removed, never one it points at elsewhere.
         $avatar = $user->get('avatar');
         if (is_array($avatar)) {
             foreach ($avatar as $entry) {
-                if (is_array($entry) && isset($entry['path'])) {
-                    // path is relative to Grav root (e.g. user/accounts/avatars/file.jpg)
-                    $filePath = GRAV_ROOT . '/' . $entry['path'];
-                    if (file_exists($filePath)) {
+                if (is_array($entry)) {
+                    $filePath = UserSerializer::storedAvatarFile($entry['path'] ?? null, 'account://avatars');
+                    if ($filePath !== null) {
                         @unlink($filePath);
                     }
                 }
@@ -2347,13 +2354,55 @@ class UsersController extends AbstractApiController
             return true;
         }
 
-        foreach ((array) $target->get('groups', []) as $group) {
-            if (is_string($group) && $this->accessGrantsSuper($this->config->get("groups.{$group}.access"))) {
-                return true;
+        $groups = array_filter((array) $target->get('groups', []), 'is_string');
+        if ($groups === []) {
+            return false;
+        }
+
+        foreach ($this->groupListsOfEveryEnvironment() as $list) {
+            foreach ($groups as $group) {
+                if ($this->accessGrantsSuper($list[$group]['access'] ?? null)) {
+                    return true;
+                }
             }
         }
 
         return false;
+    }
+
+    /**
+     * The groups of this request's configuration, plus the groups.yaml of every
+     * environment folder. The configuration only has the groups of the
+     * environment this request's Host selects, and an account must count as
+     * super if any environment makes it one. The environment list needs
+     * Setup::getEnvironmentPaths() (Grav 2.2.35+); older cores read the
+     * request's configuration only.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function groupListsOfEveryEnvironment(): array
+    {
+        $lists = [(array) $this->config->get('groups', [])];
+
+        $setup = isset($this->grav['setup']) ? $this->grav['setup'] : null;
+        if (is_object($setup) && method_exists($setup, 'getEnvironmentPaths')) {
+            foreach ((array) $setup->getEnvironmentPaths() as $path) {
+                $file = rtrim((string) $path, '/\\') . '/config/groups.yaml';
+                if (!is_file($file)) {
+                    continue;
+                }
+                try {
+                    $groups = Yaml::parse((string) file_get_contents($file));
+                } catch (\Throwable) {
+                    continue;
+                }
+                if (is_array($groups)) {
+                    $lists[] = $groups;
+                }
+            }
+        }
+
+        return $lists;
     }
 
     private function validateEmailType(array $body): void
@@ -2428,6 +2477,8 @@ class UsersController extends AbstractApiController
 
     private function serializeUser(UserInterface $user): array
     {
+        $this->hashPlainPassword($user);
+
         // Built-in keys win: the sweep never yields a reserved name, but the
         // union order keeps that guaranteed rather than incidental.
         return $this->getSerializer()->serialize($user) + $this->customAccountFieldValues($user);
