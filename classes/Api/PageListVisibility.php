@@ -13,7 +13,9 @@ use Grav\Common\User\Interfaces\UserInterface;
  * capabilities (getgrav/grav-plugin-admin2#209).
  *
  *   - A page is visible when the caller may both `read` and `list` it.
- *   - With `editable=true` a page must also allow `update`.
+ *   - With `editable=true` a page must also allow `update`, and with
+ *     `editable=create` it must allow `create` (a parent the caller may add
+ *     pages under, getgrav/grav-plugin-admin2#226).
  *   - A flat listing returns only the pages that pass.
  *   - A folder listing also keeps a child that doesn't pass when some page
  *     below it does, flagged `ancestor_only`, so the tree can still be opened
@@ -46,6 +48,7 @@ final class PageListVisibility
      * @param array<string, bool> $base account-wide fallback where a page has no rule
      * @param list<string> $deny actions the credential can never perform
      * @param Closure(PageInterface): array<string, bool> $fallback per-page capabilities for a page the index lacks
+     * @param string $editAction the action `$editableOnly` requires: `update`, or `create` for `editable=create`
      */
     public function __construct(
         private readonly ?PageAclIndex $index,
@@ -56,6 +59,7 @@ final class PageListVisibility
         private readonly array $deny,
         private readonly bool $editableOnly,
         private readonly Closure $fallback,
+        private readonly string $editAction = 'update',
     ) {
         if ($fixed !== null) {
             $this->constant = $fixed;
@@ -185,7 +189,7 @@ final class PageListVisibility
             return false;
         }
 
-        return !$this->editableOnly || ($capabilities['update'] ?? false);
+        return !$this->editableOnly || ($capabilities[$this->editAction] ?? false);
     }
 
     /**
@@ -219,7 +223,7 @@ final class PageListVisibility
 
         $index = $this->index;
         assert($index !== null);
-        foreach ($this->editableOnly ? ['read', 'list', 'update'] : ['read', 'list'] as $action) {
+        foreach ($this->editableOnly ? ['read', 'list', $this->editAction] : ['read', 'list'] as $action) {
             if (in_array($action, $this->deny, true)) {
                 return false;
             }
