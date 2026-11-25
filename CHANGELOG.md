@@ -11,6 +11,7 @@
     * Media and blueprint file uploads, and media renames, always refuse the file types Grav treats as dangerous, even when a site's own security settings hold an older list, and follow the same file name rules as form uploads
     * Thumbnails read a photo's orientation without decoding all of its metadata, and are skipped for images that would take too long or too much memory to decode, as Grav's own image processing does
     * Blueprint file uploads can no longer write into a folder Grav may read as an environment's configuration, such as `user/<host>/config/` on a site without `user/env/`, while uploads into every other folder work as before
+    * An account that still holds a plain-text `password`, such as one created by hand or brought in by a WordPress or Drupal import, is now saved (which hashes it) as soon as the API returns the account, instead of when its owner first signs in
 
 # v1.1.25
 ## 11/24/2026

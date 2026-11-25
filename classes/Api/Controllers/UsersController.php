@@ -2477,6 +2477,8 @@ class UsersController extends AbstractApiController
 
     private function serializeUser(UserInterface $user): array
     {
+        $this->hashPlainPassword($user);
+
         // Built-in keys win: the sweep never yields a reserved name, but the
         // union order keeps that guaranteed rather than incidental.
         return $this->getSerializer()->serialize($user) + $this->customAccountFieldValues($user);
