@@ -248,6 +248,32 @@ class HandlesMediaUploadsTest extends TestCase
         self::assertStringNotContainsStringIgnoringCase('alert(', $written);
     }
 
+    /**
+     * The temporary file usually lives on another filesystem than the page
+     * folder (a tmpfs /tmp, a Docker bind mount, a per-account upload dir).
+     * rename() then copies and tries to chown the copy, which warns on shared
+     * hosts, and can leave a stale stat cache for the temporary path, so an SVG
+     * upload stored the file but answered 500 (getgrav/grav-plugin-api#74, #82).
+     * A target behind another stream wrapper refuses rename() outright, which
+     * stands in for that boundary here.
+     */
+    #[Test]
+    public function an_svg_is_stored_on_another_filesystem_without_errors(): void
+    {
+        stream_wrapper_register('xdevtest', CrossDeviceTestStream::class);
+        CrossDeviceTestStream::$root = $this->tempDir;
+        $before = glob(sys_get_temp_dir() . '/grav-api-upload-*') ?: [];
+
+        try {
+            $this->invoke('storeUploadedFile', new TraitTestUploadedFile('logo.svg', '<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>'), 'xdevtest://logo.svg', 'logo.svg');
+        } finally {
+            stream_wrapper_unregister('xdevtest');
+        }
+
+        self::assertStringContainsString('<rect', (string)file_get_contents($this->tempDir . '/logo.svg'));
+        self::assertSame($before, glob(sys_get_temp_dir() . '/grav-api-upload-*') ?: [], 'The temporary file was left behind.');
+    }
+
     #[Test]
     public function svg_detection_reads_the_file_not_the_extension(): void
     {
@@ -551,4 +577,33 @@ final class TraitTestUploadedFile implements UploadedFileInterface
     public function getError(): int { return UPLOAD_ERR_OK; }
     public function getClientFilename(): ?string { return $this->filename; }
     public function getClientMediaType(): ?string { return 'application/octet-stream'; }
+}
+
+/** Minimal stream wrapper over a real folder, for a target rename() can't reach. */
+final class CrossDeviceTestStream
+{
+    public static string $root = '';
+    /** @var resource|null */
+    public $context;
+    /** @var resource|false */
+    private $handle = false;
+
+    private static function path(string $url): string
+    {
+        return self::$root . '/' . substr($url, strlen('xdevtest://'));
+    }
+
+    public function stream_open(string $url, string $mode): bool
+    {
+        $this->handle = fopen(self::path($url), $mode);
+        return $this->handle !== false;
+    }
+
+    public function stream_write(string $data): int|false { return fwrite($this->handle, $data); }
+    public function stream_read(int $count): string|false { return fread($this->handle, $count); }
+    public function stream_eof(): bool { return feof($this->handle); }
+    public function stream_close(): void { fclose($this->handle); }
+    public function stream_stat(): array|false { return fstat($this->handle); }
+    public function url_stat(string $url, int $flags): array|false { return @stat(self::path($url)); }
+    public function unlink(string $url): bool { return @unlink(self::path($url)); }
 }

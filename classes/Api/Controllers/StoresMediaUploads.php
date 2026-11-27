@@ -36,7 +36,19 @@ trait StoresMediaUploads
                 );
             }
 
-            if (!rename($temporary, $targetPath)) {
+            // Across filesystems rename() copies anyway and then chowns the
+            // copy to the temporary file's owner, which warns "Operation not
+            // permitted" on many shared hosts and can leave a stale stat cache
+            // for the temporary path (api#74, #82). So rename only within one
+            // filesystem, and copy otherwise.
+            $temporaryStat = @stat($temporary);
+            $folderStat = @stat(dirname($targetPath));
+            if ($temporaryStat && $folderStat && $temporaryStat['dev'] === $folderStat['dev']) {
+                $stored = rename($temporary, $targetPath);
+            } elseif (!($stored = copy($temporary, $targetPath))) {
+                @unlink($targetPath);
+            }
+            if (!$stored) {
                 throw new ValidationException('Unable to store the uploaded file.');
             }
 
@@ -46,9 +58,7 @@ trait StoresMediaUploads
             // another user gets 403.
             @chmod($targetPath, 0666 & ~umask());
         } finally {
-            if (is_file($temporary)) {
-                unlink($temporary);
-            }
+            @unlink($temporary);
         }
     }
 

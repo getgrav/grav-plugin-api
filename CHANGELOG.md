@@ -1,10 +1,11 @@
 # v1.1.27
-## 11/25/2026
+## 11/27/2026
 
 1. [](#new)
     * The pages list takes `editable=create` to return only the pages the caller may add pages under, for Admin2's Add Page [admin2#226](https://github.com/getgrav/grav-plugin-admin2/issues/226)
 2. [](#bugfix)
     * A page created through a page-level create grant by someone who may not publish there starts unpublished [admin2#226](https://github.com/getgrav/grav-plugin-admin2/issues/226)
+    * Uploads no longer fail with "Operation not permitted" or a 500 error, or stay readable only by their owner, when the server's temporary folder is on a different disk from the site [#74](https://github.com/getgrav/grav-plugin-api/issues/74) [#82](https://github.com/getgrav/grav-plugin-api/issues/82)
 
 # v1.1.26
 ## 11/24/2026
