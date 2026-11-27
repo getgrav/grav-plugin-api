@@ -1346,17 +1346,20 @@ paths:
           in: query
           description: |
             `true` keeps only the pages the caller may update (their
-            `permissions.update`), as well as read and list. In a folder listing
-            a child that isn't editable is kept, with `ancestor_only: true`,
-            when a page below it is editable, so the tree still leads to every
-            editable page; the row's `permissions` still say whether the caller
-            may read it. Any other value is ignored (it is not a
+            `permissions.update`), as well as read and list. `create` keeps
+            the pages the caller may add pages under (their
+            `permissions.create`) instead, for the Add Page parent picker. In a
+            folder listing a child that doesn't pass is kept, with
+            `ancestor_only: true`, when a page below it does, so the tree still
+            leads to every such page; the row's `permissions` still say whether
+            the caller may read it. Any other value is ignored (it is not a
             "read-only pages" filter). A convenience for the admin's page list,
             not a security boundary: every endpoint still checks the page's
             own rules.
           schema:
-            type: boolean
-          example: true
+            type: string
+            enum: ['true', 'false', 'create']
+          example: 'true'
         - name: search
           in: query
           description: |

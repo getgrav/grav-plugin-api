@@ -41,6 +41,7 @@ class PageListVisibilityTest extends TestCase
         array $base = self::READER,
         array $deny = [],
         bool $index = true,
+        string $editAction = 'update',
     ): PageListVisibility {
         $acl = new PageAcl();
         $built = $index
@@ -64,6 +65,7 @@ class PageListVisibilityTest extends TestCase
 
                 return $capabilities;
             },
+            $editAction,
         );
     }
 
@@ -319,5 +321,33 @@ class PageListVisibilityTest extends TestCase
 
         self::assertTrue($visibility->capabilities($new)['update']);
         self::assertSame(1, $this->fallbackCalls);
+    }
+
+    #[Test]
+    public function editable_create_keeps_only_pages_the_caller_may_add_pages_under(): void
+    {
+        $tree = $this->buildTree();
+        $visibility = $this->visibility($tree, $this->treeUser('info', ['redaction-informatique']), editableOnly: true, editAction: 'create');
+
+        // /outils/procedures-it denies update (`-u`) but still inherits create
+        // from /outils, so it is a parent the caller may add pages under
+        // (getgrav/grav-plugin-admin2#226).
+        self::assertSame(
+            ['/outils', '/outils/logiciels', '/outils/procedures-it', '/outils/procedures-it/sauvegardes', '/rh/formation/outils-informatiques', '/communication/newsletter/edition-it'],
+            self::routesOf($visibility->filterFlat($this->allPages($tree))),
+        );
+        self::assertSame(
+            ['/outils' => false, '/rh' => true, '/communication' => true],
+            self::folderRows($visibility->filterFolder($this->childrenOf($tree, '/'))),
+        );
+    }
+
+    #[Test]
+    public function editable_create_without_rules_or_write_returns_nothing(): void
+    {
+        $tree = $this->buildTree(false);
+        $visibility = $this->visibility($tree, $this->treeUser('info', []), editableOnly: true, editAction: 'create');
+
+        self::assertSame([], self::routesOf($visibility->filterFlat($this->allPages($tree))));
     }
 }

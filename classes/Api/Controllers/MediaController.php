@@ -57,6 +57,15 @@ class MediaController extends AbstractApiController
         ['key' => 'tags', 'label' => 'Tags', 'type' => 'tags'],
     ];
 
+    /**
+     * Older sidecar keys core still renders for a built-in field. Core's
+     * MediaObjectTrait::parsedownElement() falls back from `alt` to
+     * `alt_text`, and the Media docs' metafile example uses `alt_text`, so a
+     * sidecar holding only `alt_text` is edited through the Alt Text field
+     * and keeps its key (admin2#227).
+     */
+    private const META_KEY_ALIASES = ['alt' => 'alt_text'];
+
     /** Maximum number of entries kept in a `tags` (list) field. */
     private const MAX_TAGS = 50;
 
@@ -2277,11 +2286,12 @@ class MediaController extends AbstractApiController
         $defs = $this->getMetadataFieldDefs();
 
         $fields = [];
-        $managedKeys = [];
+        $managedKeys = array_fill_keys(array_column($defs, 'key'), true);
         foreach ($defs as $def) {
             $key = $def['key'];
-            $managedKeys[$key] = true;
-            $raw = $stored[$key] ?? null;
+            $storedKey = $this->storedMetaKey($stored, $key, $managedKeys);
+            $managedKeys[$storedKey] = true;
+            $raw = $stored[$storedKey] ?? null;
 
             if ($this->isListMetadataType($def['type'])) {
                 // Normalize to a clean list of strings for the list editor.
@@ -2404,8 +2414,10 @@ class MediaController extends AbstractApiController
     private function applyMetaChanges(string $filePath, array $changes): void
     {
         $stored = $this->readMetaSidecar($filePath);
+        $managedKeys = array_fill_keys(array_column($this->getMetadataFieldDefs(), 'key'), true);
 
         foreach ($changes as $key => $value) {
+            $key = $this->storedMetaKey($stored, $key, $managedKeys);
             if ($value === null) {
                 unset($stored[$key]);
             } else {
@@ -2423,11 +2435,37 @@ class MediaController extends AbstractApiController
     private function clearMetaFields(string $filePath): void
     {
         $stored = $this->readMetaSidecar($filePath);
-        foreach ($this->getMetadataFieldDefs() as $def) {
-            unset($stored[$def['key']]);
+        $defs = $this->getMetadataFieldDefs();
+        $managedKeys = array_fill_keys(array_column($defs, 'key'), true);
+        foreach ($defs as $def) {
+            unset($stored[$this->storedMetaKey($stored, $def['key'], $managedKeys)], $stored[$def['key']]);
         }
 
         $this->writeMetaSidecar($filePath, $stored);
+    }
+
+    /**
+     * The sidecar key that holds a field's value: its alias (see
+     * {@see META_KEY_ALIASES}) when the field's own key is empty and the alias
+     * is set, the same precedence core renders with. An alias that is itself a
+     * configured field is never borrowed.
+     *
+     * @param array<string, mixed> $stored
+     * @param array<string, true> $managedKeys
+     */
+    private function storedMetaKey(array $stored, string $key, array $managedKeys): string
+    {
+        $alias = self::META_KEY_ALIASES[$key] ?? null;
+        if ($alias === null || isset($managedKeys[$alias])) {
+            return $key;
+        }
+
+        $own = $stored[$key] ?? null;
+        $aliased = $stored[$alias] ?? null;
+
+        return ($own === null || $own === '') && is_scalar($aliased) && (string) $aliased !== ''
+            ? $alias
+            : $key;
     }
 
     /**
@@ -2864,8 +2902,9 @@ class MediaController extends AbstractApiController
         // Alt/title from the `.meta.yaml` sidecar so the media panel can insert
         // `![alt](file)` rather than overwriting alt with the filename.
         $meta = $this->readMetaSidecar($filePath);
-        if (isset($meta['alt']) && is_scalar($meta['alt']) && (string) $meta['alt'] !== '') {
-            $data['alt'] = (string) $meta['alt'];
+        $alt = $meta[$this->storedMetaKey($meta, 'alt', [])] ?? null;
+        if (is_scalar($alt) && (string) $alt !== '') {
+            $data['alt'] = (string) $alt;
         }
         if (isset($meta['title']) && is_scalar($meta['title']) && (string) $meta['title'] !== '') {
             $data['title'] = (string) $meta['title'];

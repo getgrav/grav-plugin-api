@@ -884,6 +884,15 @@ class PagesController extends AbstractApiController
             $this->guardTwigContent($request, null, $header);
             $header = $this->demoSafeHeader($request, (array) $header);
 
+            // A page-level `create` grant lets someone without site-wide write
+            // add pages under that parent (getgrav/grav-plugin-admin2#226). When
+            // they may not also publish there, the new page starts unpublished,
+            // so creating can't stand in for publishing.
+            if ($kind !== 'folder' && $parent instanceof PageInterface
+                && !($this->pageCapabilities($request, $parent, false)['publish'] ?? false)) {
+                $header['published'] = false;
+            }
+
             // Fire before event — plugins can modify $header/$content or throw to cancel
             $this->fireEvent('onApiBeforePageCreate', [
                 'route' => $route,
@@ -3048,19 +3057,25 @@ class PagesController extends AbstractApiController
      * Which pages this caller's listing may return (getgrav/grav-plugin-admin2#209).
      *
      * Takes the `editable` filter out of $filters, as it is applied here rather
-     * than by matchesFilters(). Only `editable=true` (or 1/yes/on) does anything.
+     * than by matchesFilters(). `editable=true` (or 1/yes/on) keeps pages the
+     * caller may update, `editable=create` the ones they may add pages under
+     * (getgrav/grav-plugin-admin2#226). Anything else does nothing.
      *
      * @param array<string, mixed> $filters
      */
     private function listVisibility(ServerRequestInterface $request, array &$filters): PageListVisibility
     {
-        $editableOnly = isset($filters['editable']) && filter_var($filters['editable'], FILTER_VALIDATE_BOOLEAN);
+        $editable = $filters['editable'] ?? null;
         unset($filters['editable']);
 
-        return $this->pageVisibility($request, $editableOnly);
+        if ($editable === 'create') {
+            return $this->pageVisibility($request, true, 'create');
+        }
+
+        return $this->pageVisibility($request, $editable !== null && filter_var($editable, FILTER_VALIDATE_BOOLEAN));
     }
 
-    private function pageVisibility(ServerRequestInterface $request, bool $editableOnly): PageListVisibility
+    private function pageVisibility(ServerRequestInterface $request, bool $editableOnly, string $editAction = 'update'): PageListVisibility
     {
         $policy = $this->pageCapabilityPolicy($request);
 
@@ -3079,6 +3094,7 @@ class PagesController extends AbstractApiController
             $policy['deny'],
             $editableOnly,
             fn (PageInterface $page): array => $this->pageCapabilities($request, $page, false),
+            $editAction,
         );
     }
 
