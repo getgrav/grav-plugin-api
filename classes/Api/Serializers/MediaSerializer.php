@@ -30,7 +30,11 @@ class MediaSerializer implements SerializerInterface
         // Alt/title come from the `.meta.yaml` sidecar, which Grav merges into
         // the medium's attributes. Exposing them here lets the media panel
         // insert `![alt](file)` instead of overwriting alt with the filename.
+        // `alt_text` is the older key core still renders (admin2#227).
         $alt = $medium->get('alt');
+        if (!is_string($alt) || $alt === '') {
+            $alt = $medium->get('alt_text');
+        }
         if (is_string($alt) && $alt !== '') {
             $data['alt'] = $alt;
         }

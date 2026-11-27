@@ -6,6 +6,7 @@
 2. [](#bugfix)
     * A page created through a page-level create grant by someone who may not publish there starts unpublished [admin2#226](https://github.com/getgrav/grav-plugin-admin2/issues/226)
     * Uploads no longer fail with "Operation not permitted" or a 500 error, or stay readable only by their owner, when the server's temporary folder is on a different disk from the site [#74](https://github.com/getgrav/grav-plugin-api/issues/74) [#82](https://github.com/getgrav/grav-plugin-api/issues/82)
+    * A media file whose metadata holds its alt text as `alt_text`, as in the Media docs' metafile example, shows that text in Admin2's Alt Text field and keeps the `alt_text` key when edited [admin2#227](https://github.com/getgrav/grav-plugin-admin2/issues/227)
 
 # v1.1.26
 ## 11/24/2026
