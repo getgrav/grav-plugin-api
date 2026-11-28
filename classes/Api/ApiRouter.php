@@ -1023,6 +1023,7 @@ class ApiRouter extends ProcessorBase
         $r->addRoute('PATCH', '/admin-next/preferences/user', [PreferencesController::class, 'saveUser']);
         $r->addRoute('DELETE', '/admin-next/preferences/user', [PreferencesController::class, 'resetUser']);
         $r->addRoute('PATCH', '/admin-next/preferences/site', [PreferencesController::class, 'saveSite']);
+        $r->addRoute('DELETE', '/admin-next/preferences/site', [PreferencesController::class, 'resetSite']);
         $r->addRoute('PATCH', '/admin-next/branding', [PreferencesController::class, 'saveBranding']);
         $r->addRoute('POST', '/admin-next/branding/logo', [PreferencesController::class, 'uploadLogo']);
         $r->addRoute('DELETE', '/admin-next/branding/logo', [PreferencesController::class, 'deleteLogo']);

@@ -60,6 +60,23 @@ class PreferencesResolverSiteDefaultsTest extends TestCase
     }
 
     #[Test]
+    public function resetting_site_defaults_restores_the_admin2_defaults_and_keeps_branding(): void
+    {
+        $resolver = $this->resolver();
+
+        $resolver->saveSitePreferences(['accentHue' => 120, 'fontFamily' => 'jost', 'darkShade' => 'midnight']);
+        $resolver->saveSiteSettings(['autoSaveEnabled' => !$resolver->defaultSiteSettings()['autoSaveEnabled'], 'menubarLinks' => [['label' => 'Docs', 'url' => 'https://learn.getgrav.org']]]);
+        $resolver->saveSiteBranding(array_replace($resolver->siteBranding(), ['mode' => 'text', 'text' => 'Acme']));
+
+        $resolver->resetSiteDefaults();
+
+        self::assertSame($resolver->defaultPreferences(), $resolver->sitePreferences());
+        self::assertSame($resolver->defaultSiteSettings(), $resolver->siteSettings());
+        self::assertSame('text', $resolver->siteBranding()['mode']);
+        self::assertSame('Acme', $resolver->siteBranding()['text']);
+    }
+
+    #[Test]
     public function the_sidebar_credit_shows_until_a_site_turns_it_off(): void
     {
         $resolver = $this->resolver();

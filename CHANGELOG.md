@@ -1,3 +1,9 @@
+# v1.1.28
+## 11/28/2026
+
+1. [](#new)
+    * `DELETE /admin-next/preferences/site` puts every Admin2 site default back to the built-in ones, for Admin2's Reset to Admin2 defaults. Branding and each user's own preferences are kept
+
 # v1.1.27
 ## 11/27/2026
 
