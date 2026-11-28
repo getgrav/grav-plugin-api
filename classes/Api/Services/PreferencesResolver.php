@@ -341,6 +341,17 @@ class PreferencesResolver
     }
 
     /**
+     * Put the site defaults back to the ones Admin2 ships with: clears both
+     * `ui.defaults` (Tier B) and `ui.settings` (Tier A2). Branding and every
+     * user's own overrides are left alone.
+     */
+    public function resetSiteDefaults(): void
+    {
+        $this->writeSiteUiKey('defaults', []);
+        $this->writeSiteUiKey('settings', []);
+    }
+
+    /**
      * Patch the current user's overrides.
      *
      * Semantics: keys with `null` values are removed from the override map

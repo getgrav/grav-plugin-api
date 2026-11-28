@@ -17,6 +17,7 @@ use Psr\Http\Message\ServerRequestInterface;
  *   PATCH  /admin-next/preferences/user       — patch current user overrides
  *   DELETE /admin-next/preferences/user       — clear all current-user overrides
  *   PATCH  /admin-next/preferences/site       — super-admin: write site defaults
+ *   DELETE /admin-next/preferences/site       — super-admin: reset site defaults to Admin2's
  *   PATCH  /admin-next/branding               — super-admin: write logo mode/text/title/favicon flags
  *   POST   /admin-next/branding/logo          — super-admin: upload a logo/favicon file (variant=light|dark|favicon)
  *   DELETE /admin-next/branding/logo          — super-admin: delete a logo/favicon file (variant=light|dark|favicon)
@@ -99,6 +100,20 @@ class PreferencesController extends AbstractApiController
         if ($tierA2 !== []) {
             $resolver->saveSiteSettings($tierA2);
         }
+
+        $user = $this->getUser($request);
+        $payload = $resolver->resolve($user, true);
+        $payload['branding_urls'] = $this->resolveBrandingUrls($payload['branding'] ?? [], $resolver);
+
+        return ApiResponse::create($payload);
+    }
+
+    public function resetSite(ServerRequestInterface $request): ResponseInterface
+    {
+        $this->requireSiteEditor($request);
+
+        $resolver = $this->getResolver();
+        $resolver->resetSiteDefaults();
 
         $user = $this->getUser($request);
         $payload = $resolver->resolve($user, true);
